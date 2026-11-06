@@ -1,0 +1,48 @@
+# E190BO Fall 2026 — web stack (labs 5–7)
+#
+# Pinned from a real resolve inside the devcontainer on 2026-09-18.
+# Everyone in the class runs these exact versions, same rule as
+# env/requirements.txt. Re-resolve and re-pin if you change anything:
+#
+#     pip install -r requirements.txt && pip freeze
+#
+# Python 3.13 comes from the base image, not from this file.
+
+# --- API (class 10) ---
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+
+# --- database (classes 10, 12) ---
+sqlmodel==0.0.42        # SQLAlchemy + Pydantic; the ORM students see
+alembic==1.20.0         # migrations — the thing that bites in class 12
+psycopg[binary]==3.3.6  # Postgres driver, needed once you deploy
+
+# --- config (class 12) ---
+python-dotenv==1.2.3
+
+# --- lab notebooks (hw5.ipynb and friends) ---
+ipykernel==7.3.0
+# nbformat + nbclient are what labs/*/build_hw*.py uses to emit the student and
+# solution notebooks and to execute the solutions with --execute.
+nbformat==5.11.1
+nbclient==0.11.0
+# jupysql gives %%sql cells — students write real SQL, not SQL in a Python string.
+# It is an IPython magic, so it needs no engine beyond the kernel.
+jupysql==0.11.1
+pandas==3.0.6
+
+# --- testing and quality (class 16) ---
+pytest==9.1.1
+httpx==0.28.1           # also FastAPI's TestClient dependency
+ruff==0.16.8
+
+# --- MCP (class 14) ---
+# ⚠️  This is the v2 line. FastMCP was RENAMED to MCPServer:
+#
+#       from mcp.server.mcpserver import MCPServer      # correct for 2.x
+#       from mcp.server.fastmcp import FastMCP          # 1.x — will ImportError
+#
+# Every MCP tutorial written before the v2 rename uses FastMCP, so students who
+# follow one will hit this. Address it directly in the class 14 video.
+# Migration guide: https://py.sdk.modelcontextprotocol.io/v2/migration/
+mcp==2.2.0

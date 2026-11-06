@@ -1,0 +1,33 @@
+# Postgres for class 12.
+#
+# Classes 10 and 11 use SQLite — a file, no server, nothing to run. That is
+# deliberate: it keeps the backend class about HTTP and SQL instead of about
+# infrastructure.
+#
+# This file is your first real container, and you run it yourself:
+#
+#     docker compose up -d
+#     psql "$DATABASE_URL"
+#
+# The point of class 12 is that your database stops being a file next to your
+# code and becomes a separate machine you have to reach across a network, with
+# credentials. This is the local rehearsal for that.
+
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: e190bo
+      POSTGRES_PASSWORD: localdev        # local only — never a real secret
+      POSTGRES_DB: app
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U e190bo -d app"]
+      interval: 5s
+      retries: 5
+
+volumes:
+  pgdata:

@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+
+# Secrets — .env.example is the shipped one
+.env
+
+# Local databases (class 10 SQLite files)
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# make submit
+*.bundle
+.submit-wt/

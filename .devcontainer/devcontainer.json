@@ -1,0 +1,48 @@
+{
+  "name": "E190BO — AI-Amplified Prototyping",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+
+  // docker-in-docker is what makes class 12 possible *inside* the codespace:
+  // students build and run their own images without leaving the environment.
+  // It is also the quiet reveal for that class — they have been living in a
+  // container since 9/30.
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/node:1": { "version": "22" }
+  },
+
+  "forwardPorts": [8000, 8080, 5432],
+  "portsAttributes": {
+    "8000": { "label": "API",      "onAutoForward": "notify" },
+    "8080": { "label": "Frontend", "onAutoForward": "notify" },
+    "5432": { "label": "Postgres", "onAutoForward": "silent" }
+  },
+
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",            // debugger, class 16
+        "charliermarsh.ruff",           // linting, class 16
+        "ms-azuretools.vscode-docker",  // class 12
+        "humao.rest-client",            // .http files, Lab #5
+        "esbenp.prettier-vscode",       // class 11
+        "qwtel.sqlite-viewer",          // class 10 — lets them SEE the database
+        "github.vscode-github-actions", // class 16 — CI
+        "ms-toolsai.jupyter"            // lab notebooks (hw5.ipynb, …)
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "editor.formatOnSave": true,
+        "files.trimTrailingWhitespace": true,
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+
+  "remoteUser": "vscode"
+}
