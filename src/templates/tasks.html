@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Tasks – Crush Coach{% endblock %}
+{% block main %}
+<h1>Tasks</h1>
+
+<form class="filter" method="get" action="/tasks">
+  <label for="status">Status</label>
+  <select id="status" name="status">
+    <option value=""{% if not status %} selected{% endif %}>All</option>
+    {% for value, label in status_labels.items() %}
+    <option value="{{ value }}"{% if status == value %} selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit">Filter</button>
+  {% if status %}<a href="/tasks">Clear filter</a>{% endif %}
+</form>
+
+{% if error %}
+<p class="notice" role="alert">{{ error }}</p>
+{% else %}
+  {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+  <p class="count">
+    Showing {{ shown_count }} of {{ total_count }} task{{ "" if total_count == 1 else "s" }}{% if status %} with status “{{ status_labels[status] }}”{% endif %}.
+  </p>
+
+  {% for subsystem, tasks in groups %}
+  <section aria-labelledby="sub-{{ loop.index }}">
+    <h2 id="sub-{{ loop.index }}">{{ subsystem }} <span class="count">({{ tasks | length }})</span></h2>
+    {% if tasks %}
+    <ul class="task-list">
+      {% for task in tasks %}
+      <li>
+        <p class="task-title"><span class="code">{{ task.code }}</span> {{ task.title }}</p>
+        <p class="task-meta">
+          {{ task.task_type }} · stage: {{ task.stage }} ·
+          <span class="status">{{ status_labels.get(task.status, task.status) }}</span> ·
+          {% if task.owner %}Owner: {{ task.owner }}{% else %}Unclaimed{% endif %}
+        </p>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">No tasks{% if status %} with this status{% endif %}.</p>
+    {% endif %}
+  </section>
+  {% endfor %}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,11 @@
+code,title,subsystem,task_type,stage,owner,status
+M01,Sketch example lid layout,Enclosure,Design,requirements,,todo
+M02,Cut example side panels,Enclosure,Fabricate,shop,Sam Example,in_progress
+M03,Test example lid fit,Enclosure,Validate,run,Riley Sample,done
+M04,Pick example gasket profile,Seals/Waterproofing,Design,concepts,Jordan Demo,in_progress
+M05,Draw example flange,Seals/Waterproofing,Fabricate,drawing,,todo
+E01,Draft example tray layout,Electronics Mounts,Design,CAD,Sam Example,in_progress
+E02,Print example board standoffs,Electronics Mounts,Fabricate,inspect,Riley Sample,done
+A01,Plan example thruster pool test,Thrusters,Validate,test plan,,todo
+G01,Machine example gripper jaw,Gripper,Fabricate,lead review,Jordan Demo,in_progress
+T01,Model example torpedo tube,Torpedo,Design,fit check,,done

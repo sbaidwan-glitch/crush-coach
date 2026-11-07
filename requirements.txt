@@ -11,6 +11,7 @@
 # --- API (class 10) ---
 fastapi==0.141.1
 uvicorn[standard]==0.53.0
+jinja2==3.1.6           # HTML templates for server-rendered pages
 
 # --- database (classes 10, 12) ---
 sqlmodel==0.0.42        # SQLAlchemy + Pydantic; the ORM students see
