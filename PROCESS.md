@@ -47,3 +47,32 @@ Newest entries at the bottom. Entries from here on are drafted with the /reflect
 **What I learned:** _(add pod and instructor feedback here)_
 
 **What I changed:** _(add)_
+
+## 2026-11-07 — Deploying to Railway, and moving to Alembic first
+
+**Stage:** Building
+
+**What I did.** I deployed the app on Railway with a Postgres database. The app gets its database address from a `DATABASE_URL` reference variable, so the password stays inside Railway and never ends up in a file. Before deploying, I switched the database setup from `create_all` to Alembic migrations, which work like revision control for the database's tables. Claude's review of my first PR (#1) raised the idea. I added it as a review comment and had the agent do it as its own PR (#2). It also added a test that fails if the models and migrations disagree.
+
+**The rest of the build since my last entry.** These are the pieces that went out with PR #1 and made the deploy possible:
+- A FastAPI app with a `/health` route, an index page and the `Task` model (f3329e3).
+- Tests for the health route and index page that run on SQLite (7fc2eab).
+- A Dockerfile that starts the app on `$PORT` (b8d7800).
+- CI that runs ruff and pytest on every push and PR (71962b2).
+- A change so every command uses the workspace `.venv` (1cb4e31).
+
+**What I learned.** `create_all` can only create tables. It can't change ones that already hold data. Once the app was live, any change to the `Task` model would have silently broken things. The first deploy showed "Application failed to respond." The deploy logs showed the app was running fine on port 8080, the port Railway assigned. I had pointed the domain at 8000. The lesson: check the logs before guessing.
+
+**What changed because of it.**
+- The database setup now runs through Alembic migrations, and the test fails if the models and migrations drift apart.
+- I changed the domain to port 8080, and the site came up.
+- Rule added to CLAUDE.md: every model change needs a new Alembic migration.
+
+**Working with AI.** The migration idea came from Claude reviewing my PR. I turned it into a review comment and had the agent do it as a separate PR. The CLAUDE.md rule means a later model change can't skip the migration.
+
+**Evidence.** PR #1 (a8a67f9) and PR #2 (7909ba2, 27d78df, a9c0d5d). Commit hashes for the other pieces are listed above.
+
+**Next.**
+- Turn the roadmap into GitHub issues.
+- Build the task board (Issue 2) as the first PR. It tests whether a Railway preview environment works.
+- After that, build Drive search and a bare-bones coach (Issues 5–6). This tests my biggest risk early: whether the coach can find the right, current document.
