@@ -75,13 +75,7 @@ def _escape_query_value(value: str) -> str:
 class DriveClient:
     """Small, read-only wrapper around a Google Drive v3 service."""
 
-    def __init__(self, service: Any | None = None, drive_id: str | None = None):
-        self._drive_id = drive_id or os.environ.get("CRUSH_DRIVE_ID")
-        if not self._drive_id:
-            raise DriveError(
-                "Google Drive is not configured. Set CRUSH_DRIVE_ID to the shared "
-                "drive ID."
-            )
+    def __init__(self, service: Any | None = None):
         self._service = service if service is not None else _build_service()
 
     def search(self, query: str, limit: int = 10) -> list[DriveSearchResult]:
@@ -95,21 +89,28 @@ class DriveClient:
             f"(name contains '{escaped_query}' or fullText contains '{escaped_query}')"
         )
 
+        files: list[dict[str, Any]] = []
+        page_token: str | None = None
         try:
-            response = (
-                self._service.files()
-                .list(
-                    q=drive_query,
-                    pageSize=min(limit, 1000),
-                    orderBy="modifiedTime desc",
-                    fields=("files(id,name,webViewLink,mimeType,modifiedTime)"),
-                    supportsAllDrives=True,
-                    includeItemsFromAllDrives=True,
-                    corpora="drive",
-                    driveId=self._drive_id,
-                )
-                .execute()
-            )
+            while True:
+                request_parameters: dict[str, Any] = {
+                    "q": drive_query,
+                    "pageSize": 1000,
+                    "fields": (
+                        "nextPageToken,files(id,name,webViewLink,mimeType,modifiedTime)"
+                    ),
+                    "supportsAllDrives": True,
+                    "includeItemsFromAllDrives": True,
+                    "corpora": "allDrives",
+                }
+                if page_token:
+                    request_parameters["pageToken"] = page_token
+
+                response = self._service.files().list(**request_parameters).execute()
+                files.extend(response.get("files", []))
+                page_token = response.get("nextPageToken")
+                if not page_token:
+                    break
         except Exception:  # noqa: BLE001 (all API failures become safe DriveErrors)
             raise DriveError(
                 "Google Drive search failed. Check network access and shared-drive "
@@ -117,7 +118,7 @@ class DriveClient:
             ) from None
 
         results: list[DriveSearchResult] = []
-        for file in response.get("files", []):
+        for file in files:
             file_id = file.get("id", "")
             results.append(
                 {
@@ -128,6 +129,7 @@ class DriveClient:
                     "modified_time": file.get("modifiedTime", ""),
                 }
             )
+        results.sort(key=lambda result: result["modified_time"], reverse=True)
         return results[:limit]
 
     def read_text(self, file_id: str) -> str:
