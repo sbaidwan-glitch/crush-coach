@@ -1,0 +1,17 @@
+.git
+.github
+.venv
+.claude
+.context
+.conductor
+.devcontainer
+.env
+*-key.json
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.db
+*.sqlite
+*.sqlite3
+*.bundle

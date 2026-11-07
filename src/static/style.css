@@ -1,0 +1,50 @@
+:root {
+  color-scheme: light dark;
+  --fg: #1a1a1a;
+  --bg: #ffffff;
+  --muted: #4a4a4a;
+  --accent: #0b5cad;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #f2f2f2;
+    --bg: #14181d;
+    --muted: #c0c6cc;
+    --accent: #7db8f5;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0 auto;
+  max-width: 40rem;
+  padding: 1rem clamp(1rem, 4vw, 2rem);
+  font: 1rem/1.5 system-ui, sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+  overflow-wrap: break-word;
+}
+
+h1 {
+  font-size: clamp(1.75rem, 6vw, 2.5rem);
+  line-height: 1.2;
+}
+
+.team,
+footer {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+a {
+  color: var(--accent);
+}
+
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
