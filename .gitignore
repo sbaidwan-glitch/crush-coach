@@ -20,3 +20,8 @@ __pycache__/
 # make submit
 *.bundle
 .submit-wt/
+
+# Keys and local agent files
+*-key.json
+.claude/settings.local.json
+.claude/worktrees/

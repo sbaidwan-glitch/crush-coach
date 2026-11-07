@@ -1,0 +1,49 @@
+# Process log: Crush Coach
+
+Newest entries at the bottom. Entries from here on are drafted with the /reflect skill. Photos and screenshots live in `process/`.
+
+## 28 Oct 2026: Ideation and choosing a problem
+**What I did:** Brainstormed project ideas that would be useful to me as Makerspace head steward and MuddSub mechanical co-lead. Main candidates: a live machine-status board for the Makerspace, a Makerspace manual assistant, a training tracker, an interactive Makerspace map with a project planner, and a MuddSub task coach. Kept them as two separate project ideas (Makerspace map vs. MuddSub coach) and compared them against the project brief.
+
+**What I learned:** The Makerspace map risked failing the "take the model out and it loses its point" test, since a clickable map works without an LLM. The MuddSub coach needed the model for coaching and digging through Drive docs, and the Google Drive API gave it a natural new API. The MuddSub task tracker showed 29 of 31 tasks with no owner.
+
+**What I changed:** Chose the MuddSub coach. Members message me when stuck and I miss or answer late; nobody opens the tracker because it's tedious.
+
+## 28 Oct 2026: The latch problem
+**What I did:** While working on Crush's lid, I found the latches we're using are different from the ones on Alfie. I had to physically compare the lid's latch holes to the side-panel CAD, and only found the current latch after unsuppressing COTS components in SolidWorks (the assembly was saved under one member's path, so COTS parts were suppressed). Searched the Drive for "latch": the only readable result was a 2023 drawing from Alfie.
+
+**What I learned:** The team's latest decisions often live only in CAD or are buried in long notebooks (e.g., the gasket reasoning), and nothing records status (is the custom gasket ordered?). Digging up legacy information is a big part of my job, and I can't easily defend decisions I didn't make.
+
+**What I changed:** Added a decision record to the design: approved decisions are saved with reasoning and sources, the coach trusts them over raw Drive search, and flags stale docs that conflict.
+
+## 28 Oct 2026: Proposal and Drive API proof
+**What I did:** Wrote the proposal. Explored concept screens (Quest Board, Build the Sub, Coach Thread) and two looks (pixel arcade, sonar). Set up the Google Cloud project `crush-coach`, a service account with Viewer access to the Mechanical shared-drive folder, and ran a test script that listed the folder.
+
+**What I learned:** The first run returned nothing because shared drives need `supportsAllDrives` and `includeItemsFromAllDrives`. With those, the robot account could also see the legacy folders (25-26 References, Older References).
+
+**What I changed:** Pasted the real response into the proposal; noted the shared-drive flags as a rule for the app.
+
+## 3 Nov 2026: First interviews
+**What I did:** Talked to Katie (former member of another tech club, in person, shown the gamified mockup), Kayla (new MuddSub mechanical member, by text, shown screenshots), and a MuddSub lead (voice memo, shown screenshots).
+
+**What I learned:**
+- Kayla got stuck making a process router and "lowkey didn't get unstuck"; she waited until the next meeting. What stops her claiming tasks is not understanding what a task entails. "Highkey the drive is confusing."
+- The lead said members mostly ask "is there a document for this?", not "how do I do this?" Drive search "is not really functional": it needs exact keywords and returns a mix of random files.
+- Katie's club docs lacked design rationale; she worries about "little stuff" being lost when leads graduate. She liked tracking progress but not XP: points don't represent what someone did.
+- Two of three didn't want XP. All three wanted a way to ask questions of the Drive. The lead trusts AI for advice and big documents, never for major decisions.
+
+**What I changed:** Cut XP and points; kept progress (Crush's build progress, completed tasks). Shifted the center of the product to finding answers in the Drive, with the coach inside each task. Kept the tracker as the backbone, updated automatically as people work.
+
+## 6 Nov 2026: Repo setup
+**What I did:** Created the repo from the course template, removed lab-only files, and set up CLAUDE.md, permission rules that block the agent from reading secret files, and this log. Stored the Glassroom key in macOS Keychain and loaded it into the shell environment, so it is never in a file. Chose to work locally with Conductor instead of Codespaces.
+
+**What I learned:** _(add)_
+
+**What I changed:** _(add)_
+
+## 9 Nov 2026: Prototype presentation
+**What I did:** Presented the problem, interviews, and prototypes. Asked my pod what progress signal would make them open a club tracker weekly, and where they'd look for a saved decision a year later.
+
+**What I learned:** _(add pod and instructor feedback here)_
+
+**What I changed:** _(add)_

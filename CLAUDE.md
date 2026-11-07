@@ -1,0 +1,54 @@
+# Crush Coach
+
+A task tracker with an AI coach built into every task, for the MuddSub (Harvey Mudd RoboSub) mechanical team. Members claim a task on the robot "Crush", the coach answers questions from the team's own Google Drive and walks them through each stage, leads review the work in the app, and the tracker updates itself as people work.
+
+Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyping, Fall 2026 final project.
+
+## Stack (course default; don't add frameworks without asking)
+- Python 3.13, FastAPI, SQLModel, Alembic migrations, Postgres (psycopg 3)
+- Frontend: plain HTML, CSS, JavaScript + htmx, served by FastAPI. No build step, no React (unless Samara asks).
+- LLM: called only from the server, only on a user's action, never on page load. Key: `GLASSROOM_API_KEY` (env only).
+  - TODO: confirm the Glassroom client and endpoint with Samara before writing the first model call.
+- Google: Drive API v3 (read) + Docs API v1 (append-only write-back), via a service account.
+- Deploy: Docker on Railway, with PR environments. Pinned versions in `requirements.txt`; re-pin with `pip freeze` if you add a package.
+
+## Commands
+- `docker compose up -d`: local Postgres (matches `DATABASE_URL` in `.env.example`)
+- `make dev`: run the API on :8000 from `src/`
+- `make test`: run tests from `src/`
+- `ruff check src`: lint
+
+## Layout
+- `src/main.py`: FastAPI app (`uvicorn main:app`)
+- `src/`: models, routes, templates, static files, tests
+- `PROCESS.md`: design process log (written with the /reflect skill; don't edit it otherwise)
+- `process/`: sketches and screenshots linked from PROCESS.md
+
+## Rules
+- Secrets live only in the environment: `GLASSROOM_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS` (path to a key file outside the repo) or `GOOGLE_SERVICE_ACCOUNT_JSON` (file contents, on Railway), `DATABASE_URL`. Never write a secret into a file, a commit, a log line, or a test.
+- This repo is public. Never commit real team data (Drive exports, member names, the real tracker). Tests and seed data use made-up tasks and people.
+- One task, one branch, one PR. Small commits. Never push to `main`; everything reaches `main` through a PR Samara reviews.
+- Every LLM or Google call handles failure: the page says plainly what failed, and the rest of the page still works.
+- Log every model call (model, input and output tokens, cost, task, member) to the database; this feeds the cost-benefit analysis.
+- Pages must be semantic, accessible, honest about network errors, and usable at phone width (Lab 6 standard).
+
+## Product rules the code must enforce
+- The coach advises; it never decides. Leads approve drawings, routers, test plans, and decisions.
+- The coach never states machining numbers (feeds, speeds, tap sizes, tolerances) without citing a source the member can open.
+- Confirmed decisions in the database outrank Drive search results. If a Drive doc conflicts with a confirmed decision, flag it as possibly stale.
+- Drive write-back is append-only: add a dated entry to the one doc mapped to a subsystem, after a member previews it and a lead approves it. Never edit or delete existing Drive content.
+- Drive API calls on the team folder need `supportsAllDrives=True` and `includeItemsFromAllDrives=True` (it's a shared drive).
+- No XP or points. Progress is shown as Crush's build progress and each member's completed tasks.
+
+## Domain
+- Crush: the AUV being built. Previous robot: Alfie (its docs are often stale for Crush).
+- Subsystems: Enclosure, Seals/Waterproofing, Electronics Mounts, Thrusters, Gripper, Torpedo.
+- Task IDs: M = mechanical, E = electronics mounts, A/G/T = actuators, gripper, torpedo (e.g. M04 "Finish enclosure wall panels").
+- Task types and stages:
+  - Fabricate: drawing → AI pre-check → lead review → process router → shop (machine) → inspect
+  - Design: requirements → concepts → lead review → CAD → fit check
+  - Validate: test plan → calculations → lead approval → run → log results
+- Process router: the ordered list of machining operations for a part.
+
+## Learned the hard way
+(Add a line here whenever the agent makes the same mistake twice.)
