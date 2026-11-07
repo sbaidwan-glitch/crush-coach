@@ -1,0 +1,66 @@
+"""Migrations run on throwaway SQLite files, never on the app's shared engine."""
+
+import pytest
+from alembic import command
+from alembic.autogenerate import compare_metadata
+from alembic.migration import MigrationContext
+from sqlalchemy import create_engine, inspect
+from sqlmodel import SQLModel
+
+import db
+
+
+@pytest.fixture
+def fresh_engine(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'migrations.db'}")
+    yield engine
+    engine.dispose()
+
+
+def test_upgrade_creates_task_table(fresh_engine):
+    assert "task" not in inspect(fresh_engine).get_table_names()
+
+    db.run_migrations(fresh_engine)
+
+    inspector = inspect(fresh_engine)
+    assert "task" in inspector.get_table_names()
+    columns = {c["name"]: c for c in inspector.get_columns("task")}
+    assert set(columns) == {
+        "id",
+        "code",
+        "title",
+        "subsystem",
+        "task_type",
+        "stage",
+        "owner",
+        "status",
+    }
+    assert columns["owner"]["nullable"] is True
+    assert columns["code"]["nullable"] is False
+    assert inspector.get_pk_constraint("task")["constrained_columns"] == ["id"]
+    code_index = [
+        i for i in inspector.get_indexes("task") if i["name"] == "ix_task_code"
+    ]
+    assert len(code_index) == 1
+    assert code_index[0]["unique"]
+
+
+def test_upgrade_is_repeatable(fresh_engine):
+    db.run_migrations(fresh_engine)
+    db.run_migrations(fresh_engine)  # already at head: must be a no-op, not an error
+    assert "task" in inspect(fresh_engine).get_table_names()
+
+
+def test_downgrade_removes_task_table(fresh_engine):
+    db.run_migrations(fresh_engine)
+    command.downgrade(db.alembic_config(fresh_engine), "base")
+    assert "task" not in inspect(fresh_engine).get_table_names()
+
+
+def test_migrations_match_models(fresh_engine):
+    """Fails when a model changed without a new migration."""
+    db.run_migrations(fresh_engine)
+    with fresh_engine.connect() as connection:
+        context = MigrationContext.configure(connection)
+        diff = compare_metadata(context, SQLModel.metadata)
+    assert diff == [], f"models changed without an Alembic migration: {diff}"
