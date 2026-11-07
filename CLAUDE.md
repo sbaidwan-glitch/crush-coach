@@ -13,10 +13,11 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - Deploy: Docker on Railway, with PR environments. Pinned versions in `requirements.txt`; re-pin with `pip freeze` if you add a package.
 
 ## Commands
+- Use the workspace `.venv` for everything: `.venv/bin/python`, `.venv/bin/pytest`, `.venv/bin/ruff`; never the system Python. Create it with `python3.13 -m venv .venv && .venv/bin/pip install -r requirements.txt`.
 - `docker compose up -d`: local Postgres (matches `DATABASE_URL` in `.env.example`)
 - `make dev`: run the API on :8000 from `src/`
 - `make test`: run tests from `src/`
-- `ruff check src`: lint
+- `.venv/bin/ruff check src`: lint
 
 ## Layout
 - `src/main.py`: FastAPI app (`uvicorn main:app`)

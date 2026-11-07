@@ -13,10 +13,10 @@ help:  ## show this help
 
 # The lab's code lives in src/, so both run from there.
 dev:   ## run the API on :8000 (from src/)
-	cd src && uvicorn main:app --reload --host 0.0.0.0 --port 8000
+	cd src && ../.venv/bin/uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
-test:  ## run the tests (from src/; start the API first)
-	cd src && pytest -q
+test:  ## run the tests (from src/; no server needed)
+	cd src && ../.venv/bin/pytest -q
 
 # Package a tagged snapshot for Canvas.
 #
