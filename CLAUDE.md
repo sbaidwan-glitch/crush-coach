@@ -18,10 +18,16 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - `make dev`: run the API on :8000 from `src/`
 - `make test`: run tests from `src/`
 - `.venv/bin/ruff check src`: lint
+- Migrations (run from `src/`; the app also runs `upgrade head` on startup, and a failure there is logged but doesn't stop the app):
+  - `cd src && ../.venv/bin/alembic upgrade head`: apply all migrations
+  - `cd src && ../.venv/bin/alembic revision --autogenerate -m "describe change"`: create a migration from model changes (needs `DATABASE_URL` pointing at a database already at head; review the generated file before committing)
+  - `cd src && ../.venv/bin/alembic downgrade -1`: undo the last migration
+  - `cd src && ../.venv/bin/alembic stamp head`: mark a database created before Alembic (by the old `create_all`) as up to date
 
 ## Layout
 - `src/main.py`: FastAPI app (`uvicorn main:app`)
 - `src/`: models, routes, templates, static files, tests
+- `src/migrations/`: Alembic migrations (`versions/`); `src/alembic.ini` is the config
 - `PROCESS.md`: design process log (written with the /reflect skill; don't edit it otherwise)
 - `process/`: sketches and screenshots linked from PROCESS.md
 
@@ -29,6 +35,7 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - Secrets live only in the environment: `GLASSROOM_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS` (path to a key file outside the repo) or `GOOGLE_SERVICE_ACCOUNT_JSON` (file contents, on Railway), `DATABASE_URL`. Never write a secret into a file, a commit, a log line, or a test.
 - This repo is public. Never commit real team data (Drive exports, member names, the real tracker). Tests and seed data use made-up tasks and people.
 - One task, one branch, one PR. Small commits. Never push to `main`; everything reaches `main` through a PR Samara reviews.
+- Every model change needs a new Alembic migration. Never edit a migration that has been merged; add a new one. `tests/test_migrations.py` fails if the models and migrations disagree.
 - Every LLM or Google call handles failure: the page says plainly what failed, and the rest of the page still works.
 - Log every model call (model, input and output tokens, cost, task, member) to the database; this feeds the cost-benefit analysis.
 - Pages must be semantic, accessible, honest about network errors, and usable at phone width (Lab 6 standard).
