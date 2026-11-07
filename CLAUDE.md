@@ -23,10 +23,13 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
   - `cd src && ../.venv/bin/alembic revision --autogenerate -m "describe change"`: create a migration from model changes (needs `DATABASE_URL` pointing at a database already at head; review the generated file before committing)
   - `cd src && ../.venv/bin/alembic downgrade -1`: undo the last migration
   - `cd src && ../.venv/bin/alembic stamp head`: mark a database created before Alembic (by the old `create_all`) as up to date
+- `cd src && ../.venv/bin/python -m import_tasks sample_data/tasks.csv`: one-time import of tasks from a CSV into the `Task` table. Safe to re-run: existing task codes are skipped, never overwritten. Bad rows are reported and skipped. The sample file is made-up data; never commit a real tracker export.
 
 ## Layout
 - `src/main.py`: FastAPI app (`uvicorn main:app`)
 - `src/`: models, routes, templates, static files, tests
+- `src/board.py`, `src/templates/`: the `/tasks` board (Jinja2 templates; pages are server-rendered)
+- `src/import_tasks.py`, `src/sample_data/`: one-time CSV import and its made-up sample tasks
 - `src/migrations/`: Alembic migrations (`versions/`); `src/alembic.ini` is the config
 - `PROCESS.md`: design process log (written with the /reflect skill; don't edit it otherwise)
 - `process/`: sketches and screenshots linked from PROCESS.md
