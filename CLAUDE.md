@@ -18,6 +18,7 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - `make dev`: run the API on :8000 from `src/`
 - `make test`: run tests from `src/`
 - `.venv/bin/ruff check src`: lint
+- `cd src && ../.venv/bin/python scripts/drive_search.py "latch"`: search the team shared drive (metadata only)
 - Migrations (run from `src/`; the app also runs `upgrade head` on startup, and a failure there is logged but doesn't stop the app):
   - `cd src && ../.venv/bin/alembic upgrade head`: apply all migrations
   - `cd src && ../.venv/bin/alembic revision --autogenerate -m "describe change"`: create a migration from model changes (needs `DATABASE_URL` pointing at a database already at head; review the generated file before committing)
@@ -33,6 +34,7 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 
 ## Rules
 - Secrets live only in the environment: `GLASSROOM_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS` (path to a key file outside the repo) or `GOOGLE_SERVICE_ACCOUNT_JSON` (file contents, on Railway), `DATABASE_URL`. Never write a secret into a file, a commit, a log line, or a test.
+- Drive search also requires `CRUSH_DRIVE_ID`, the ID of the team shared drive. All three Google variable names are listed in `.env.example`; values stay in the local environment or Railway.
 - This repo is public. Never commit real team data (Drive exports, member names, the real tracker). Tests and seed data use made-up tasks and people.
 - One task, one branch, one PR. Small commits. Never push to `main`; everything reaches `main` through a PR Samara reviews.
 - Every model change needs a new Alembic migration. Never edit a migration that has been merged; add a new one. `tests/test_migrations.py` fails if the models and migrations disagree.
