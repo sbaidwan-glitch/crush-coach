@@ -2,6 +2,7 @@ import httpx
 import pytest
 from fastapi.responses import RedirectResponse
 from fastapi.testclient import TestClient
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 import auth
 import main
@@ -13,9 +14,14 @@ def client():
         yield test_client
 
 
-def mock_google(monkeypatch, userinfo=None, error=None):
+def mock_google(
+    monkeypatch,
+    userinfo=None,
+    error=None,
+    expected_redirect_uri="http://testserver/auth/callback",
+):
     async def authorize_redirect(request, redirect_uri):
-        assert redirect_uri == "http://testserver/auth/callback"
+        assert redirect_uri == expected_redirect_uri
         return RedirectResponse("https://accounts.google.test/authorize", status_code=302)
 
     async def authorize_access_token(request):
@@ -46,6 +52,23 @@ def test_tasks_require_sign_in_but_health_and_home_are_public(client):
     home = client.get("/")
     assert home.status_code == 200
     assert "Sign in with Google" in home.text
+
+
+def test_forwarded_https_scheme_is_used_for_oauth_callback(monkeypatch):
+    mock_google(
+        monkeypatch,
+        expected_redirect_uri="https://testserver/auth/callback",
+    )
+    proxy_app = ProxyHeadersMiddleware(main.app, trusted_hosts="*")
+
+    with TestClient(proxy_app) as proxy_client:
+        response = proxy_client.get(
+            "/login",
+            headers={"X-Forwarded-Proto": "https"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 302
 
 
 def test_explicitly_allowed_member_can_sign_in(client, monkeypatch):

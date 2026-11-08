@@ -66,3 +66,4 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 
 ## Learned the hard way
 (Add a line here whenever the agent makes the same mistake twice.)
+- Behind Railway’s proxy, trust forwarded headers or generated URLs will be http.
