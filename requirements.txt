@@ -18,6 +18,11 @@ sqlmodel==0.0.42        # SQLAlchemy + Pydantic; the ORM students see
 alembic==1.20.0         # migrations — the thing that bites in class 12
 psycopg[binary]==3.3.6  # Postgres driver, needed once you deploy
 
+# --- coach (model access via the Glassroom LiteLLM proxy) ---
+openai==3.46.0          # OpenAI-compatible client; only src/llm.py imports it
+python-multipart==0.0.33  # form posts (the coach chat)
+tzdata==2026.6          # time zones for the daily message cap
+
 # --- config (class 12) ---
 python-dotenv==1.2.3
 
