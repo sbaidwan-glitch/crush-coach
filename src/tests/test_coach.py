@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import select
 
+import auth
 import drive
 import llm
 import main
@@ -21,7 +22,6 @@ HTMX = {"HX-Request": "true"}
 @pytest.fixture(autouse=True)
 def no_real_services(monkeypatch):
     """Anything that would reach the model or Drive fails the test instead."""
-    monkeypatch.setenv("COACH_ENABLED", "1")
     monkeypatch.delenv("COACH_DAILY_LIMIT", raising=False)
 
     def refuse(*args, **kwargs):
@@ -32,10 +32,21 @@ def no_real_services(monkeypatch):
     monkeypatch.setattr(drive, "read_text", refuse)
 
 
+SAM = {"name": "Sam Example", "email": "sam@example.edu", "role": "member"}
+ALEX = {"name": "Alex Example", "email": "alex@example.edu", "role": "member"}
+
+
+def sign_in_as(user):
+    main.app.dependency_overrides[auth.require_user] = lambda: user
+
+
 @pytest.fixture
 def client():
+    """A signed-in member (Sam); sign_in_as() switches who is signed in."""
+    sign_in_as(SAM)
     with TestClient(main.app) as c:
         yield c
+    main.app.dependency_overrides.clear()
 
 
 @pytest.fixture
@@ -79,12 +90,9 @@ def fake_drive(monkeypatch):
     monkeypatch.setattr(drive, "read_text", lambda file_id: "Use the two-point latch.")
 
 
-def ask(client, text="How should the latch work?", member="Sam Example", **kwargs):
+def ask(client, text="How should the latch work?", **kwargs):
     return client.post(
-        "/tasks/M04/coach",
-        data={"member": member, "message": text},
-        headers=HTMX,
-        **kwargs,
+        "/tasks/M04/coach", data={"message": text}, headers=HTMX, **kwargs
     )
 
 
@@ -104,7 +112,6 @@ def test_task_page_shows_the_task_and_never_calls_the_model(task, client):
     assert "M04" in html and "Finish enclosure wall panels" in html
     assert "Enclosure" in html and "Fabricate" in html
     assert '<label for="coach-message">' in html
-    assert '<label for="coach-member">' in html
     assert 'aria-live="polite"' in html
     # (a real model/Drive call would have raised in the autouse fixture)
 
@@ -138,20 +145,27 @@ def test_task_page_survives_a_database_failure(monkeypatch, task, client):
     assert '<nav aria-label="Main">' in response.text
 
 
-# --- access: off unless COACH_ENABLED ---
+# --- access: signed-in members only ---
 
 
-def test_coach_is_off_by_default(monkeypatch, task, client):
-    monkeypatch.delenv("COACH_ENABLED")
+def test_coach_requires_sign_in(monkeypatch, task):
+    main.app.dependency_overrides.clear()  # no override: the real sign-in applies
+    script(monkeypatch)  # any model call would raise
+    with TestClient(main.app, follow_redirects=False) as anonymous:
+        page = anonymous.get("/tasks/M04")
+        post = anonymous.post("/tasks/M04/coach", data={"message": "hi"})
 
-    page = client.get("/tasks/M04")
-    post = ask(client)
+    for response in (page, post):
+        assert response.status_code == 303
+        assert response.headers["location"].startswith("/login")
+    assert "Finish enclosure wall panels" not in page.text
 
-    assert page.status_code == 200
-    assert "Finish enclosure wall panels" in page.text  # the task still shows
-    assert "isn't turned on yet" in page.text
-    assert "coach-form" not in page.text
-    assert post.status_code == 404  # and the model is never reached
+
+def test_task_page_shows_who_is_signed_in(task, client):
+    html = client.get("/tasks/M04").text
+
+    assert "Sam Example" in html  # in the header and "Asking as"
+    assert "Log out" in html
 
 
 # --- the answer ---
@@ -172,7 +186,7 @@ def test_answer_flow_cites_sources_and_logs_every_call(
 
     assert response.status_code == 200
     html = response.text
-    assert "Sam Example" in html and "How should the latch work?" in html
+    assert "You" in html and "How should the latch work?" in html
     assert "Which latch style fits?" in html
     assert f'<a href="{LINK}"' in html  # the cited URL is clickable
     assert "Latch design notes" in html and "modified 2026-09-30" in html  # sources
@@ -182,7 +196,7 @@ def test_answer_flow_cites_sources_and_logs_every_call(
     assert len(calls) == 3
     assert {c.status for c in calls} == {"ok"}
     assert {(c.task_id, c.member, c.model) for c in calls} == {
-        (task.id, "Sam Example", "claude-haiku-4-5")
+        (task.id, "sam@example.edu", "claude-haiku-4-5")
     }
     assert [c.input_tokens for c in calls] == [80, 80, 100]
     assert [c.output_tokens for c in calls] == [15, 15, 20]
@@ -322,7 +336,6 @@ def test_drive_failure_still_answers_and_names_drive(
 
 def test_missing_model_key_says_so(monkeypatch, task, client):
     monkeypatch.undo()  # drop the autouse refusals but keep going without a key
-    monkeypatch.setenv("COACH_ENABLED", "1")
     monkeypatch.delenv("GLASSROOM_API_KEY")
 
     response = ask(client)
@@ -349,15 +362,13 @@ def test_failed_save_does_not_lose_the_answer(monkeypatch, task, client):
 # --- validation and the daily cap ---
 
 
-def test_message_and_name_are_required(monkeypatch, task, client):
+def test_message_is_required_and_length_limited(monkeypatch, task, client):
     script(monkeypatch)  # any model call would raise
 
     blank_message = ask(client, "   ")
-    blank_name = ask(client, "Hello", member="  ")
     too_long = ask(client, "x" * 2001)
 
     assert "Write a message" in blank_message.text
-    assert "Enter your name" in blank_name.text
     assert "Write a message" in too_long.text
 
 
@@ -386,7 +397,7 @@ def test_cap_is_per_member_and_ignores_earlier_days(monkeypatch, session, task, 
     session.add(
         CoachMessage(
             task_id=task.id,
-            member="Sam Example",
+            member="sam@example.edu",
             role="user",
             content="yesterday",
             created_at=utc_now() - timedelta(days=1, hours=1),
@@ -395,9 +406,10 @@ def test_cap_is_per_member_and_ignores_earlier_days(monkeypatch, session, task, 
     session.commit()
     script(monkeypatch, fake.reply("for Sam"), fake.reply("for Alex"))
 
-    sam = ask(client, "today", member="Sam Example")  # yesterday doesn't count
-    sam_again = ask(client, "again", member="sam  example")  # same person, any case
-    alex = ask(client, "hi", member="Alex Example")  # someone else is unaffected
+    sam = ask(client, "today")  # yesterday doesn't count
+    sam_again = ask(client, "again")
+    sign_in_as(ALEX)
+    alex = ask(client, "hi")  # someone else is unaffected
 
     assert "for Sam" in sam.text
     assert "used your 1 coach messages" in sam_again.text
@@ -423,7 +435,7 @@ def test_plain_form_post_redirects_back_to_the_page(monkeypatch, task, client):
 
     response = client.post(
         "/tasks/M04/coach",
-        data={"member": "Sam Example", "message": "Hello"},
+        data={"message": "Hello"},
         follow_redirects=False,
     )
 
@@ -431,7 +443,7 @@ def test_plain_form_post_redirects_back_to_the_page(monkeypatch, task, client):
     assert response.headers["location"] == "/tasks/M04"
     page = client.get("/tasks/M04")
     assert "Plain answer." in page.text
-    assert 'value="Sam Example"' in page.text  # name remembered in the cookie
+    assert "Hello" in page.text
 
 
 def test_plain_form_failure_shows_the_whole_page_with_the_error(
@@ -439,9 +451,7 @@ def test_plain_form_failure_shows_the_whole_page_with_the_error(
 ):
     script(monkeypatch, fake.budget_exceeded())
 
-    response = client.post(
-        "/tasks/M04/coach", data={"member": "Sam Example", "message": "Hello"}
-    )
+    response = client.post("/tasks/M04/coach", data={"message": "Hello"})
 
     assert response.status_code == 200
     assert "AI budget is used up" in response.text

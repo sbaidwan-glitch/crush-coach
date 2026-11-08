@@ -3,9 +3,9 @@
 The model is called only from `ask_coach`, only when a member sends a message,
 never when a page loads. Model code itself lives in `llm.py`.
 
-Access: sign-in (#7) is not on main yet, so the coach routes are off unless
-COACH_ENABLED is set. When sign-in lands, replace `require_coach` and
-`current_member` below; nothing else here needs to change.
+Access: every route here requires Google sign-in (`auth.CurrentUser`). The
+signed-in member's verified email is the identity stored with each message and
+model call, and the key for the daily cap.
 """
 
 import json
@@ -25,6 +25,7 @@ from sqlmodel import Session, func, select
 
 import db
 import llm
+from auth import CurrentUser, User
 from models import STATUS_LABELS, CoachMessage, LlmCall, Task, utc_now
 
 log = logging.getLogger("crush_coach")
@@ -35,8 +36,6 @@ DEFAULT_DAILY_LIMIT = 20
 DEFAULT_TIMEZONE = "America/Los_Angeles"
 HISTORY_TURNS = 10  # earlier messages sent to the model
 MAX_MESSAGE_CHARS = 2000
-MAX_NAME_CHARS = 60
-MEMBER_COOKIE = "coach_member"
 
 # Only Google links become clickable: the model's text can't plant other links.
 _GOOGLE_URL = re.compile(r"https://(?:docs|drive)\.google\.com/[^\s<]+")
@@ -65,15 +64,6 @@ templates.env.filters["linkify"] = linkify
 # --- configuration (read per request so tests and Railway env changes apply) ---
 
 
-def coach_enabled() -> bool:
-    return os.environ.get("COACH_ENABLED", "").strip().casefold() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-
-
 def daily_limit() -> int:
     try:
         return max(0, int(os.environ.get("COACH_DAILY_LIMIT") or DEFAULT_DAILY_LIMIT))
@@ -95,27 +85,15 @@ def day_start_utc() -> datetime:
     return start.astimezone(UTC).replace(tzinfo=None)
 
 
-# --- access: the two functions sign-in (#7) will replace ---
-
-
-def require_coach() -> None:
-    if not coach_enabled():
-        raise HTTPException(status_code=404)
-
-
-def current_member(member: Annotated[str, Form()] = "") -> str:
-    """Until sign-in lands this is the (unverified) name typed into the form."""
-    return " ".join(member.split())
-
-
 # --- helpers ---
 
 
-def _view(message: CoachMessage) -> dict:
+def _view(message: CoachMessage, user: User) -> dict:
     meta = json.loads(message.meta) if message.meta else {}
+    mine = message.member == user["email"]
     return {
         "role": message.role,
-        "member": message.member,
+        "member": "You" if mine else message.member,
         "content": message.content,
         "sources": meta.get("sources", []),
         "notes": meta.get("notes", []),
@@ -147,11 +125,11 @@ def messages_today(session: Session, member: str) -> int:
 def _render_page(
     request: Request,
     session: Session,
+    user: User,
     code: str,
     *,
     error: str | None = None,
     draft: str = "",
-    member: str | None = None,
 ) -> Response:
     task: Task | None = None
     messages: list[dict] = []
@@ -159,7 +137,7 @@ def _render_page(
     try:
         task = session.exec(select(Task).where(Task.code == code)).first()
         if task is not None:
-            messages = [_view(m) for m in _history(session, task.id)]
+            messages = [_view(m, user) for m in _history(session, task.id)]
     except Exception as exc:  # noqa: BLE001  (a DB failure must not break the page)
         log.error("Could not load task page (%s)", type(exc).__name__)
         page_error = "Couldn't load this task from the database right now. Try again."
@@ -173,13 +151,12 @@ def _render_page(
         "code": code,
         "status_labels": STATUS_LABELS,
         "messages": messages,
-        "coach_enabled": coach_enabled(),
         "daily_limit": daily_limit(),
         "page_error": page_error,
         "not_found": task is None and page_error is None,
         "error": error,
         "draft": draft,
-        "member": request.cookies.get(MEMBER_COOKIE, "") if member is None else member,
+        "user": user,
     }
     return templates.TemplateResponse(
         request, "task.html", context, status_code=status_code
@@ -188,16 +165,16 @@ def _render_page(
 
 def _fragment(
     request: Request,
+    user: User,
     *,
     user_text: str | None = None,
-    member: str = "",
     answer: dict | None = None,
     error: str | None = None,
 ) -> Response:
     return templates.TemplateResponse(
         request,
         "_coach_exchange.html",
-        {"user_text": user_text, "member": member, "answer": answer, "error": error},
+        {"user_text": user_text, "answer": answer, "error": error, "user": user},
     )
 
 
@@ -209,36 +186,30 @@ def task_page(
     request: Request,
     code: str,
     session: Annotated[Session, Depends(db.get_session)],
+    user: CurrentUser,
 ):
-    return _render_page(request, session, code)
+    return _render_page(request, session, user, code)
 
 
-@router.post(
-    "/tasks/{code}/coach",
-    response_class=HTMLResponse,
-    dependencies=[Depends(require_coach)],
-)
+@router.post("/tasks/{code}/coach", response_class=HTMLResponse)
 def ask_coach(
     request: Request,
     code: str,
     session: Annotated[Session, Depends(db.get_session)],
-    member: Annotated[str, Depends(current_member)],
+    user: CurrentUser,
     message: Annotated[str, Form()] = "",
     hx_request: Annotated[str | None, Header()] = None,
 ):
     is_htmx = hx_request == "true"
+    member = user["email"]
     message = message.strip()
 
     def fail(text: str, *, user_text: str | None = None) -> Response:
         """Show a plain error; the rest of the page keeps working."""
         if is_htmx:
-            return _fragment(request, user_text=user_text, member=member, error=text)
-        return _render_page(
-            request, session, code, error=text, draft=message, member=member
-        )
+            return _fragment(request, user, user_text=user_text, error=text)
+        return _render_page(request, session, user, code, error=text, draft=message)
 
-    if not member or len(member) > MAX_NAME_CHARS:
-        return fail(f"Enter your name (up to {MAX_NAME_CHARS} characters).")
     if not message or len(message) > MAX_MESSAGE_CHARS:
         return fail(f"Write a message of up to {MAX_MESSAGE_CHARS} characters.")
 
@@ -341,15 +312,12 @@ def ask_coach(
         assert answer is not None
         response = _fragment(
             request,
+            user,
             user_text=message,
-            member=member,
             answer={"content": answer.text, "sources": answer.sources, "notes": notes},
         )
         # Tells coach.js to clear the box; on a failure the text stays for a retry.
         response.headers["HX-Trigger"] = "coachSent"
     else:
         response = RedirectResponse(f"/tasks/{code}", status_code=303)
-    response.set_cookie(
-        MEMBER_COOKIE, member, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 90
-    )
     return response

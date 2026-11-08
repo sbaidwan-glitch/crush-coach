@@ -1,6 +1,6 @@
 {# htmx fragment: appended to #coach-log after a message is sent. #}
 {% if user_text %}
-{% with m = {"role": "user", "member": member, "content": user_text, "notes": [], "sources": []} %}{% include "_coach_message.html" %}{% endwith %}
+{% with m = {"role": "user", "member": "You", "content": user_text, "notes": [], "sources": []} %}{% include "_coach_message.html" %}{% endwith %}
 {% endif %}
 {% if answer %}
 {% with m = {"role": "assistant", "member": "Coach", "content": answer.content, "notes": answer.notes, "sources": answer.sources} %}{% include "_coach_message.html" %}{% endwith %}

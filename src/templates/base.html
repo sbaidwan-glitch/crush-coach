@@ -13,8 +13,16 @@
     <header>
       <p class="team">MuddSub mechanical team</p>
       <nav aria-label="Main">
-        <a href="/">Home</a>
+        <a href="/"{% if request.url.path == "/" %} aria-current="page"{% endif %}>Home</a>
         <a href="/tasks"{% if request.url.path == "/tasks" %} aria-current="page"{% endif %}>Tasks</a>
+        {% if user %}
+        <span class="signed-in">
+          {{ user.name }}{% if user.role == "lead" %} (lead){% endif %}
+        </span>
+        <a href="/logout">Log out</a>
+        {% else %}
+        <a href="/login">Sign in with Google</a>
+        {% endif %}
       </nav>
     </header>
     <main>

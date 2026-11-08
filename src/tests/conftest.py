@@ -7,6 +7,13 @@ import pytest
 os.environ["DATABASE_URL"] = "sqlite://"
 # A made-up key: tests never reach the network, but the code checks it is set.
 os.environ["GLASSROOM_API_KEY"] = "sk-test-not-a-real-key"
+os.environ["SESSION_SECRET"] = "test-only-session-secret"
+os.environ["SESSION_COOKIE_SECURE"] = "false"
+os.environ["GOOGLE_OAUTH_CLIENT_ID"] = "test-client-id"
+os.environ["GOOGLE_OAUTH_CLIENT_SECRET"] = "test-client-secret"
+os.environ["ALLOWED_EMAILS"] = "member@example.edu"
+os.environ["ALLOWED_DOMAIN"] = ""
+os.environ["LEAD_EMAILS"] = ""
 
 
 @pytest.fixture

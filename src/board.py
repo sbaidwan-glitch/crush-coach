@@ -10,6 +10,7 @@ from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
 import db
+from auth import CurrentUser
 from models import STATUS_LABELS, STATUSES, SUBSYSTEMS, Task
 
 log = logging.getLogger("crush_coach")
@@ -30,6 +31,7 @@ def group_by_subsystem(tasks: list[Task]) -> list[tuple[str, list[Task]]]:
 def task_board(
     request: Request,
     session: Annotated[Session, Depends(db.get_session)],
+    user: CurrentUser,
     status: str = "",
 ):
     notice = None
@@ -57,6 +59,7 @@ def task_board(
         "total_count": len(tasks),
         "notice": notice,
         "error": error,
+        "user": user,
     }
     return templates.TemplateResponse(
         request, "tasks.html", context, status_code=503 if error else 200

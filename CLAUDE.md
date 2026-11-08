@@ -11,7 +11,7 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
   - Glassroom is an OpenAI-compatible LiteLLM proxy. Use the pinned `openai` library with `base_url="https://litellm.glassroomai.com/v1"` and `api_key` from `GLASSROOM_API_KEY`.
   - Model comes from `COACH_MODEL` (default `claude-haiku-4-5`).
   - All model code lives in `src/llm.py`; no other module imports `openai`.
-  - Coach settings (env): `COACH_ENABLED` (default off until sign-in, #7, lands), `COACH_DAILY_LIMIT` (messages per member per day, default 20), `COACH_TIMEZONE` (day boundary, default America/Los_Angeles), `COACH_TIMEOUT_SECONDS` (default 30).
+  - Coach settings (env): `COACH_DAILY_LIMIT` (messages per member per day, default 20), `COACH_TIMEZONE` (day boundary, default America/Los_Angeles), `COACH_TIMEOUT_SECONDS` (default 30).
 - Google: Drive API v3 (read) + Docs API v1 (append-only write-back), via a service account.
 - Deploy: Docker on Railway, with PR environments. Pinned versions in `requirements.txt`; re-pin with `pip freeze` if you add a package.
 
@@ -33,6 +33,7 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 ## Layout
 - `src/main.py`: FastAPI app (`uvicorn main:app`)
 - `src/`: models, routes, templates, static files, tests
+- `src/auth.py`: Google OAuth routes, environment-backed allowlist, signed-session identity, and the reusable route-protection dependency
 - `src/board.py`, `src/templates/`: the `/tasks` board (Jinja2 templates; pages are server-rendered)
 - `src/coach.py`, `src/templates/task.html`: the `/tasks/{code}` page and its coach chat (htmx; `src/static/htmx.min.js` is vendored, v2.0.7, no CDN)
 - `src/llm.py`, `src/prompts/coach_system.md`: model client, Drive tools, the coach's system prompt
@@ -42,7 +43,7 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - `process/`: sketches and screenshots linked from PROCESS.md
 
 ## Rules
-- Secrets live only in the environment: `GLASSROOM_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS` (path to a key file outside the repo) or `GOOGLE_SERVICE_ACCOUNT_JSON` (file contents, on Railway), `DATABASE_URL`. Never write a secret into a file, a commit, a log line, or a test.
+- Secrets live only in the environment: `GLASSROOM_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS` (path to a key file outside the repo) or `GOOGLE_SERVICE_ACCOUNT_JSON` (file contents, on Railway), `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `SESSION_SECRET`, and `DATABASE_URL`. Never write a secret into a committed file, a log line, or a test.
 - The Google credential variable names are listed in `.env.example`; values stay in the local environment or Railway. Drive access is limited to files and folders shared with the service account.
 - This repo is public. Never commit real team data (Drive exports, member names, the real tracker). Tests and seed data use made-up tasks and people.
 - One task, one branch, one PR. Small commits. Never push to `main`; everything reaches `main` through a PR Samara reviews.
@@ -71,3 +72,4 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 
 ## Learned the hard way
 (Add a line here whenever the agent makes the same mistake twice.)
+- Behind Railway’s proxy, trust forwarded headers or generated URLs will be http.

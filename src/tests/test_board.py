@@ -3,6 +3,7 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 
+import auth
 import board
 import main
 from models import SUBSYSTEMS, Task
@@ -25,8 +26,14 @@ def add(session, code, title, subsystem, status="todo", owner=None):
 
 @pytest.fixture
 def client():
+    main.app.dependency_overrides[auth.require_user] = lambda: {
+        "name": "Test Member",
+        "email": "member@example.edu",
+        "role": "member",
+    }
     with TestClient(main.app) as c:
         yield c
+    main.app.dependency_overrides.clear()
 
 
 def headings(html: str) -> list[str]:
