@@ -36,9 +36,11 @@ def main() -> int:
 
     for result in results:
         print(result["title"])
-        print(f"  Modified: {result['modified_time']}")
-        print(f"  Type: {result['mime_type']}")
-        print(f"  Link: {result['link']}")
+        for location in result["locations"]:
+            print(f"  Folder: {location['folder_path']}")
+            print(f"    Modified: {location['modified_time']}")
+            print(f"    Type: {location['mime_type']}")
+            print(f"    Link: {location['link']}")
     return 0
 
 

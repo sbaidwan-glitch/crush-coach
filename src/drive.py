@@ -23,6 +23,17 @@ class DriveSearchResult(TypedDict):
     link: str
     mime_type: str
     modified_time: str
+    folder_path: str
+    locations: list["DriveFileLocation"]
+
+
+class DriveFileLocation(TypedDict):
+    """One file in a group of Drive files that share a name."""
+
+    link: str
+    mime_type: str
+    modified_time: str
+    folder_path: str
 
 
 def _load_credentials():
@@ -78,8 +89,45 @@ class DriveClient:
     def __init__(self, service: Any | None = None):
         self._service = service if service is not None else _build_service()
 
+    def _folder_path(
+        self,
+        parent_ids: list[str],
+        folder_cache: dict[str, dict[str, Any]],
+    ) -> str:
+        """Resolve a file's first parent chain into a readable folder path."""
+        if not parent_ids:
+            return "/"
+
+        folder_names: list[str] = []
+        folder_id = parent_ids[0]
+        visited: set[str] = set()
+        try:
+            while folder_id and folder_id not in visited:
+                visited.add(folder_id)
+                if folder_id not in folder_cache:
+                    folder_cache[folder_id] = (
+                        self._service.files()
+                        .get(
+                            fileId=folder_id,
+                            fields="id,name,parents,mimeType",
+                            supportsAllDrives=True,
+                        )
+                        .execute()
+                    )
+                folder = folder_cache[folder_id]
+                folder_names.append(folder.get("name", "Untitled folder"))
+                parents = folder.get("parents", [])
+                folder_id = parents[0] if parents else ""
+        except Exception:  # noqa: BLE001 (all API failures become safe DriveErrors)
+            raise DriveError(
+                "Google Drive could not resolve a folder path. Check network access "
+                "and shared-drive permissions."
+            ) from None
+
+        return " / ".join(reversed(folder_names)) or "/"
+
     def search(self, query: str, limit: int = 10) -> list[DriveSearchResult]:
-        """Search file names and indexed text, with newest results first."""
+        """Search names and text, grouping names and ranking name matches first."""
         if limit <= 0:
             return []
 
@@ -97,7 +145,8 @@ class DriveClient:
                     "q": drive_query,
                     "pageSize": 1000,
                     "fields": (
-                        "nextPageToken,files(id,name,webViewLink,mimeType,modifiedTime)"
+                        "nextPageToken,"
+                        "files(id,name,webViewLink,mimeType,modifiedTime,parents)"
                     ),
                     "supportsAllDrives": True,
                     "includeItemsFromAllDrives": True,
@@ -117,20 +166,47 @@ class DriveClient:
                 "permissions."
             ) from None
 
-        results: list[DriveSearchResult] = []
+        folder_cache: dict[str, dict[str, Any]] = {}
+        grouped_files: dict[str, dict[str, Any]] = {}
         for file in files:
             file_id = file.get("id", "")
-            results.append(
+            title = file.get("name", "Untitled")
+            location: DriveFileLocation = {
+                "link": file.get("webViewLink")
+                or f"https://drive.google.com/open?id={file_id}",
+                "mime_type": file.get("mimeType", "application/octet-stream"),
+                "modified_time": file.get("modifiedTime", ""),
+                "folder_path": self._folder_path(file.get("parents", []), folder_cache),
+            }
+            group = grouped_files.setdefault(
+                title.casefold(),
                 {
-                    "title": file.get("name", "Untitled"),
-                    "link": file.get("webViewLink")
-                    or f"https://drive.google.com/open?id={file_id}",
-                    "mime_type": file.get("mimeType", "application/octet-stream"),
-                    "modified_time": file.get("modifiedTime", ""),
-                }
+                    "title": title,
+                    "name_match": query.casefold() in title.casefold(),
+                    "locations": [],
+                },
             )
-        results.sort(key=lambda result: result["modified_time"], reverse=True)
-        return results[:limit]
+            group["locations"].append(location)
+
+        ranked_results: list[tuple[bool, str, DriveSearchResult]] = []
+        for group in grouped_files.values():
+            locations = group["locations"]
+            locations.sort(key=lambda location: location["modified_time"], reverse=True)
+            newest = locations[0]
+            result: DriveSearchResult = {
+                "title": group["title"],
+                "link": newest["link"],
+                "mime_type": newest["mime_type"],
+                "modified_time": newest["modified_time"],
+                "folder_path": newest["folder_path"],
+                "locations": locations,
+            }
+            ranked_results.append(
+                (group["name_match"], newest["modified_time"], result)
+            )
+
+        ranked_results.sort(key=lambda ranked: (ranked[0], ranked[1]), reverse=True)
+        return [ranked[2] for ranked in ranked_results[:limit]]
 
     def read_text(self, file_id: str) -> str:
         """Export a Google Doc as text, or explain why a type is unsupported."""

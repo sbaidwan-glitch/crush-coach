@@ -34,12 +34,23 @@ def test_searches_shared_drive_and_maps_results(files_api):
             "link": "https://example.test/latch",
             "mime_type": "application/vnd.google-apps.document",
             "modified_time": "2026-11-06T20:15:00.000Z",
+            "folder_path": "/",
+            "locations": [
+                {
+                    "link": "https://example.test/latch",
+                    "mime_type": "application/vnd.google-apps.document",
+                    "modified_time": "2026-11-06T20:15:00.000Z",
+                    "folder_path": "/",
+                }
+            ],
         }
     ]
     files.list.assert_called_once_with(
         q=("trashed = false and (name contains 'latch' or fullText contains 'latch')"),
         pageSize=1000,
-        fields="nextPageToken,files(id,name,webViewLink,mimeType,modifiedTime)",
+        fields=(
+            "nextPageToken,files(id,name,webViewLink,mimeType,modifiedTime,parents)"
+        ),
         supportsAllDrives=True,
         includeItemsFromAllDrives=True,
         corpora="allDrives",
@@ -87,6 +98,95 @@ def test_search_sorts_newest_first_without_api_order_by(files_api):
     assert "orderBy" not in files.list.call_args.kwargs
 
 
+def test_search_ranks_file_name_matches_above_newer_full_text_matches(files_api):
+    service, files = files_api
+    files.list.return_value.execute.return_value = {
+        "files": [
+            {
+                "id": "full-text-only",
+                "name": "New seal notes",
+                "webViewLink": "https://example.test/full-text",
+                "mimeType": "application/vnd.google-apps.document",
+                "modifiedTime": "2026-11-07T00:00:00.000Z",
+            },
+            {
+                "id": "name-match",
+                "name": "Latch design",
+                "webViewLink": "https://example.test/name",
+                "mimeType": "application/vnd.google-apps.document",
+                "modifiedTime": "2025-01-01T00:00:00.000Z",
+            },
+        ]
+    }
+
+    results = drive.DriveClient(service=service).search("latch")
+
+    assert [result["title"] for result in results] == [
+        "Latch design",
+        "New seal notes",
+    ]
+
+
+def test_search_groups_duplicate_names_and_includes_year_in_paths(files_api):
+    service, files = files_api
+    files.list.return_value.execute.return_value = {
+        "files": [
+            {
+                "id": "new-latch",
+                "name": "Latch design",
+                "webViewLink": "https://example.test/new",
+                "mimeType": "application/vnd.google-apps.document",
+                "modifiedTime": "2026-11-01T00:00:00.000Z",
+                "parents": ["new-mechanical"],
+            },
+            {
+                "id": "old-latch",
+                "name": "Latch design",
+                "webViewLink": "https://example.test/old",
+                "mimeType": "application/vnd.google-apps.document",
+                "modifiedTime": "2025-11-01T00:00:00.000Z",
+                "parents": ["old-mechanical"],
+            },
+        ]
+    }
+    folders = {
+        "new-mechanical": {
+            "id": "new-mechanical",
+            "name": "Mechanical",
+            "parents": ["year-2026"],
+        },
+        "year-2026": {"id": "year-2026", "name": "2026", "parents": ["root"]},
+        "old-mechanical": {
+            "id": "old-mechanical",
+            "name": "Mechanical",
+            "parents": ["year-2025"],
+        },
+        "year-2025": {"id": "year-2025", "name": "2025", "parents": ["root"]},
+        "root": {"id": "root", "name": "MuddSub", "parents": []},
+    }
+
+    def get_folder(**kwargs):
+        request = Mock()
+        request.execute.return_value = folders[kwargs["fileId"]]
+        return request
+
+    files.get.side_effect = get_folder
+
+    results = drive.DriveClient(service=service).search("latch")
+
+    assert len(results) == 1
+    assert results[0]["title"] == "Latch design"
+    assert results[0]["folder_path"] == "MuddSub / 2026 / Mechanical"
+    assert [location["folder_path"] for location in results[0]["locations"]] == [
+        "MuddSub / 2026 / Mechanical",
+        "MuddSub / 2025 / Mechanical",
+    ]
+    root_calls = [
+        call for call in files.get.call_args_list if call.kwargs["fileId"] == "root"
+    ]
+    assert len(root_calls) == 1
+
+
 def test_search_escapes_drive_query_literals(files_api):
     service, files = files_api
     files.list.return_value.execute.return_value = {"files": []}
@@ -119,6 +219,25 @@ def test_search_applies_limit_and_returns_empty_for_nonpositive_limit(files_api)
 
     assert client.search("latch", limit=0) == []
     files.list.assert_not_called()
+
+
+def test_search_allows_more_than_ten_results(files_api):
+    service, files = files_api
+    files.list.return_value.execute.return_value = {
+        "files": [
+            {
+                "id": f"file-{number}",
+                "name": f"Latch notes {number:02d}",
+                "mimeType": "text/plain",
+                "modifiedTime": f"2026-10-{number:02d}T00:00:00.000Z",
+            }
+            for number in range(1, 16)
+        ]
+    }
+
+    results = drive.DriveClient(service=service).search("latch", limit=12)
+
+    assert len(results) == 12
 
 
 def test_search_falls_back_to_a_drive_link(files_api):
