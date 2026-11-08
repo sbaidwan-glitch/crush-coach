@@ -11,6 +11,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 import auth
 import board
+import coach
 import db
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -45,6 +46,7 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(auth.router)
 app.include_router(board.router)
+app.include_router(coach.router)
 
 
 @app.get("/health")

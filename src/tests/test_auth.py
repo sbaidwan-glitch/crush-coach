@@ -22,7 +22,9 @@ def mock_google(
 ):
     async def authorize_redirect(request, redirect_uri):
         assert redirect_uri == expected_redirect_uri
-        return RedirectResponse("https://accounts.google.test/authorize", status_code=302)
+        return RedirectResponse(
+            "https://accounts.google.test/authorize", status_code=302
+        )
 
     async def authorize_access_token(request):
         if error is not None:
@@ -129,9 +131,7 @@ def test_allowed_domain_member_can_sign_in(client, monkeypatch):
         },
     ],
 )
-def test_nonmembers_and_unverified_accounts_are_denied(
-    client, monkeypatch, userinfo
-):
+def test_nonmembers_and_unverified_accounts_are_denied(client, monkeypatch, userinfo):
     monkeypatch.setenv("ALLOWED_EMAILS", "")
     monkeypatch.setenv("ALLOWED_DOMAIN", "example.edu")
 

@@ -8,7 +8,10 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - Python 3.13, FastAPI, SQLModel, Alembic migrations, Postgres (psycopg 3)
 - Frontend: plain HTML, CSS, JavaScript + htmx, served by FastAPI. No build step, no React (unless Samara asks).
 - LLM: called only from the server, only on a user's action, never on page load. Key: `GLASSROOM_API_KEY` (env only).
-  - TODO: confirm the Glassroom client and endpoint with Samara before writing the first model call.
+  - Glassroom is an OpenAI-compatible LiteLLM proxy. Use the pinned `openai` library with `base_url="https://litellm.glassroomai.com/v1"` and `api_key` from `GLASSROOM_API_KEY`.
+  - Model comes from `COACH_MODEL` (default `claude-haiku-4-5`).
+  - All model code lives in `src/llm.py`; no other module imports `openai`.
+  - Coach settings (env): `COACH_DAILY_LIMIT` (messages per member per day, default 20), `COACH_TIMEZONE` (day boundary, default America/Los_Angeles), `COACH_TIMEOUT_SECONDS` (default 30).
 - Google: Drive API v3 (read) + Docs API v1 (append-only write-back), via a service account.
 - Deploy: Docker on Railway, with PR environments. Pinned versions in `requirements.txt`; re-pin with `pip freeze` if you add a package.
 
@@ -19,6 +22,7 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - `make test`: run tests from `src/`
 - `.venv/bin/ruff check src`: lint
 - `cd src && ../.venv/bin/python scripts/drive_search.py "latch"`: search the team shared drive (metadata only)
+- `cd src && ../.venv/bin/python scripts/ask_coach.py "question"`: ask the coach one real question (real model and Drive; no database)
 - Migrations (run from `src/`; the app also runs `upgrade head` on startup, and a failure there is logged but doesn't stop the app):
   - `cd src && ../.venv/bin/alembic upgrade head`: apply all migrations
   - `cd src && ../.venv/bin/alembic revision --autogenerate -m "describe change"`: create a migration from model changes (needs `DATABASE_URL` pointing at a database already at head; review the generated file before committing)
@@ -31,6 +35,8 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - `src/`: models, routes, templates, static files, tests
 - `src/auth.py`: Google OAuth routes, environment-backed allowlist, signed-session identity, and the reusable route-protection dependency
 - `src/board.py`, `src/templates/`: the `/tasks` board (Jinja2 templates; pages are server-rendered)
+- `src/coach.py`, `src/templates/task.html`: the `/tasks/{code}` page and its coach chat (htmx; `src/static/htmx.min.js` is vendored, v2.0.7, no CDN)
+- `src/llm.py`, `src/prompts/coach_system.md`: model client, Drive tools, the coach's system prompt
 - `src/import_tasks.py`, `src/sample_data/`: one-time CSV import and its made-up sample tasks
 - `src/migrations/`: Alembic migrations (`versions/`); `src/alembic.ini` is the config
 - `PROCESS.md`: design process log (written with the /reflect skill; don't edit it otherwise)

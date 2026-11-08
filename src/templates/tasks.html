@@ -30,7 +30,7 @@
     <ul class="task-list">
       {% for task in tasks %}
       <li>
-        <p class="task-title"><span class="code">{{ task.code }}</span> {{ task.title }}</p>
+        <p class="task-title"><a href="/tasks/{{ task.code }}"><span class="code">{{ task.code }}</span> {{ task.title }}</a></p>
         <p class="task-meta">
           {{ task.task_type }} · stage: {{ task.stage }} ·
           <span class="status">{{ status_labels.get(task.status, task.status) }}</span> ·
