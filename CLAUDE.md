@@ -29,6 +29,7 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 ## Layout
 - `src/main.py`: FastAPI app (`uvicorn main:app`)
 - `src/`: models, routes, templates, static files, tests
+- `src/auth.py`: Google OAuth routes, environment-backed allowlist, signed-session identity, and the reusable route-protection dependency
 - `src/board.py`, `src/templates/`: the `/tasks` board (Jinja2 templates; pages are server-rendered)
 - `src/import_tasks.py`, `src/sample_data/`: one-time CSV import and its made-up sample tasks
 - `src/migrations/`: Alembic migrations (`versions/`); `src/alembic.ini` is the config
@@ -36,7 +37,7 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - `process/`: sketches and screenshots linked from PROCESS.md
 
 ## Rules
-- Secrets live only in the environment: `GLASSROOM_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS` (path to a key file outside the repo) or `GOOGLE_SERVICE_ACCOUNT_JSON` (file contents, on Railway), `DATABASE_URL`. Never write a secret into a file, a commit, a log line, or a test.
+- Secrets live only in the environment: `GLASSROOM_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS` (path to a key file outside the repo) or `GOOGLE_SERVICE_ACCOUNT_JSON` (file contents, on Railway), `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `SESSION_SECRET`, and `DATABASE_URL`. Never write a secret into a committed file, a log line, or a test.
 - The Google credential variable names are listed in `.env.example`; values stay in the local environment or Railway. Drive access is limited to files and folders shared with the service account.
 - This repo is public. Never commit real team data (Drive exports, member names, the real tracker). Tests and seed data use made-up tasks and people.
 - One task, one branch, one PR. Small commits. Never push to `main`; everything reaches `main` through a PR Samara reviews.

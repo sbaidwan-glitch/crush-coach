@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block main %}
+<h1>Crush Coach</h1>
+<p>
+  Claim a task on the robot Crush, get help from the team's own docs, and see
+  the build progress as people work.
+</p>
+{% if not user %}
+<p><a class="button-link" href="/login">Sign in with Google</a></p>
+{% endif %}
+{% endblock %}
