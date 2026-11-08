@@ -145,3 +145,129 @@ section h2 {
   outline: 3px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* Task page */
+.task-title a {
+  text-decoration: none;
+}
+
+.task-title a:hover {
+  text-decoration: underline;
+}
+
+.task-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 1rem 0;
+}
+
+.task-facts dt {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.task-facts dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+/* Coach chat */
+#coach-log {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.msg {
+  padding: 0.75rem 1rem;
+  border: 2px solid var(--muted);
+  border-radius: 0.375rem;
+}
+
+.msg-assistant {
+  border-color: var(--accent);
+}
+
+.msg-who {
+  margin: 0 0 0.25rem;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+
+.msg-body {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.msg .notice {
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+}
+
+.msg-sources {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.msg-sources p {
+  margin: 0;
+  font-weight: 700;
+}
+
+.msg-sources ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.coach-form {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.coach-form input,
+.coach-form textarea,
+.coach-form button {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 2px solid var(--muted);
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  width: 100%;
+}
+
+.coach-form input,
+.coach-form button {
+  min-height: 2.75rem;
+}
+
+.coach-form button {
+  border-color: var(--accent);
+  font-weight: 700;
+  width: auto;
+  cursor: pointer;
+}
+
+.coach-form button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.coach-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.htmx-indicator {
+  display: none;
+  color: var(--muted);
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+  display: inline;
+}

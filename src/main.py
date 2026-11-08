@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 import board
+import coach
 import db
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -29,6 +30,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Crush Coach", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(board.router)
+app.include_router(coach.router)
 
 
 @app.get("/health")

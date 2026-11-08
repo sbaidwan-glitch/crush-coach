@@ -1,0 +1,17 @@
+<article class="msg msg-{{ m.role }}">
+  <h3 class="msg-who">{% if m.role == "user" %}{{ m.member }}{% else %}Coach{% endif %}</h3>
+  <p class="msg-body">{{ m.content | linkify }}</p>
+  {% for note in m.notes %}
+  <p class="notice">{{ note }}</p>
+  {% endfor %}
+  {% if m.sources %}
+  <div class="msg-sources">
+    <p>Sources</p>
+    <ul>
+      {% for s in m.sources %}
+      <li><a href="{{ s.link }}" target="_blank" rel="noopener noreferrer">{{ s.title }}</a>{% if s.modified %} (modified {{ s.modified }}){% endif %}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</article>
