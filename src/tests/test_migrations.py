@@ -45,6 +45,40 @@ def test_upgrade_creates_task_table(fresh_engine):
     assert code_index[0]["unique"]
 
 
+def test_upgrade_creates_coach_tables(fresh_engine):
+    db.run_migrations(fresh_engine)
+
+    inspector = inspect(fresh_engine)
+    messages = {c["name"] for c in inspector.get_columns("coach_message")}
+    assert messages == {
+        "id",
+        "task_id",
+        "member",
+        "role",
+        "content",
+        "meta",
+        "created_at",
+    }
+    calls = {c["name"]: c for c in inspector.get_columns("llm_call")}
+    assert set(calls) == {
+        "id",
+        "task_id",
+        "member",
+        "model",
+        "input_tokens",
+        "output_tokens",
+        "latency_ms",
+        "cost",
+        "status",
+        "created_at",
+    }
+    assert calls["cost"]["nullable"] is True  # only when the response provides it
+    assert calls["latency_ms"]["nullable"] is False
+    for table in ("coach_message", "llm_call"):
+        foreign_keys = inspector.get_foreign_keys(table)
+        assert [fk["referred_table"] for fk in foreign_keys] == ["task"]
+
+
 def test_upgrade_is_repeatable(fresh_engine):
     db.run_migrations(fresh_engine)
     db.run_migrations(fresh_engine)  # already at head: must be a no-op, not an error
@@ -55,6 +89,14 @@ def test_downgrade_removes_task_table(fresh_engine):
     db.run_migrations(fresh_engine)
     command.downgrade(db.alembic_config(fresh_engine), "base")
     assert "task" not in inspect(fresh_engine).get_table_names()
+
+
+def test_downgrade_one_step_removes_only_the_coach_tables(fresh_engine):
+    db.run_migrations(fresh_engine)
+    command.downgrade(db.alembic_config(fresh_engine), "-1")
+    tables = inspect(fresh_engine).get_table_names()
+    assert "task" in tables
+    assert "coach_message" not in tables and "llm_call" not in tables
 
 
 def test_migrations_match_models(fresh_engine):
