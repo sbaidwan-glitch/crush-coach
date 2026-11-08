@@ -76,3 +76,32 @@ Newest entries at the bottom. Entries from here on are drafted with the /reflect
 - Turn the roadmap into GitHub issues.
 - Build the task board (Issue 2) as the first PR. It tests whether a Railway preview environment works.
 - After that, build Drive search and a bare-bones coach (Issues 5–6). This tests my biggest risk early: whether the coach can find the right, current document.
+
+## 2026-11-08 — First real searches, and what mocked tests missed
+
+**Stage:** Building, Test
+
+**What I did.** Over the weekend I built the core of the app: the task board (#14), Drive search (#15), Google sign-in (#16), and the first version of the coach (#17). I ran two Conductor workspaces at a time, so one agent was building while I reviewed the other's PR. The significant test was the first real Drive search for "latch." The robot account could only see this year's Mechanical folder, so it returned five docs that mention latches, but none of them said which latch we actually chose. That's exactly my problem from the proposal: the Drive has documents, not decisions. I realized the answer was sitting in a file name (`6082A12_Draw Latch.SLDPRT`) in last year's CAD folder, which the robot couldn't see. So I added the robot to the whole MuddSub shared drive as a Viewer. The file still got buried because results were sorted newest-first.
+
+Testing the coach for real took a lot of iterations. First it said "the AI model couldn't be reached." My clipboard had a command on it instead of my key, and the app turned a bad key into a misleading "timeout" error. Once that worked, the coach used all 4 of its tool calls reading long docs and ended with "Let me check…" without ever answering, for about $0.027.
+
+**What I learned.**
+- Mocked tests can pass while the real thing is broken. It happened twice:
+  - The Drive search failed for real because Google doesn't allow sorting together with full-text search, and searching a whole shared drive needs membership.
+  - Google sign-in would have broken on Railway because the app sat behind Railway's proxy and built `http` callback links instead of `https`.
+  - Both times, the tests passed and the real call failed. Now I always run one real call before merging.
+- Smaller workflow lessons:
+  - GitHub issues and PRs share one numbering, so "issue #2" in my prompts was wrong (it was #5).
+  - My secret-blocking rule also blocked `.env.example`.
+  - I added Railway variables to production, so the PR preview didn't have them.
+
+**What changed because of it.**
+- Drive results now rank file-name matches first, show each result's folder path and year, and group duplicates.
+- The coach now requires sign-in instead of a typed name. It forces a final answer when it runs out of tool calls, caps how much of a doc it reads, treats file names as evidence, and logs tokens and cost for every call.
+- With those fixes, the same question gave the right answer, McMaster 6082A12 with a link and the folder path, in 3 calls for $0.0098, about 64% cheaper.
+
+**Working with AI.** CLAUDE.md has its first "learned the hard way" line, about trusting Railway's proxy headers. I also narrowed the secret-file rule so it stops blocking `.env.example`.
+
+**Evidence.** PRs #14, #15, #16, #17. Commits 582d698 (fix shared Drive search scope and sorting), a764fae (improve Drive search ranking), 15a2688 (trust Railway proxy headers), 93d8a04 (list coach env vars in `.env.example`, narrow the `.env` read rule).
+
+**Next.** The coach still says "we use" based on a file name, but a CAD file shows what's in the design, not what the team confirmed. That's why the decision record (#11) is next. It tests whether confirmed decisions can outrank Drive search results. I'm also going to build a `/ship` skill so the pre-PR checks I kept doing by hand happen automatically. Those checks are the right issue number, up to date with main, and a real call for anything touching Drive, sign-in, or the model.
