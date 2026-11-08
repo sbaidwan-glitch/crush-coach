@@ -21,6 +21,10 @@ psycopg[binary]==3.3.6  # Postgres driver, needed once you deploy
 # --- config (class 12) ---
 python-dotenv==1.2.3
 
+# --- Google Drive (read-only team docs) ---
+google-api-python-client==2.201.0
+google-auth==2.62.1
+
 # --- lab notebooks (hw5.ipynb and friends) ---
 ipykernel==7.3.0
 # nbformat + nbclient are what labs/*/build_hw*.py uses to emit the student and
