@@ -4,17 +4,10 @@
 
 /* ---------- Fonts: self-hosted, latin subset, SIL OFL ---------- */
 @font-face {
-  font-family: "Redaction 35";
+  font-family: "Michroma";
   font-weight: 400;
   font-display: swap;
-  src: url("/static/fonts/redaction-35-400.woff2") format("woff2");
-}
-
-@font-face {
-  font-family: "Redaction 35";
-  font-weight: 700;
-  font-display: swap;
-  src: url("/static/fonts/redaction-35-700.woff2") format("woff2");
+  src: url("/static/fonts/michroma-400.woff2") format("woff2");
 }
 
 @font-face {
@@ -26,10 +19,17 @@
 }
 
 @font-face {
-  font-family: "Martian Mono";
-  font-weight: 100 800;
+  font-family: "Space Mono";
+  font-weight: 400;
   font-display: swap;
-  src: url("/static/fonts/martian-mono-wght.woff2") format("woff2");
+  src: url("/static/fonts/space-mono-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Space Mono";
+  font-weight: 700;
+  font-display: swap;
+  src: url("/static/fonts/space-mono-700.woff2") format("woff2");
 }
 
 /* ---------- Base ---------- */
@@ -99,7 +99,7 @@ a:hover {
   transform: none;
 }
 
-/* Type roles: display (narrow, tight) for headings, mono for data, small tracked labels. */
+/* Type roles: display (wide, squared) for headings, mono for data, small tracked labels. */
 h1,
 h2,
 h3,
@@ -116,11 +116,11 @@ h1 {
 }
 
 h2 {
-  font-size: var(--step-2);
+  font-size: var(--h2-size);
 }
 
 h3 {
-  font-size: var(--step-1);
+  font-size: var(--h3-size);
 }
 
 .label,
@@ -203,7 +203,7 @@ main,
 .wordmark {
   font-family: var(--font-display);
   font-weight: var(--weight-display);
-  font-size: var(--step-2);
+  font-size: var(--wordmark-size);
   letter-spacing: var(--track-display);
   line-height: var(--leading-tight);
 }

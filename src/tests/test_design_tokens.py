@@ -80,7 +80,7 @@ def test_every_font_ships_with_its_open_font_license():
     fonts = STATIC / "fonts"
     licenses = {p.name: p.read_text() for p in fonts.glob("OFL-*.txt")}
 
-    assert set(licenses) == {"OFL-redaction-35.txt", "OFL-hubot-sans.txt", "OFL-martian-mono.txt"}
+    assert set(licenses) == {"OFL-michroma.txt", "OFL-hubot-sans.txt", "OFL-space-mono.txt"}
     for name, text in licenses.items():
         assert "SIL Open Font License" in text, name
         assert "Copyright" in text, name
@@ -92,10 +92,10 @@ def test_every_font_ships_with_its_open_font_license():
 
 def test_fonts_are_self_hosted():
     for font in (
-        "redaction-35-400.woff2",
-        "redaction-35-700.woff2",
+        "michroma-400.woff2",
         "hubot-sans-wdth.woff2",
-        "martian-mono-wght.woff2",
+        "space-mono-400.woff2",
+        "space-mono-700.woff2",
     ):
         assert (STATIC / "fonts" / font).exists()
     assert "fonts.googleapis.com" not in STYLE
