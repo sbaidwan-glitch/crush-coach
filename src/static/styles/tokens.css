@@ -23,10 +23,10 @@
   --color-alert: #f2545b;
 
   /* Type */
-  --font-display: "Hubot Sans", system-ui, sans-serif;
+  --font-display: "Redaction 35", Georgia, serif;
   --font-body: "Hubot Sans", system-ui, sans-serif;
   --font-mono: "Martian Mono", ui-monospace, monospace;
-  --display-stretch: 75%;
+  --weight-display: 700;
   --weight-regular: 400;
   --weight-medium: 500;
   --weight-bold: 700;
@@ -45,7 +45,7 @@
   --leading-body: 1.55;
   --track-label: 0.12em; /* wide, small-caps style labels */
   --track-mono: 0.04em;
-  --track-display: -0.015em; /* tight display */
+  --track-display: 0; /* Redaction is already tightly spaced */
 
   /* Space */
   --space-1: 0.25rem;

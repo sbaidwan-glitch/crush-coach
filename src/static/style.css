@@ -4,6 +4,20 @@
 
 /* ---------- Fonts: self-hosted, latin subset, SIL OFL ---------- */
 @font-face {
+  font-family: "Redaction 35";
+  font-weight: 400;
+  font-display: swap;
+  src: url("/static/fonts/redaction-35-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Redaction 35";
+  font-weight: 700;
+  font-display: swap;
+  src: url("/static/fonts/redaction-35-700.woff2") format("woff2");
+}
+
+@font-face {
   font-family: "Hubot Sans";
   font-weight: 200 900;
   font-stretch: 75% 125%;
@@ -91,8 +105,7 @@ h2,
 h3,
 .display {
   font-family: var(--font-display);
-  font-weight: var(--weight-bold);
-  font-stretch: var(--display-stretch);
+  font-weight: var(--weight-display);
   letter-spacing: var(--track-display);
   line-height: var(--leading-tight);
 }
@@ -180,8 +193,7 @@ main,
 
 .wordmark {
   font-family: var(--font-display);
-  font-weight: var(--weight-bold);
-  font-stretch: var(--display-stretch);
+  font-weight: var(--weight-display);
   font-size: var(--step-2);
   letter-spacing: var(--track-display);
   line-height: var(--leading-tight);

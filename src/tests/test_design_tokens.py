@@ -76,7 +76,12 @@ def test_text_colors_meet_wcag_aa_on_both_surfaces():
     assert contrast(t["--color-muted"], t["--color-bg"]) >= 3
 
 
-def test_body_font_and_mono_are_self_hosted():
-    for font in ("hubot-sans-wdth.woff2", "martian-mono-wght.woff2"):
+def test_fonts_are_self_hosted():
+    for font in (
+        "redaction-35-400.woff2",
+        "redaction-35-700.woff2",
+        "hubot-sans-wdth.woff2",
+        "martian-mono-wght.woff2",
+    ):
         assert (STATIC / "fonts" / font).exists()
     assert "fonts.googleapis.com" not in STYLE
