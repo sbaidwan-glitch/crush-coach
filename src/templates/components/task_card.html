@@ -1,0 +1,14 @@
+{# One task on the board, compact: code and title, then status and owner. Everything else
+   (stage, type, subsystem, coach) is on the task page. #}
+{% from "components/icons.html" import icon %}
+{% from "components/status.html" import status_label %}
+{% macro task_card(task, status_labels) -%}
+<li class="card">
+  <span class="card-code">{{ task.code }}</span>
+  <h3 class="card-title"><a href="/tasks/{{ task.code }}">{{ task.title }}</a></h3>
+  <p class="card-meta">
+    {{ status_label(task.status, status_labels.get(task.status, task.status)) }}
+    <span class="card-owner{% if not task.owner %} muted{% endif %}">{{ icon("person") }}<span class="sr-only">Owner: </span><span>{{ task.owner or "Unclaimed" }}</span></span>
+  </p>
+</li>
+{%- endmacro %}

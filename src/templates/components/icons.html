@@ -1,0 +1,22 @@
+{# Inline icons. Always paired with words: status is never color alone. #}
+{% macro icon(name) -%}
+  {%- if name == "todo" -%}
+  <svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/></svg>
+  {%- elif name == "in_progress" -%}
+  <svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M10 3.5a6.5 6.5 0 0 1 0 13z" fill="currentColor" stroke="none"/></svg>
+  {%- elif name == "done" -%}
+  <svg class="icon" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="7.5" fill="currentColor"/><path d="m6.6 10.2 2.3 2.3 4.5-4.8" stroke="var(--color-bg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  {%- elif name == "blocked" -%}
+  <svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="m5.4 14.6 9.2-9.2" stroke-linecap="round"/></svg>
+  {%- elif name == "error" -%}
+  <svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><path d="M10 3 17.5 16.5h-15z"/><path d="M10 8.5v3.5M10 14.3v.1" stroke-linecap="round"/></svg>
+  {%- elif name == "note" -%}
+  <svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M10 9v4.5M10 6.6v.1" stroke-linecap="round"/></svg>
+  {%- elif name == "empty" -%}
+  <svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.5 2.5" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/></svg>
+  {%- elif name == "person" -%}
+  <svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="7" r="3"/><path d="M4 16.5c.8-3 3.2-4.5 6-4.5s5.2 1.5 6 4.5"/></svg>
+  {%- elif name == "coach" -%}
+  <svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="2.5" fill="currentColor" stroke="none"/></svg>
+  {%- endif -%}
+{%- endmacro %}

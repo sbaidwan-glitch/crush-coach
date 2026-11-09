@@ -1,0 +1,11 @@
+## Design rules
+- Builder: use the frontend-design skill for all UI when it's available (Claude models only); if it isn't, follow these rules and say so in the PR. Do not use taste-skill in this app.
+- Stack stays server-rendered: Jinja2 templates + htmx + plain CSS. No React or build step.
+- Tokens live in `src/static/styles/tokens.css`. Use only tokens for color, spacing, type, radius and shadow; no raw hex, one-off sizes or shadows. Exceptions: 1px borders and media-query breakpoints (CSS variables don't work in @media).
+- Reuse Jinja macro components from `src/templates/components/` before creating new ones. New shared components go there.
+- Theme: "Sounding". One navy hue in five value steps (`--color-bg`, `--color-raised`, `--color-hairline`, `--color-muted`, `--color-ink`), one cyan accent reserved for the coach, and one red alert for errors and blocked states only. Ocean identity through color and type (Michroma display, Hubot Sans body, Space Mono data); no decorative water effects. Structure comes from hairlines and readout cells, not boxes or shadows.
+- Text meets WCAG AA contrast (4.5:1 body, 3:1 large text and UI parts).
+- Status is never shown by color alone (add an icon or label).
+- The AI coach suggests; the user confirms. The coach never edits tasks without an Accept click.
+- Every view needs designed empty, loading (htmx indicator) and error states.
+- Before finishing, run `make screenshots` and check every changed page at 375px and 1280px.

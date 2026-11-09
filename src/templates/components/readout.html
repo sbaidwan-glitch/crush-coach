@@ -1,0 +1,10 @@
+{# Label and value cells divided by hairlines. `cells` is a list of dicts:
+   {"label": ..., "value": ..., "wide": True (full row), "muted": True (dimmer value)}.
+   Keep the cell count even (counting a wide cell as two) so no cell is left empty. #}
+{% macro readout(cells, class="") -%}
+<dl class="readout {{ class }}">
+  {%- for c in cells %}
+  <div{% if c.wide %} class="wide"{% endif %}><dt>{{ c.label }}</dt><dd{% if c.muted %} class="muted"{% endif %}>{{ c.value }}</dd></div>
+  {%- endfor %}
+</dl>
+{%- endmacro %}

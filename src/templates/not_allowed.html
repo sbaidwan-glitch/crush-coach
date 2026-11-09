@@ -1,10 +1,7 @@
 {% extends "base.html" %}
+{% from "components/feedback.html" import error_state %}
 {% block title %}Not on the team list – Crush Coach{% endblock %}
 {% block main %}
 <h1>Not on the team list</h1>
-<p class="notice" role="alert">
-  This Google account is not on the team list. Ask a team lead to add it, or
-  try another account.
-</p>
-<p><a href="/login">Try another Google account</a></p>
+{{ error_state("This Google account is not on the team list. Ask a team lead to add it, or try another account.", "/login", "Try another Google account") }}
 {% endblock %}

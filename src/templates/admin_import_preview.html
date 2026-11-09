@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% block title %}Preview import – Crush Coach{% endblock %}
-{% block body_attrs %} class="wide"{% endblock %}
 {% block main %}
 <h1>Preview import</h1>
 <p class="count">File: {{ filename }}. <strong>Nothing has been saved yet.</strong></p>
@@ -75,7 +74,7 @@
     </table>
   </div>
   <div class="import-actions">
-    <button type="submit">Import tasks</button>
+    <button class="btn btn-primary" type="submit">Import tasks</button>
     <a href="/admin/import">Cancel and choose another file</a>
   </div>
 </form>

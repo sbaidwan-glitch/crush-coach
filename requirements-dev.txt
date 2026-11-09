@@ -1,0 +1,5 @@
+# Dev-only tools. Not installed in the Docker image.
+-r requirements.txt
+
+# make screenshots: .venv/bin/playwright install chromium (once)
+playwright==1.64.1
