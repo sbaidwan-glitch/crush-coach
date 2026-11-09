@@ -25,3 +25,6 @@ __pycache__/
 *-key.json
 .claude/settings.local.json
 .claude/worktrees/
+
+# Conductor scratch space (screenshots, plans)
+.context/

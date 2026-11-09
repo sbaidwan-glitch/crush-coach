@@ -5,7 +5,7 @@
 TAG ?= $(shell git describe --tags --abbrev=0 2>/dev/null)
 
 .DEFAULT_GOAL := help
-.PHONY: help dev test submit
+.PHONY: help dev test screenshots submit
 
 help:  ## show this help
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -17,6 +17,9 @@ dev:   ## run the API on :8000 (from src/)
 
 test:  ## run the tests (from src/; no server needed)
 	cd src && ../.venv/bin/pytest -q
+
+screenshots:  ## screenshot /, /tasks and /tasks/M04 at 375px and 1280px into .context/screenshots/
+	cd src && ../.venv/bin/python scripts/screenshots.py
 
 # Package a tagged snapshot for Canvas.
 #
