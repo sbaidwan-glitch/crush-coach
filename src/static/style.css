@@ -136,6 +136,15 @@ dt {
   font-family: var(--font-mono);
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .muted,
 .count {
   color: var(--color-muted);
@@ -423,37 +432,34 @@ main {
   font-weight: var(--weight-regular);
 }
 
-/* Depth gauge: one tick per task. Done ticks are taller and brighter, so it is not color alone. */
+/* Depth gauge: one block per task. Filled is done, outlined is open (so it is not color alone). */
 .gauge {
   display: grid;
-  gap: var(--space-1);
+  gap: var(--space-2);
   margin: var(--space-2) 0 var(--space-4);
 }
 
 .gauge-text {
-  color: var(--color-muted);
-  font: var(--weight-regular) var(--text-xs) / var(--leading-body) var(--font-mono);
+  color: var(--color-ink);
+  font: var(--weight-medium) var(--text-sm) / var(--leading-body) var(--font-mono);
 }
 
 .ticks {
   display: grid;
   grid-template-columns: repeat(var(--total), minmax(0, 1fr));
-  align-items: end;
+  gap: var(--space-1);
   width: 100%;
-  max-width: min(100%, calc(var(--total) * var(--tick-pitch)));
-  height: var(--tick-height);
-  border-bottom: 1px solid var(--color-hairline);
+  max-width: min(100%, calc(var(--total) * var(--gauge-pitch)));
 }
 
 .tick {
-  width: var(--tick-width);
-  height: 70%;
-  background: var(--color-hairline);
+  height: var(--gauge-height);
+  border: 1px solid var(--color-muted);
 }
 
 .tick.on {
-  height: 100%;
   background: var(--color-ink);
+  border-color: var(--color-ink);
 }
 
 /* ---------- Task board ---------- */
@@ -506,22 +512,16 @@ main {
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--card-min)), 1fr));
-  gap: var(--space-5);
+  column-gap: var(--space-5);
 }
 
 .card {
   display: grid;
-  gap: var(--space-3);
-  align-content: start;
-  padding-top: var(--space-4);
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  align-items: baseline;
+  padding-block: var(--space-3);
   border-top: 1px solid var(--color-hairline);
-}
-
-.card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
 }
 
 .card-code {
@@ -531,6 +531,21 @@ main {
 
 .card-title a {
   text-decoration-color: var(--color-muted);
+}
+
+.card-meta {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+}
+
+.card-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font: var(--weight-regular) var(--text-sm) / var(--leading-body) var(--font-mono);
 }
 
 /* ---------- Home ---------- */

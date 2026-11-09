@@ -105,3 +105,5 @@ def test_task_card_links_to_the_task_and_names_the_owner(owner, expected):
     assert "&lt;i&gt;Panels&lt;/i&gt;" in html
     assert expected in html
     assert "In progress" in html and "<svg" in html
+    assert "Owner: " in html  # the owner is labelled for screen readers
+    assert "Stage" not in html  # the board card is compact; stage is on the task page

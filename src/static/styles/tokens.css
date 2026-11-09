@@ -61,11 +61,10 @@
   --icon: 1.125rem;
   --page-max: 64rem;
   --measure: 65ch;
-  --card-min: 18rem;
+  --card-min: 22rem;
   --textarea-min: 7rem;
-  --tick-width: 2px;
-  --tick-height: 0.875rem;
-  --tick-pitch: 1rem;
+  --gauge-height: 1rem;
+  --gauge-pitch: 2.5rem;
 
   /* Shape. Hairlines are 1px borders and stay literal in rules. */
   --radius: 2px;
