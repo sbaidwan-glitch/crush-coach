@@ -1,5 +1,3 @@
-> **Status:** these rules are being set up in this PR (tokens, components, `make screenshots`). Remove this line once the PR merges.
-
 ## Design rules
 - Builder: use the frontend-design skill for all UI when it's available (Claude models only); if it isn't, follow these rules and say so in the PR. Do not use taste-skill in this app.
 - Stack stays server-rendered: Jinja2 templates + htmx + plain CSS. No React or build step.
