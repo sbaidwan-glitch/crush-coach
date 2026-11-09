@@ -27,6 +27,17 @@ def group_by_subsystem(tasks: list[Task]) -> list[tuple[str, list[Task]]]:
     return [(name, [t for t in tasks if t.subsystem == name]) for name in SUBSYSTEMS]
 
 
+def subsystem_progress(tasks: list[Task]) -> dict[str, dict[str, int]]:
+    """Done and total task counts per subsystem, over every task (not the filtered view)."""
+    return {
+        name: {
+            "done": sum(1 for t in tasks if t.subsystem == name and t.status == "done"),
+            "total": sum(1 for t in tasks if t.subsystem == name),
+        }
+        for name in SUBSYSTEMS
+    }
+
+
 @router.get("/tasks", response_class=HTMLResponse)
 def task_board(
     request: Request,
@@ -53,6 +64,7 @@ def task_board(
     shown = [t for t in tasks if not status or t.status == status]
     context = {
         "groups": group_by_subsystem(shown),
+        "progress": subsystem_progress(tasks),
         "status": status,
         "status_labels": STATUS_LABELS,
         "shown_count": len(shown),

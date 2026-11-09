@@ -20,6 +20,7 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - `docker compose up -d`: local Postgres (matches `DATABASE_URL` in `.env.example`)
 - `make dev`: run the API on :8000 from `src/`
 - `make test`: run tests from `src/`
+- `make screenshots`: screenshot `/`, `/tasks` and `/tasks/M04` at 375px and 1280px into `.context/screenshots/` (gitignored), against a throwaway SQLite database with the sample tasks and a fake signed-in session. One-time setup: `.venv/bin/pip install -r requirements-dev.txt && .venv/bin/playwright install chromium`
 - `.venv/bin/ruff check src`: lint
 - `cd src && ../.venv/bin/python scripts/drive_search.py "latch"`: search the team shared drive (metadata only)
 - `cd src && ../.venv/bin/python scripts/ask_coach.py "question"`: ask the coach one real question (real model and Drive; no database)
@@ -35,6 +36,8 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - `src/`: models, routes, templates, static files, tests
 - `src/auth.py`: Google OAuth routes, environment-backed allowlist, signed-session identity, and the reusable route-protection dependency
 - `src/board.py`, `src/templates/`: the `/tasks` board (Jinja2 templates; pages are server-rendered)
+- `docs/design.md`: the design rules. `src/static/style.css` is the one stylesheet base.html links; `src/static/styles/tokens.css` holds every color, size, radius and font token; `src/templates/components/`: Jinja macros (status label, task card, notices, empty/error states, buttons, readout, gauge, coach message). Reuse them before adding markup. `tests/test_design_tokens.py` fails on raw hex or one-off sizes in the stylesheet
+- `src/scripts/screenshots.py`: what `make screenshots` runs; `requirements-dev.txt`: dev-only tools (Playwright), not in the Docker image
 - `src/coach.py`, `src/templates/task.html`: the `/tasks/{code}` page and its coach chat (htmx; `src/static/htmx.min.js` is vendored, v2.0.7, no CDN)
 - `src/llm.py`, `src/prompts/coach_system.md`: model client, Drive tools, the coach's system prompt
 - `src/import_tasks.py`, `src/sample_data/`: one-time CSV import and its made-up sample tasks

@@ -1,0 +1,8 @@
+{# Buttons. variant: primary (ink), secondary (outline), coach (the coach's action). #}
+{% macro button(label, variant="secondary", type="button") -%}
+<button type="{{ type }}" class="btn btn-{{ variant }}">{{ label }}</button>
+{%- endmacro %}
+
+{% macro button_link(href, label, variant="primary") -%}
+<a class="btn btn-{{ variant }}" href="{{ href }}">{{ label }}</a>
+{%- endmacro %}

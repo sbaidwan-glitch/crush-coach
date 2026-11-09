@@ -1,43 +1,51 @@
 {% extends "base.html" %}
+{% from "components/button.html" import button %}
+{% from "components/feedback.html" import notice as notice_box, empty_state, error_state, loading_indicator %}
+{% from "components/icons.html" import icon %}
+{% from "components/readout.html" import readout %}
+{% from "components/status.html" import status_label %}
 {% block title %}{% if task %}{{ task.code }} {{ task.title }}{% else %}Task{% endif %} – Crush Coach{% endblock %}
 {% block main %}
-<p><a href="/tasks">← All tasks</a></p>
+<p class="back"><a href="/tasks">All tasks</a></p>
 
 {% if page_error %}
 <h1>Task</h1>
-<p class="notice" role="alert">{{ page_error }}</p>
+{{ error_state(page_error, "/tasks/" ~ code, "Try again") }}
 {% elif not_found %}
 <h1>Task not found</h1>
-<p class="notice" role="alert">There is no task with code “{{ code }}”. <a href="/tasks">Back to the task board</a>.</p>
+{{ error_state("There is no task with code “" ~ code ~ "”.", "/tasks", "Back to the task board") }}
 {% else %}
-<h1><span class="code">{{ task.code }}</span> {{ task.title }}</h1>
-<dl class="task-facts">
-  <div><dt>Subsystem</dt><dd>{{ task.subsystem }}</dd></div>
-  <div><dt>Type</dt><dd>{{ task.task_type }}</dd></div>
-  <div><dt>Stage</dt><dd>{{ task.stage }}</dd></div>
-  <div><dt>Status</dt><dd>{{ status_labels.get(task.status, task.status) }}</dd></div>
-  <div><dt>Owner</dt><dd>{% if task.owner %}{{ task.owner }}{% else %}Unclaimed{% endif %}</dd></div>
-</dl>
+<h1><span class="task-code">{{ task.code }}</span> {{ task.title }}</h1>
+<div class="facts">
+  {{ readout([
+    {"label": "Subsystem", "value": task.subsystem, "wide": True},
+    {"label": "Type", "value": task.task_type},
+    {"label": "Stage", "value": task.stage},
+    {"label": "Status", "value": status_label(task.status, status_labels.get(task.status, task.status))},
+    {"label": "Owner", "value": task.owner or "Unclaimed", "muted": not task.owner},
+  ]) }}
+</div>
 
 <section aria-labelledby="coach-heading" class="coach">
   <h2 id="coach-heading">Coach</h2>
-  <p class="count">The coach advises and asks questions; your lead approves. It answers from the team Drive and links its sources. Limit: {{ daily_limit }} messages per person per day.</p>
+  <p class="fine">The coach advises and asks questions; your lead approves. It answers from the team Drive and links its sources. Limit: {{ daily_limit }} messages per person per day.</p>
 
   <div id="coach-log" role="log" aria-live="polite" aria-label="Conversation with the coach">
+    {% if not messages %}{{ empty_state("No messages yet. Ask about this task and the coach answers from the team Drive.") }}{% endif %}
     {% for m in messages %}{% include "_coach_message.html" %}{% endfor %}
   </div>
-  <p id="coach-error" class="notice" role="alert" hidden></p>
-  {% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
+  <div id="coach-error" class="notice notice-error" role="alert" hidden>{{ icon("error") }}<span id="coach-error-text"></span></div>
+  {% if error %}{{ notice_box(error, "error") }}{% endif %}
 
   <form id="coach-form" class="coach-form" method="post" action="/tasks/{{ task.code }}/coach"
         hx-post="/tasks/{{ task.code }}/coach" hx-target="#coach-log" hx-swap="beforeend"
         hx-disabled-elt="find button, find textarea" hx-indicator="#coach-thinking">
-    <p class="count">Asking as {{ user.name }}.</p>
+    <p class="fine">Asking as {{ user.name }}.</p>
     <label for="coach-message">Ask the coach about this task</label>
     <textarea id="coach-message" name="message" required maxlength="2000" rows="4">{{ draft }}</textarea>
     <div class="coach-actions">
-      <button type="submit">Ask the coach</button>
-      <span id="coach-thinking" class="htmx-indicator" role="status">Thinking…</span>
+      {{ button("Ask the coach", "coach", "submit") }}
+      {{ loading_indicator("coach-thinking", "Thinking…") }}
     </div>
   </form>
 </section>

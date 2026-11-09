@@ -1,11 +1,14 @@
 {% extends "base.html" %}
+{% from "components/button.html" import button_link %}
 {% block main %}
-<h1>Crush Coach</h1>
-<p>
+<h1>Build Crush, one task at a time</h1>
+<p class="lede">
   Claim a task on the robot Crush, get help from the team's own docs, and see
   the build progress as people work.
 </p>
-{% if not user %}
-<p><a class="button-link" href="/login">Sign in with Google</a></p>
+{% if user %}
+<p>{{ button_link("/tasks", "Open the task board") }}</p>
+{% else %}
+<p>{{ button_link("/login", "Sign in with Google") }}</p>
 {% endif %}
 {% endblock %}

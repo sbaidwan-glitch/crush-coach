@@ -1,0 +1,17 @@
+{# One task on the board: code and status, title as the link, then hairline readout cells. #}
+{% from "components/status.html" import status_label %}
+{% from "components/readout.html" import readout %}
+{% macro task_card(task, status_labels) -%}
+<li class="card">
+  <div class="card-head">
+    <span class="card-code">{{ task.code }}</span>
+    {{ status_label(task.status, status_labels.get(task.status, task.status)) }}
+  </div>
+  <h3 class="card-title"><a href="/tasks/{{ task.code }}">{{ task.title }}</a></h3>
+  {{ readout([
+    {"label": "Stage", "value": task.stage},
+    {"label": "Type", "value": task.task_type},
+    {"label": "Owner", "value": task.owner or "Unclaimed", "muted": not task.owner, "wide": True},
+  ]) }}
+</li>
+{%- endmacro %}

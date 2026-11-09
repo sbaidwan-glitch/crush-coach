@@ -1,4 +1,5 @@
 {# htmx fragment: appended to #coach-log after a message is sent. #}
+{% from "components/feedback.html" import notice %}
 {% if user_text %}
 {% with m = {"role": "user", "member": "You", "content": user_text, "notes": [], "sources": []} %}{% include "_coach_message.html" %}{% endwith %}
 {% endif %}
@@ -6,5 +7,5 @@
 {% with m = {"role": "assistant", "member": "Coach", "content": answer.content, "notes": answer.notes, "sources": answer.sources} %}{% include "_coach_message.html" %}{% endwith %}
 {% endif %}
 {% if error %}
-<p class="notice" role="alert">{{ error }}</p>
+{{ notice(error, "error") }}
 {% endif %}
