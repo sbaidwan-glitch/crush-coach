@@ -110,6 +110,16 @@ def require_user(request: Request) -> User:
 CurrentUser = Annotated[User, Depends(require_user)]
 
 
+def require_lead(user: CurrentUser) -> User:
+    """Signed in AND listed in LEAD_EMAILS; anyone else gets a 403 page."""
+    if user["role"] != "lead":
+        raise HTTPException(status_code=403, detail="Leads only")
+    return user
+
+
+LeadUser = Annotated[User, Depends(require_lead)]
+
+
 def _sign_in_unavailable(request: Request, message: str) -> HTMLResponse:
     return templates.TemplateResponse(
         request,

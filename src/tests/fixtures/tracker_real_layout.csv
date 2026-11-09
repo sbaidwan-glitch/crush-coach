@@ -1,0 +1,17 @@
+MADE-UP TEST DATA: Example Team Mechanical Tasks,,,,,,,,,,,
+Notes: this file only mimics the layout of the real export. Not real data.,,,,,,,,,,,
+,,,,,,,,,,,
+#,Task,Owner,"Detailed
+Description",Dependencies,Exploratory Questions / Gaps / Questions,Skills Learned,Requirements,People to Ask Questions To,Relavent Documentation,Potential Due Date,Scratch notes
+M01,Cut example wall panels,Sam Example,"Cut two example panels.
+Deburr the edges.",M05,Which sheet stock?,Waterjet basics,Panels flat to the example spec,Riley Sample,https://docs.google.com/document/d/example/edit,Week 3,
+M02,Design example lid latch,,Sketch a latch.,,,CAD,,Jordan Demo,,,
+M03,Test example gasket squeeze,Riley Sample,Squeeze test.,M02,,,,,,,
+M04,Machine example thruster bracket,,,,,,,,,,
+,,,,,,,,,,,
+M05,Mill example widget,,,,,,,,,,
+M22(2),First example duplicate,,,,,,,,,,
+M22(2),Second example duplicate,,,,,,,,,,
+,Orphan example task without a code,,Has text but no code.,,,,,,,,
+M07,,,,,,,,,,,
+E01,Print example tray,,,,,,,,,TBD,

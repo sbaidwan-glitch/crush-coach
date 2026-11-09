@@ -9,6 +9,17 @@ from sqlmodel import SQLModel
 
 import db
 
+TRACKER_COLUMNS = (
+    "description",
+    "dependencies",
+    "exploratory_questions",
+    "skills",
+    "requirements",
+    "people_to_ask",
+    "documentation",
+    "due_date",
+)
+
 
 @pytest.fixture
 def fresh_engine(tmp_path):
@@ -34,6 +45,7 @@ def test_upgrade_creates_task_table(fresh_engine):
         "stage",
         "owner",
         "status",
+        *TRACKER_COLUMNS,
     }
     assert columns["owner"]["nullable"] is True
     assert columns["code"]["nullable"] is False
@@ -91,9 +103,26 @@ def test_downgrade_removes_task_table(fresh_engine):
     assert "task" not in inspect(fresh_engine).get_table_names()
 
 
-def test_downgrade_one_step_removes_only_the_coach_tables(fresh_engine):
+def test_tracker_columns_are_nullable_text(fresh_engine):
+    db.run_migrations(fresh_engine)
+    columns = {c["name"]: c for c in inspect(fresh_engine).get_columns("task")}
+    for name in TRACKER_COLUMNS:
+        assert columns[name]["nullable"] is True
+
+
+def test_downgrade_one_step_removes_only_the_tracker_columns(fresh_engine):
     db.run_migrations(fresh_engine)
     command.downgrade(db.alembic_config(fresh_engine), "-1")
+    inspector = inspect(fresh_engine)
+    task_columns = {c["name"] for c in inspector.get_columns("task")}
+    assert task_columns.isdisjoint(TRACKER_COLUMNS)
+    assert {"code", "title", "owner"} <= task_columns
+    assert "coach_message" in inspector.get_table_names()
+
+
+def test_downgrade_two_steps_removes_only_the_coach_tables(fresh_engine):
+    db.run_migrations(fresh_engine)
+    command.downgrade(db.alembic_config(fresh_engine), "0001")
     tables = inspect(fresh_engine).get_table_names()
     assert "task" in tables
     assert "coach_message" not in tables and "llm_call" not in tables

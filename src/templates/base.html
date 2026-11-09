@@ -9,12 +9,15 @@
     <script src="/static/htmx.min.js" defer></script>
     <script src="/static/coach.js" defer></script>
   </head>
-  <body>
+  <body{% block body_attrs %}{% endblock %}>
     <header>
       <p class="team">MuddSub mechanical team</p>
       <nav aria-label="Main">
         <a href="/"{% if request.url.path == "/" %} aria-current="page"{% endif %}>Home</a>
         <a href="/tasks"{% if request.url.path == "/tasks" %} aria-current="page"{% endif %}>Tasks</a>
+        {% if user and user.role == "lead" %}
+        <a href="/admin/import"{% if request.url.path.startswith("/admin/import") %} aria-current="page"{% endif %}>Import tasks</a>
+        {% endif %}
         {% if user %}
         <span class="signed-in">
           {{ user.name }}{% if user.role == "lead" %} (lead){% endif %}

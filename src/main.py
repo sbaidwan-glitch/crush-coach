@@ -4,11 +4,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
+import admin
 import auth
 import board
 import coach
@@ -47,6 +50,20 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(auth.router)
 app.include_router(board.router)
 app.include_router(coach.router)
+app.include_router(admin.router)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def html_for_forbidden(request: Request, exc: StarletteHTTPException):
+    """A 403 is a page a person reads (leads only), not JSON."""
+    if exc.status_code == 403:
+        return templates.TemplateResponse(
+            request,
+            "forbidden.html",
+            {"user": auth.session_user(request)},
+            status_code=403,
+        )
+    return await http_exception_handler(request, exc)
 
 
 @app.get("/health")

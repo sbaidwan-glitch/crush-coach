@@ -122,6 +122,83 @@ def test_board_links_each_task_to_its_page(task, client):
     assert 'href="/tasks/M04"' in html
 
 
+def fill_details(session, task):
+    task.description = "Cut two panels.\nDeburr the edges."
+    task.dependencies = "M01 first"
+    task.exploratory_questions = "Which stock?"
+    task.skills = "Waterjet basics"
+    task.requirements = "Flat to spec"
+    task.people_to_ask = "Riley Sample"
+    task.documentation = f"See {LINK} and <b>notes</b>"
+    task.due_date = "Week 3"
+    session.add(task)
+    session.commit()
+
+
+def test_task_page_shows_the_tracker_details(task, client, session):
+    fill_details(session, task)
+
+    page = client.get("/tasks/M04").text
+
+    assert "<h2 id=\"details-heading\">Details</h2>" in page
+    for label in ("Description", "Dependencies", "Exploratory questions", "Skills learned",
+                  "Requirements", "People to ask", "Documentation", "Due date"):
+        assert f"<dt>{label}</dt>" in page
+    assert "Cut two panels.\nDeburr the edges." in page
+    assert "Riley Sample" in page and "Week 3" in page
+    # Google links are clickable; any other markup in a cell is escaped.
+    assert f'<a href="{LINK}"' in page
+    assert "&lt;b&gt;notes&lt;/b&gt;" in page
+    assert "<b>notes</b>" not in page
+
+
+def test_task_page_omits_details_that_are_empty(task, client, session):
+    task.skills = "Waterjet basics"
+    session.add(task)
+    session.commit()
+
+    page = client.get("/tasks/M04").text
+
+    assert "<dt>Skills learned</dt>" in page
+    assert "<dt>Description</dt>" not in page
+    assert "<dt>Due date</dt>" not in page
+
+
+def test_task_page_has_no_details_section_without_tracker_text(task, client):
+    assert "details-heading" not in client.get("/tasks/M04").text
+
+
+def test_coach_is_told_the_tracker_details(monkeypatch, task, client, session):
+    fill_details(session, task)
+    model = script(monkeypatch, fake.reply("Ask Riley Sample first."))
+
+    response = ask(client)
+
+    assert response.status_code == 200
+    system = model.requests[0]["messages"][0]["content"]
+    assert "- Code: M04" in system
+    assert "- Description: Cut two panels. Deburr the edges." in system  # one line
+    assert "- Dependencies: M01 first" in system
+    assert "- Exploratory questions: Which stock?" in system
+    assert "- Skills learned: Waterjet basics" in system
+    assert "- Requirements: Flat to spec" in system
+    assert "- People to ask: Riley Sample" in system
+    assert "- Due date: Week 3" in system
+    assert LINK in system
+
+
+def test_coach_context_skips_empty_fields_and_shortens_long_ones(task, session):
+    import coach
+
+    assert list(coach.task_context(task)) == ["Code", "Title", "Subsystem", "Type", "Stage"]
+
+    task.description = "word " * 1000
+    context = coach.task_context(task)
+
+    assert len(context["Description"]) < coach.MAX_CONTEXT_FIELD_CHARS + 30
+    assert context["Description"].endswith("(shortened)")
+
+
 def test_unknown_task_is_a_plain_404(client, session):
     response = client.get("/tasks/ZZ99")
 

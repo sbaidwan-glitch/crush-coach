@@ -37,7 +37,8 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - `src/board.py`, `src/templates/`: the `/tasks` board (Jinja2 templates; pages are server-rendered)
 - `src/coach.py`, `src/templates/task.html`: the `/tasks/{code}` page and its coach chat (htmx; `src/static/htmx.min.js` is vendored, v2.0.7, no CDN)
 - `src/llm.py`, `src/prompts/coach_system.md`: model client, Drive tools, the coach's system prompt
-- `src/import_tasks.py`, `src/sample_data/`: one-time CSV import and its made-up sample tasks
+- `src/import_tasks.py`, `src/sample_data/`: CSV parsing, subsystem/type guesses and saving (real tracker export or the made-up sample); also the CLI import
+- `src/admin.py`, `src/templates/admin_import*.html`: lead-only `/admin/import` (upload, preview, then Import); leads are `LEAD_EMAILS`, everyone else gets 403
 - `src/migrations/`: Alembic migrations (`versions/`); `src/alembic.ini` is the config
 - `PROCESS.md`: design process log (written with the /reflect skill; don't edit it otherwise)
 - `process/`: sketches and screenshots linked from PROCESS.md
