@@ -10,26 +10,35 @@
     <script src="/static/coach.js" defer></script>
   </head>
   <body>
-    <header>
-      <p class="team">MuddSub mechanical team</p>
-      <nav aria-label="Main">
-        <a href="/"{% if request.url.path == "/" %} aria-current="page"{% endif %}>Home</a>
-        <a href="/tasks"{% if request.url.path == "/tasks" %} aria-current="page"{% endif %}>Tasks</a>
-        {% if user %}
-        <span class="signed-in">
-          {{ user.name }}{% if user.role == "lead" %} (lead){% endif %}
-        </span>
-        <a href="/logout">Log out</a>
-        {% else %}
-        <a href="/login">Sign in with Google</a>
-        {% endif %}
-      </nav>
+    <a class="skip-link" href="#main">Skip to main content</a>
+    <header class="masthead">
+      {# Decorative range rings: faint hairlines, no meaning. #}
+      <svg class="rings" viewBox="0 0 400 140" preserveAspectRatio="xMaxYMin slice" aria-hidden="true" focusable="false">
+        {% for r in (30, 60, 90, 120, 150, 180) %}<circle cx="340" cy="20" r="{{ r }}"/>{% endfor %}
+        <path d="M340 0V140M100 20H400"/>
+      </svg>
+      <div class="masthead-inner">
+        <p class="team">MuddSub mechanical team</p>
+        <p class="wordmark"><a href="/">Crush Coach</a></p>
+        <nav aria-label="Main">
+          <a href="/"{% if request.url.path == "/" %} aria-current="page"{% endif %}>Home</a>
+          <a href="/tasks"{% if request.url.path.startswith("/tasks") %} aria-current="page"{% endif %}>Tasks</a>
+          {% if user %}
+          <span class="nav-user">
+            <span class="signed-in">{{ user.name }}{% if user.role == "lead" %} (lead){% endif %}</span>
+            <a href="/logout">Log out</a>
+          </span>
+          {% else %}
+          <span class="nav-user"><a href="/login">Sign in with Google</a></span>
+          {% endif %}
+        </nav>
+      </div>
     </header>
-    <main>
+    <main id="main">
       {% block main %}{% endblock %}
     </main>
-    <footer>
-      <p>Task tracker for Crush, the MuddSub AUV.</p>
+    <footer class="site-footer">
+      <p class="site-footer-inner">Task tracker for Crush, the MuddSub AUV.</p>
     </footer>
   </body>
 </html>

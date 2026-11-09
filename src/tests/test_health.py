@@ -23,7 +23,8 @@ def test_index_is_accessible_html():
     assert "<title>Crush Coach</title>" in html
     assert '<html lang="en">' in html
     assert 'name="viewport"' in html
-    assert "<main>" in html
+    assert '<main id="main">' in html
+    assert 'href="#main"' in html  # skip link
     assert html.count("<h1>") == 1
 
 

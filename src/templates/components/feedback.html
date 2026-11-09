@@ -1,0 +1,22 @@
+{# Feedback: notices, empty states, error states and the loading indicator. #}
+{% from "components/icons.html" import icon %}
+
+{# A short message in a flow. kind: "note" (role=status) or "error" (role=alert). #}
+{% macro notice(text, kind="note") -%}
+<p class="notice notice-{{ kind }}" role="{{ 'alert' if kind == 'error' else 'status' }}">{{ icon(kind) }}<span>{{ text }}</span></p>
+{%- endmacro %}
+
+{# Nothing here yet. Says what is missing and, when there is one, what to do about it. #}
+{% macro empty_state(text, href=None, action=None) -%}
+<div class="state state-empty">{{ icon("empty") }}<div class="state-body"><p>{{ text }}</p>{% if href %}<p><a href="{{ href }}">{{ action }}</a></p>{% endif %}</div></div>
+{%- endmacro %}
+
+{# Something failed. Says plainly what, and the rest of the page keeps working. #}
+{% macro error_state(text, href=None, action=None) -%}
+<div class="state state-error" role="alert">{{ icon("error") }}<div class="state-body"><p>{{ text }}</p>{% if href %}<p><a href="{{ href }}">{{ action }}</a></p>{% endif %}</div></div>
+{%- endmacro %}
+
+{# Shown while an htmx request is in flight (htmx adds .htmx-request to the form). #}
+{% macro loading_indicator(id, text) -%}
+<span id="{{ id }}" class="htmx-indicator loading" role="status">{{ icon("coach") }}<span>{{ text }}</span></span>
+{%- endmacro %}

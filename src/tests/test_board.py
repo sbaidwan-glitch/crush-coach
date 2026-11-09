@@ -57,9 +57,43 @@ def test_lists_tasks_grouped_by_subsystem_in_order(session, client):
         < html.index("Gripper thing")
         < html.index("Torpedo thing")
     )
-    assert "Owner: Sam Example" in html
+    assert "<dt>Owner</dt><dd>Sam Example</dd>" in html
     assert "Unclaimed" in html
     assert "Showing 3 of 3 tasks." in html
+
+
+def test_empty_board_says_so_and_how_it_gets_filled(session, client):
+    response = client.get("/tasks")
+
+    assert response.status_code == 200
+    assert "No tasks yet." in response.text
+    assert '<label for="status">Status</label>' in response.text  # filter still there
+
+
+def test_each_subsystem_shows_done_and_total_for_all_its_tasks(session, client):
+    add(session, "M01", "One", "Enclosure", status="done")
+    add(session, "M02", "Two", "Enclosure", status="todo")
+    add(session, "M03", "Three", "Enclosure", status="done")
+
+    html = client.get("/tasks", params={"status": "todo"}).text
+
+    # The gauge counts every task in the subsystem, not just the filtered view.
+    assert "2 of 3 done" in html
+    assert html.count('class="tick on"') == 2
+    assert html.count('class="tick"') == 1
+
+
+def test_subsystem_progress_counts_done_over_all_tasks():
+    tasks = [
+        Task(code="M01", title="a", subsystem="Enclosure", task_type="Design", stage="x", status="done"),
+        Task(code="M02", title="b", subsystem="Enclosure", task_type="Design", stage="x"),
+    ]
+
+    progress = board.subsystem_progress(tasks)
+
+    assert progress["Enclosure"] == {"done": 1, "total": 2}
+    assert progress["Torpedo"] == {"done": 0, "total": 0}
+    assert list(progress) == list(SUBSYSTEMS)
 
 
 def test_empty_subsystems_still_appear(session, client):
@@ -112,7 +146,7 @@ def test_page_is_accessible_and_phone_friendly(session, client):
     assert '<html lang="en">' in html
     assert 'name="viewport" content="width=device-width, initial-scale=1"' in html
     assert "<title>Tasks – Crush Coach</title>" in html
-    assert "<main>" in html
+    assert '<main id="main">' in html
     assert html.count("<h1>") == 1
     assert '<label for="status">Status</label>' in html
     assert '<nav aria-label="Main">' in html

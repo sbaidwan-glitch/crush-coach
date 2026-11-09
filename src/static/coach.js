@@ -3,8 +3,9 @@
 (function () {
   function showError(text) {
     var box = document.getElementById("coach-error");
-    if (box) {
-      box.textContent = text;
+    var message = document.getElementById("coach-error-text");
+    if (box && message) {
+      message.textContent = text;
       box.hidden = false;
     }
   }

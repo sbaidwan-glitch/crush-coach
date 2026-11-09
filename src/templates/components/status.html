@@ -1,0 +1,5 @@
+{# Status label: an icon and words, never color alone. `value` is todo, in_progress or done. #}
+{% from "components/icons.html" import icon %}
+{% macro status_label(value, label) -%}
+<span class="status status-{{ value }}">{{ icon(value) }}<span>{{ label }}</span></span>
+{%- endmacro %}

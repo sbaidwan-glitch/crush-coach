@@ -1,0 +1,18 @@
+{# One turn of the coach thread. `m` has role, member, content, notes and sources. #}
+{% from "components/icons.html" import icon %}
+{% from "components/feedback.html" import notice %}
+{% from "components/readout.html" import readout %}
+{% macro coach_message(m) -%}
+<article class="msg msg-{{ m.role }}">
+  <h3 class="msg-who">{% if m.role == "user" %}{{ m.member }}{% else %}{{ icon("coach") }}<span>Coach</span>{% endif %}</h3>
+  <p class="msg-body">{{ m.content | linkify }}</p>
+  {% for note in m.notes %}{{ notice(note) }}{% endfor %}
+  {% if m.sources %}
+  <dl class="readout">
+    {% for s in m.sources %}
+    <div class="wide"><dt>Source</dt><dd><a href="{{ s.link }}" target="_blank" rel="noopener noreferrer">{{ s.title }}</a>{% if s.modified %}<span class="source-meta">modified {{ s.modified }}</span>{% endif %}</dd></div>
+    {% endfor %}
+  </dl>
+  {% endif %}
+</article>
+{%- endmacro %}

@@ -1,0 +1,8 @@
+{# Depth gauge: one tick per task, done ticks taller and brighter. The words carry the data;
+   the ticks are decoration for sighted users, so they are aria-hidden. #}
+{% macro gauge(done, total) -%}
+<div class="gauge">
+  <p class="gauge-text">{{ done }} of {{ total }} done</p>
+  <span class="ticks" style="--total: {{ total }}" aria-hidden="true">{% for i in range(total) %}<span class="tick{% if i < done %} on{% endif %}"></span>{% endfor %}</span>
+</div>
+{%- endmacro %}
