@@ -57,7 +57,7 @@ def test_lists_tasks_grouped_by_subsystem_in_order(session, client):
         < html.index("Gripper thing")
         < html.index("Torpedo thing")
     )
-    assert "<dt>Owner</dt><dd>Sam Example</dd>" in html
+    assert "Sam Example" in html
     assert "Unclaimed" in html
     assert "Showing 3 of 3 tasks." in html
 

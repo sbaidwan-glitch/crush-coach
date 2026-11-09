@@ -76,12 +76,26 @@ def test_text_colors_meet_wcag_aa_on_both_surfaces():
     assert contrast(t["--color-muted"], t["--color-bg"]) >= 3
 
 
+def test_every_font_ships_with_its_open_font_license():
+    fonts = STATIC / "fonts"
+    licenses = {p.name: p.read_text() for p in fonts.glob("OFL-*.txt")}
+
+    assert set(licenses) == {"OFL-michroma.txt", "OFL-hubot-sans.txt", "OFL-space-mono.txt"}
+    for name, text in licenses.items():
+        assert "SIL Open Font License" in text, name
+        assert "Copyright" in text, name
+    # Every font file belongs to a licensed family.
+    for font in fonts.glob("*.woff2"):
+        family = font.name.rsplit("-", 1)[0]
+        assert fonts / f"OFL-{family}.txt" in set(fonts.glob("OFL-*.txt")), font.name
+
+
 def test_fonts_are_self_hosted():
     for font in (
-        "redaction-35-400.woff2",
-        "redaction-35-700.woff2",
+        "michroma-400.woff2",
         "hubot-sans-wdth.woff2",
-        "martian-mono-wght.woff2",
+        "space-mono-400.woff2",
+        "space-mono-700.woff2",
     ):
         assert (STATIC / "fonts" / font).exists()
     assert "fonts.googleapis.com" not in STYLE
