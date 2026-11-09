@@ -26,6 +26,18 @@
   ]) }}
 </div>
 
+{% if details %}
+<section aria-labelledby="details-heading">
+  <h2 id="details-heading">Details</h2>
+  <dl class="task-details">
+    {% for label, value in details %}
+    <dt>{{ label }}</dt>
+    <dd>{% if label == "Documentation" %}{{ value | linkify }}{% else %}{{ value }}{% endif %}</dd>
+    {% endfor %}
+  </dl>
+</section>
+{% endif %}
+
 <section aria-labelledby="coach-heading" class="coach">
   <h2 id="coach-heading">Coach</h2>
   <p class="fine">The coach advises and asks questions; your lead approves. It answers from the team Drive and links its sources. Limit: {{ daily_limit }} messages per person per day.</p>

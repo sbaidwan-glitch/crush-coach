@@ -660,3 +660,109 @@ main {
   align-items: center;
   gap: var(--space-2) var(--space-4);
 }
+
+/* ---------- Task details (from the tracker) ---------- */
+.task-details {
+  display: grid;
+  gap: var(--space-1);
+  max-width: var(--measure);
+  margin-top: var(--space-3);
+}
+
+.task-details dt {
+  margin-top: var(--space-3);
+}
+
+.task-details dd {
+  white-space: pre-line; /* keep the line breaks from the sheet cell */
+}
+
+/* ---------- Lead import ---------- */
+.import-form {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+}
+
+.import-form label {
+  font-weight: var(--weight-medium);
+}
+
+.import-form input[type="file"],
+.import-table select {
+  min-height: var(--target);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg);
+  color: var(--color-ink);
+  border: 1px solid var(--color-muted);
+  border-radius: var(--radius);
+  font: var(--weight-regular) var(--text-sm) / var(--leading-body) var(--font-mono);
+}
+
+.import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-5);
+  margin: var(--space-4) 0;
+}
+
+.import-actions a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target);
+}
+
+.table-wrap {
+  overflow-x: auto;
+  margin: var(--space-4) 0;
+  border: 1px solid var(--color-hairline);
+}
+
+.import-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.import-table caption {
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-muted);
+  text-align: left;
+}
+
+.import-table th,
+.import-table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  vertical-align: top;
+  border-top: 1px solid var(--color-hairline);
+}
+
+.import-table thead th {
+  color: var(--color-muted);
+  font: var(--weight-regular) var(--text-xs) / var(--leading-body) var(--font-mono);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+/* Problem rows: an alert rule on the left, not color alone (the row also lists its error). */
+.row-error th {
+  border-left: var(--border-thick) solid var(--color-alert);
+}
+
+.row-exists {
+  color: var(--color-muted);
+}
+
+.problem-list {
+  display: grid;
+  gap: var(--space-1);
+  padding-left: var(--space-4);
+  list-style: disc;
+}
+
+.code {
+  font-family: var(--font-mono);
+}

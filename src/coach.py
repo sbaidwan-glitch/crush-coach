@@ -26,7 +26,14 @@ from sqlmodel import Session, func, select
 import db
 import llm
 from auth import CurrentUser, User
-from models import STATUS_LABELS, CoachMessage, LlmCall, Task, utc_now
+from models import (
+    STATUS_LABELS,
+    TASK_DETAIL_LABELS,
+    CoachMessage,
+    LlmCall,
+    Task,
+    utc_now,
+)
 
 log = logging.getLogger("crush_coach")
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
@@ -36,6 +43,7 @@ DEFAULT_DAILY_LIMIT = 20
 DEFAULT_TIMEZONE = "America/Los_Angeles"
 HISTORY_TURNS = 10  # earlier messages sent to the model
 MAX_MESSAGE_CHARS = 2000
+MAX_CONTEXT_FIELD_CHARS = 1500  # per tracker field sent to the model
 
 # Only Google links become clickable: the model's text can't plant other links.
 _GOOGLE_URL = re.compile(r"https://(?:docs|drive)\.google\.com/[^\s<]+")
@@ -86,6 +94,33 @@ def day_start_utc() -> datetime:
 
 
 # --- helpers ---
+
+
+def task_details(task: Task) -> list[tuple[str, str]]:
+    """(label, text) for each tracker field that has text, in display order."""
+    found = []
+    for name, label in TASK_DETAIL_LABELS.items():
+        value = (getattr(task, name) or "").strip()
+        if value:
+            found.append((label, value))
+    return found
+
+
+def task_context(task: Task) -> dict[str, str]:
+    """What the coach is told about the task. Tracker text is one line per field."""
+    context = {
+        "Code": task.code,
+        "Title": task.title,
+        "Subsystem": task.subsystem,
+        "Type": task.task_type,
+        "Stage": task.stage,
+    }
+    for label, value in task_details(task):
+        flat = " ".join(value.split())
+        if len(flat) > MAX_CONTEXT_FIELD_CHARS:
+            flat = flat[:MAX_CONTEXT_FIELD_CHARS].rstrip() + "… (shortened)"
+        context[label] = flat
+    return context
 
 
 def _view(message: CoachMessage, user: User) -> dict:
@@ -150,6 +185,7 @@ def _render_page(
         "task": task,
         "code": code,
         "status_labels": STATUS_LABELS,
+        "details": task_details(task) if task is not None else [],
         "messages": messages,
         "daily_limit": daily_limit(),
         "page_error": page_error,
@@ -245,13 +281,7 @@ def ask_coach(
     llm_error: str | None = None
     try:
         answer = llm.run_coach(
-            {
-                "Code": task.code,
-                "Title": task.title,
-                "Subsystem": task.subsystem,
-                "Type": task.task_type,
-                "Stage": task.stage,
-            },
+            task_context(task),
             history,
             message,
             record=calls.append,

@@ -22,6 +22,19 @@ STATUS_LABELS = {"todo": "To do", "in_progress": "In progress", "done": "Done"}
 STATUSES = tuple(STATUS_LABELS)
 
 
+# Task text fields from the tracker, in display order, with their labels.
+TASK_DETAIL_LABELS = {
+    "description": "Description",
+    "dependencies": "Dependencies",
+    "exploratory_questions": "Exploratory questions",
+    "skills": "Skills learned",
+    "requirements": "Requirements",
+    "people_to_ask": "People to ask",
+    "documentation": "Documentation",
+    "due_date": "Due date",
+}
+
+
 class Task(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     code: str = Field(index=True, unique=True)  # e.g. "M04"
@@ -31,6 +44,15 @@ class Task(SQLModel, table=True):
     stage: str
     owner: str | None = None
     status: str = "todo"
+    # Free-text fields from the team's tracker; the coach and task page show them.
+    description: str | None = None
+    dependencies: str | None = None
+    exploratory_questions: str | None = None
+    skills: str | None = None
+    requirements: str | None = None
+    people_to_ask: str | None = None
+    documentation: str | None = None
+    due_date: str | None = None  # text on purpose: the tracker has "Week 3", "TBD", ...
 
 
 class CoachMessage(SQLModel, table=True):

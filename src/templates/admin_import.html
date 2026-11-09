@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Import tasks – Crush Coach{% endblock %}
+{% block main %}
+<h1>Import tasks</h1>
+<p>Upload a CSV export of the tracker’s “Mechanical Tasks” or “Mission Actuators” tab (Google Sheets: File → Download → Comma-separated values). The simple sample format works too.</p>
+<p class="count">You’ll see every row first. Nothing is saved until you click Import, and tasks that already exist are skipped, never changed.</p>
+
+{% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
+
+<form class="import-form" method="post" action="/admin/import/preview" enctype="multipart/form-data">
+  <label for="import-file">Tracker CSV file</label>
+  <input id="import-file" type="file" name="file" accept=".csv,text/csv" required>
+  <button class="btn btn-primary" type="submit">Preview</button>
+</form>
+{% endblock %}

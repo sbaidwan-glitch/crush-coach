@@ -23,6 +23,9 @@
         <nav aria-label="Main">
           <a href="/"{% if request.url.path == "/" %} aria-current="page"{% endif %}>Home</a>
           <a href="/tasks"{% if request.url.path.startswith("/tasks") %} aria-current="page"{% endif %}>Tasks</a>
+          {% if user and user.role == "lead" %}
+          <a href="/admin/import"{% if request.url.path.startswith("/admin/import") %} aria-current="page"{% endif %}>Import tasks</a>
+          {% endif %}
           {% if user %}
           <span class="nav-user">
             <span class="signed-in">{{ user.name }}{% if user.role == "lead" %} (lead){% endif %}</span>

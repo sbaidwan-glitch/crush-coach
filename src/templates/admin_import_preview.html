@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Preview import – Crush Coach{% endblock %}
+{% block main %}
+<h1>Preview import</h1>
+<p class="count">File: {{ filename }}. <strong>Nothing has been saved yet.</strong></p>
+<p role="status">
+  {{ ready_count }} ready to import, {% if needs_subsystem_count %}{{ needs_subsystem_count }} need a subsystem (choose one below or they are skipped), {% endif %}{{ exists_count }} already in the tracker (will be skipped), {{ problems | length }} with problems (will be skipped).
+</p>
+
+{% if problems %}
+<section aria-labelledby="problems-heading">
+  <h2 id="problems-heading">Rows with problems</h2>
+  <ul class="problem-list">
+    {% for row in problems %}
+    <li>Line {{ row.line }}{% if row.code %} (<span class="code">{{ row.code }}</span>){% endif %}: {{ row.error }}</li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% if rows %}
+<form method="post" action="/admin/import/confirm">
+  <input type="hidden" name="rows_json" value="{{ rows_json }}">
+  {% if is_tracker %}
+  <p class="count">The tracker has no subsystem or type column, so these are guesses from the title. Fix any that are wrong before importing.</p>
+  {% endif %}
+  <div class="table-wrap" tabindex="0" role="region" aria-label="Rows to import (scrolls sideways on small screens)">
+    <table class="import-table">
+      <caption>Rows found in {{ filename }}</caption>
+      <thead>
+        <tr>
+          <th scope="col">Line</th>
+          <th scope="col">Code</th>
+          <th scope="col">Title</th>
+          <th scope="col">Owner</th>
+          <th scope="col">Subsystem</th>
+          <th scope="col">Type</th>
+          <th scope="col">Result</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in rows %}
+        {% set row = item.row %}
+        <tr{% if row.error %} class="row-error"{% elif item.exists %} class="row-exists"{% endif %}>
+          <td>{{ row.line }}</td>
+          <th scope="row"><span class="code">{{ row.code or "(blank)" }}</span></th>
+          <td>{{ row.title }}</td>
+          <td>{{ row.owner or "" }}</td>
+          {% if row.error or item.exists %}
+          <td>{{ row.subsystem or "" }}</td>
+          <td>{{ row.task_type or "" }}</td>
+          <td>{% if row.error %}Problem: {{ row.error }}{% else %}Already exists: will be skipped{% endif %}</td>
+          {% else %}
+          <td>
+            <select name="subsystem_{{ item.index }}" aria-label="Subsystem for {{ row.code }}">
+              {% if not row.subsystem %}<option value="" selected>Choose…</option>{% endif %}
+              {% for name in subsystems %}
+              <option value="{{ name }}"{% if row.subsystem == name %} selected{% endif %}>{{ name }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td>
+            <select name="task_type_{{ item.index }}" aria-label="Type for {{ row.code }}">
+              {% for name in task_types %}
+              <option value="{{ name }}"{% if row.task_type == name %} selected{% endif %}>{{ name }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td>Will be added</td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="import-actions">
+    <button class="btn btn-primary" type="submit">Import tasks</button>
+    <a href="/admin/import">Cancel and choose another file</a>
+  </div>
+</form>
+{% endif %}
+{% endblock %}
