@@ -1,0 +1,75 @@
+/* Design tokens for Crush Coach (docs/design.md).
+   The only file allowed to hold raw colors, sizes and radii. Everything else uses var(--...).
+
+   Direction: "Sounding". One navy hue in five value steps, one signal accent reserved for
+   the coach, one alert used only for errors and blocked states. Ocean identity comes from
+   color and type; there are no decorative water effects. */
+
+:root {
+  color-scheme: dark;
+
+  /* Color: one navy hue, five steps that differ in value. */
+  --color-bg: #0b1119;
+  --color-raised: #111b27;
+  --color-hairline: #22374f; /* decorative: rules, rings, ticks. Never the only cue. */
+  --color-muted: #97acc4; /* secondary text, labels, control edges (8.1:1 on bg) */
+  --color-ink: #eaeff6; /* primary text (16.4:1 on bg) */
+
+  /* The coach, and only the coach (12.0:1 on bg). */
+  --color-coach: #5ae0ee;
+  --color-on-coach: var(--color-bg);
+
+  /* Errors and blocked states only, always with an icon and words (5.6:1 on bg). */
+  --color-alert: #f2545b;
+
+  /* Type */
+  --font-display: "Hubot Sans", system-ui, sans-serif;
+  --font-body: "Hubot Sans", system-ui, sans-serif;
+  --font-mono: "Martian Mono", ui-monospace, monospace;
+  --display-stretch: 75%;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-bold: 700;
+
+  /* Modular scale, ratio 1.25 (major third) from a 16px base. */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --step-1: 1.25rem;
+  --step-2: 1.563rem;
+  --step-3: 1.953rem;
+  --step-4: 2.441rem;
+  --h1-size: clamp(var(--step-3), 8vw, var(--step-4));
+
+  --leading-tight: 1.15;
+  --leading-body: 1.55;
+  --track-label: 0.12em; /* wide, small-caps style labels */
+  --track-mono: 0.04em;
+  --track-display: -0.015em; /* tight display */
+
+  /* Space */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+
+  /* Size */
+  --target: 2.75rem; /* minimum touch target */
+  --icon: 1.125rem;
+  --page-max: 64rem;
+  --measure: 65ch;
+  --card-min: 18rem;
+  --textarea-min: 7rem;
+  --tick-width: 2px;
+  --tick-height: 0.875rem;
+  --tick-pitch: 1rem;
+
+  /* Shape. Hairlines are 1px borders and stay literal in rules. */
+  --radius: 2px;
+  --radius-round: 50%;
+  --border-thick: 2px;
+  --shadow: none; /* flat: structure comes from hairlines, not shadows */
+}
