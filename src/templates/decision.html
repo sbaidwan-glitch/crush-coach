@@ -38,17 +38,17 @@
 <p>Supersedes <a href="/decisions/{{ old.id }}">D{{ old.id }}: {{ old.topic }}</a>.</p>
 {% endfor %}
 
-<section aria-labelledby="decision-heading">
+<section aria-labelledby="decision-heading" class="decision-section">
   <h2 id="decision-heading">Decision</h2>
   <p class="prose">{{ decision.decision }}</p>
 </section>
 
-<section aria-labelledby="rationale-heading">
+<section aria-labelledby="rationale-heading" class="decision-section">
   <h2 id="rationale-heading">Rationale</h2>
   <p class="prose">{{ decision.rationale }}</p>
 </section>
 
-<section aria-labelledby="alternatives-heading">
+<section aria-labelledby="alternatives-heading" class="decision-section">
   <h2 id="alternatives-heading">Alternatives considered</h2>
   {% if decision.alternatives %}
   <dl class="task-details">
@@ -62,7 +62,7 @@
   {% endif %}
 </section>
 
-<section aria-labelledby="sources-heading">
+<section aria-labelledby="sources-heading" class="decision-section">
   <h2 id="sources-heading">Sources</h2>
   {% if decision.sources %}
   <dl class="readout">
@@ -75,7 +75,7 @@
   {% endif %}
 </section>
 
-<section aria-labelledby="tasks-heading">
+<section aria-labelledby="tasks-heading" class="decision-section">
   <h2 id="tasks-heading">Related tasks</h2>
   {% if task_codes %}
   <ul class="plain-list">

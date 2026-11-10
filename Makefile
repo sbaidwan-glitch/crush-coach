@@ -18,7 +18,7 @@ dev:   ## run the API on :8000 (from src/)
 test:  ## run the tests (from src/; no server needed)
 	cd src && ../.venv/bin/pytest -q
 
-screenshots:  ## screenshot /, /tasks and /tasks/M04 at 375px and 1280px into .context/screenshots/
+screenshots:  ## screenshot the main pages (incl. decisions) at 375px and 1280px into .context/screenshots/
 	cd src && ../.venv/bin/python scripts/screenshots.py
 
 # Package a tagged snapshot for Canvas.

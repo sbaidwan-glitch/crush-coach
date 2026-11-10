@@ -866,3 +866,20 @@ main {
 .task-decisions {
   margin-top: var(--space-6);
 }
+
+.decision-section {
+  margin-top: var(--space-5);
+}
+
+.decision-section h2 {
+  margin-bottom: var(--space-2);
+}
+
+.decision-form .btn {
+  justify-self: start;
+}
+
+.readout + .notice,
+.readout + p {
+  margin-top: var(--space-3);
+}

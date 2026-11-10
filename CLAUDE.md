@@ -20,7 +20,7 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - `docker compose up -d`: local Postgres (matches `DATABASE_URL` in `.env.example`)
 - `make dev`: run the API on :8000 from `src/`
 - `make test`: run tests from `src/`
-- `make screenshots`: screenshot `/`, `/tasks` and `/tasks/M04` at 375px and 1280px into `.context/screenshots/` (gitignored), against a throwaway SQLite database with the sample tasks and a fake signed-in session. One-time setup: `.venv/bin/pip install -r requirements-dev.txt && .venv/bin/playwright install chromium`
+- `make screenshots`: screenshot `/`, `/tasks`, `/tasks/M04` and the decision pages (as a member and as a lead) at 375px and 1280px into `.context/screenshots/` (gitignored), against a throwaway SQLite database with the sample tasks and a fake signed-in session. One-time setup: `.venv/bin/pip install -r requirements-dev.txt && .venv/bin/playwright install chromium`
 - `.venv/bin/ruff check src`: lint
 - `cd src && ../.venv/bin/python scripts/drive_search.py "latch"`: search the team shared drive (metadata only)
 - `cd src && ../.venv/bin/python scripts/ask_coach.py "question"`: ask the coach one real question (real model and Drive; no database)
@@ -40,6 +40,7 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - `src/scripts/screenshots.py`: what `make screenshots` runs; `requirements-dev.txt`: dev-only tools (Playwright), not in the Docker image
 - `src/coach.py`, `src/templates/task.html`: the `/tasks/{code}` page and its coach chat (htmx; `src/static/htmx.min.js` is vendored, v2.0.7, no CDN)
 - `src/llm.py`, `src/prompts/coach_system.md`: model client, Drive tools, the coach's system prompt
+- `src/decisions.py`, `src/templates/decision*.html`, `src/templates/_decision_*.html`: decision records (`/decisions`, a decision's page, the propose form, lead-only accept/supersede) and the `search_confirmed` lookup the coach's `find_decisions` tool uses. `src/prompts/draft_decision.md` is the prompt for "draft a decision from this conversation" (`coach.py`, `llm.draft_decision`)
 - `src/import_tasks.py`, `src/sample_data/`: CSV parsing, subsystem/type guesses and saving (real tracker export or the made-up sample); also the CLI import
 - `src/admin.py`, `src/templates/admin_import*.html`: lead-only `/admin/import` (upload, preview, then Import); leads are `LEAD_EMAILS`, everyone else gets 403
 - `src/migrations/`: Alembic migrations (`versions/`); `src/alembic.ini` is the config
