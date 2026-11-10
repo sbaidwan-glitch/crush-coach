@@ -116,22 +116,23 @@ def test_system_prompt_and_task_are_sent(monkeypatch, drive_calls):
     assert roles == ["system", "user", "user"]
 
 
-def test_at_most_four_tool_calls_per_answer(monkeypatch, drive_calls):
+def test_at_most_six_tool_calls_per_answer(monkeypatch, drive_calls):
+    assert llm.MAX_TOOL_CALLS == 6
     client = use_client(
         monkeypatch,
         [
             fake.tool_request(search_call("a"), search_call("b")),
-            fake.tool_request(search_call("c"), search_call("d"), search_call("e")),
+            fake.tool_request(*[search_call(f"c{i}") for i in range(5)]),
             fake.reply("Here is what I found."),
         ],
     )
 
     answer = llm.run_coach(TASK, [], "latch?")
 
-    assert len(drive_calls["search"]) == 4  # the fifth request was refused
-    assert answer.tool_calls == 4
+    assert len(drive_calls["search"]) == 6  # the seventh request was refused
+    assert answer.tool_calls == 6
     tool_results = [m for m in client.requests[2]["messages"] if m["role"] == "tool"]
-    assert len(tool_results) == 5
+    assert len(tool_results) == 7
     assert "Tool limit reached" in tool_results[-1]["content"]
     # Once the limit is hit the model must answer: more tools are forbidden.
     assert client.requests[2]["tool_choice"] == "none"
@@ -144,14 +145,14 @@ def test_model_that_ignores_tool_choice_gets_a_fallback_answer(
     use_client(
         monkeypatch,
         [
-            fake.tool_request(*[search_call(f"c{i}") for i in range(4)]),
+            fake.tool_request(*[search_call(f"c{i}") for i in range(6)]),
             fake.tool_request(search_call("again")),
         ],
     )
 
     answer = llm.run_coach(TASK, [], "latch?")
 
-    assert len(drive_calls["search"]) == 4
+    assert len(drive_calls["search"]) == 6
     assert "couldn't put an answer together" in answer.text
 
 
@@ -333,3 +334,329 @@ def test_machining_numbers_without_a_source_are_flagged(text):
 
 def test_plain_advice_is_not_flagged():
     assert llm.has_unsourced_numbers("Which stage are you in?", []) is False
+
+
+# --- file types, folders, progress steps ---
+
+FOLDER_ID = "folderCAD1234567890abcdef"
+FOLDER_LINK = f"https://drive.google.com/drive/folders/{FOLDER_ID}"
+ASM_LINK = "https://drive.google.com/file/d/1ASMfileIdAbCdEfGhIj/view"
+
+
+def list_call(call_id="c3", folder="Mechanical/CAD"):
+    return (call_id, "drive_list_folder", json.dumps({"folder": folder}))
+
+
+def typed_search_call(call_id="c1", query="enclosure", file_type="cad"):
+    return (
+        call_id,
+        "drive_search",
+        json.dumps({"query": query, "file_type": file_type}),
+    )
+
+
+def test_tools_offer_file_types_and_folder_listing(monkeypatch):
+    client = use_client(monkeypatch, [fake.reply("Hi")])
+
+    llm.run_coach(TASK, [], "hello")
+
+    tools = {t["function"]["name"]: t["function"] for t in client.requests[0]["tools"]}
+    assert set(tools) == {"drive_search", "drive_list_folder", "drive_read_text"}
+    file_type = tools["drive_search"]["parameters"]["properties"]["file_type"]
+    assert file_type["enum"] == ["cad", "sheets", "docs", "pdf"]
+    assert "file_type" not in tools["drive_search"]["parameters"]["required"]
+    assert tools["drive_list_folder"]["parameters"]["required"] == ["folder"]
+
+
+def test_file_type_reaches_drive_and_plain_searches_do_not_send_one(monkeypatch):
+    seen = []
+
+    def fake_search(query, limit=10, file_type=None):
+        seen.append((query, file_type))
+        return [
+            search_result(
+                link=ASM_LINK,
+                title="MdSb26_Crush_Enclosure.SLDASM",
+                folder="Mechanical / CAD / Finalized",
+            )
+        ]
+
+    monkeypatch.setattr(drive, "search", fake_search)
+    use_client(
+        monkeypatch,
+        [
+            fake.tool_request(typed_search_call(), search_call("c2", "latch")),
+            fake.reply(f"The newest assembly is {ASM_LINK}"),
+        ],
+    )
+
+    answer = llm.run_coach(TASK, [], "Where is the enclosure assembly CAD?")
+
+    assert seen == [("enclosure", "cad"), ("latch", None)]
+    assert [s["title"] for s in answer.sources] == ["MdSb26_Crush_Enclosure.SLDASM"]
+
+
+def test_a_cad_search_may_have_an_empty_query_but_a_search_needs_something(
+    monkeypatch,
+):
+    calls = []
+    monkeypatch.setattr(
+        drive,
+        "search",
+        lambda q, limit=10, file_type=None: calls.append((q, file_type)) or [],
+    )
+    client = use_client(
+        monkeypatch,
+        [
+            fake.tool_request(
+                typed_search_call("c1", query="", file_type="cad"),
+                ("c2", "drive_search", json.dumps({"query": ""})),
+            ),
+            fake.reply("ok"),
+        ],
+    )
+
+    llm.run_coach(TASK, [], "cad?")
+
+    assert calls == [("", "cad")]
+    results = [m for m in client.requests[1]["messages"] if m["role"] == "tool"]
+    assert "needs a query or a file_type" in results[1]["content"]
+
+
+def test_list_folder_tool_returns_entries_and_cites_listed_files(monkeypatch):
+    monkeypatch.setattr(
+        drive,
+        "list_folder",
+        lambda folder, limit=100: {
+            "folder_path": "MuddSub / Mechanical / CAD",
+            "folder_id": FOLDER_ID,
+            "entries": [
+                {
+                    "id": "1ASMfileIdAbCdEfGhIj",
+                    "name": "MdSb26_Crush_Enclosure.SLDASM",
+                    "kind": "cad",
+                    "modified_time": "2026-10-30T00:00:00.000Z",
+                    "link": ASM_LINK,
+                }
+            ],
+            "total": 1,
+            "candidates": [],
+        },
+    )
+    client = use_client(
+        monkeypatch,
+        [
+            fake.tool_request(list_call()),
+            fake.reply(f"It is in MuddSub / Mechanical / CAD: {ASM_LINK}"),
+        ],
+    )
+
+    answer = llm.run_coach(TASK, [], "Where is the CAD?")
+
+    result = json.loads(client.requests[1]["messages"][-1]["content"])
+    assert result["folder_path"] == "MuddSub / Mechanical / CAD"
+    assert result["entries"][0] == {
+        "name": "MdSb26_Crush_Enclosure.SLDASM",
+        "kind": "cad",
+        "modified": "2026-10-30",
+        "link": ASM_LINK,
+        "id": "1ASMfileIdAbCdEfGhIj",
+    }
+    assert [s["link"] for s in answer.sources] == [ASM_LINK]
+    assert not answer.drive_failed
+
+
+def test_ambiguous_folder_path_asks_the_model_to_pick(monkeypatch):
+    monkeypatch.setattr(
+        drive,
+        "list_folder",
+        lambda folder, limit=100: {
+            "folder_path": "",
+            "folder_id": "",
+            "entries": [],
+            "total": 0,
+            "candidates": [
+                {
+                    "id": FOLDER_ID,
+                    "folder_path": "MuddSub / 2026 / CAD",
+                    "modified_time": "2026-10-20T00:00:00.000Z",
+                },
+                {
+                    "id": "folderOLDCAD1234567890ab",
+                    "folder_path": "MuddSub / 2025 / CAD",
+                    "modified_time": "2025-05-01T00:00:00.000Z",
+                },
+            ],
+        },
+    )
+    client = use_client(
+        monkeypatch, [fake.tool_request(list_call(folder="CAD")), fake.reply("ok")]
+    )
+
+    llm.run_coach(TASK, [], "CAD?")
+
+    result = json.loads(client.requests[1]["messages"][-1]["content"])
+    assert [c["folder_path"] for c in result["several_folders_match"]] == [
+        "MuddSub / 2026 / CAD",
+        "MuddSub / 2025 / CAD",
+    ]
+    assert "drive_list_folder again with its id" in result["instruction"]
+
+
+def test_missing_folder_is_not_reported_as_a_drive_failure(monkeypatch):
+    def not_found(folder, limit=100):
+        raise drive.FolderNotFound("No folder matches 'Mechanical/Nope'.")
+
+    monkeypatch.setattr(drive, "list_folder", not_found)
+    client = use_client(
+        monkeypatch,
+        [fake.tool_request(list_call(folder="Mechanical/Nope")), fake.reply("ok")],
+    )
+
+    answer = llm.run_coach(TASK, [], "CAD?")
+
+    assert answer.drive_failed is False
+    result = json.loads(client.requests[1]["messages"][-1]["content"])
+    assert "No folder matches" in result["error"]
+    assert "Do not guess" in result["instruction"]
+
+
+def test_progress_steps_are_reported_in_order(monkeypatch, drive_calls):
+    monkeypatch.setattr(
+        drive,
+        "list_folder",
+        lambda folder, limit=100: {
+            "folder_path": "A / CAD",
+            "folder_id": FOLDER_ID,
+            "entries": [],
+            "total": 0,
+            "candidates": [],
+        },
+    )
+    use_client(
+        monkeypatch,
+        [
+            fake.tool_request(search_call("c1", "enclosure")),
+            fake.tool_request(read_call("c2"), list_call("c3")),
+            fake.reply("Done."),
+        ],
+    )
+    steps = []
+
+    llm.run_coach(TASK, [], "enclosure?", on_step=steps.append)
+
+    assert steps == [
+        "Searching 'enclosure'…",
+        "Writing the answer…",
+        "Reading Latch design notes…",
+        "Looking in the folder Mechanical/CAD…",
+        "Writing the answer…",
+    ]
+
+
+def test_a_broken_progress_callback_does_not_break_the_answer(monkeypatch, drive_calls):
+    use_client(monkeypatch, [fake.tool_request(search_call()), fake.reply("Fine.")])
+
+    def broken(step):
+        raise RuntimeError("boom")
+
+    answer = llm.run_coach(TASK, [], "latch?", on_step=broken)
+
+    assert answer.text == "Fine."
+
+
+# --- no unsupported claims ---
+
+
+def test_empty_search_tells_the_model_what_was_tried_and_not_to_guess(monkeypatch):
+    monkeypatch.setattr(drive, "search", lambda query, limit=10, file_type=None: [])
+    client = use_client(
+        monkeypatch,
+        [
+            fake.tool_request(search_call("c1", "tray layout")),
+            fake.tool_request(typed_search_call("c2", "tray", "cad")),
+            fake.reply("I found nothing."),
+        ],
+    )
+
+    llm.run_coach(TASK, [], "Where is the tray layout?")
+
+    second = json.loads(client.requests[2]["messages"][-1]["content"])
+    assert second["results"] == []
+    assert second["searches_tried"] == ["'tray layout'", "'tray' (cad files)"]
+    assert "list the searches tried" in second["instruction"]
+    assert "Do not guess where the file might be" in second["instruction"]
+
+
+def test_nothing_found_and_an_invented_link_does_not_reach_the_member(monkeypatch):
+    """The search finds nothing, then the model invents a location and a link."""
+    monkeypatch.setattr(drive, "search", lambda query, limit=10, file_type=None: [])
+    invented = "https://docs.google.com/document/d/1MadeUpDocIdThatNoToolReturned/edit"
+    use_client(
+        monkeypatch,
+        [
+            fake.tool_request(search_call("c1", "tray layout")),
+            fake.reply(f"It is probably in Mechanical/CAD, see {invented}."),
+        ],
+    )
+
+    answer = llm.run_coach(TASK, [], "Where is the tray layout?")
+
+    assert invented not in answer.text
+    assert "link removed" in answer.text
+    assert answer.sources == []
+    assert answer.ungrounded_links is True
+
+
+def test_links_that_a_tool_returned_are_kept(monkeypatch, drive_calls):
+    use_client(
+        monkeypatch,
+        [fake.tool_request(search_call()), fake.reply(f"See {DOC_LINK}.")],
+    )
+
+    answer = llm.run_coach(TASK, [], "latch?")
+
+    assert DOC_LINK in answer.text
+    assert answer.ungrounded_links is False
+
+
+def test_the_same_document_under_another_link_shape_is_still_grounded(
+    monkeypatch, drive_calls
+):
+    use_client(
+        monkeypatch,
+        [
+            fake.tool_request(search_call()),
+            fake.reply("See https://docs.google.com/document/d/1AbCdEfGhIjKlMnOp/view"),
+        ],
+    )
+
+    answer = llm.run_coach(TASK, [], "latch?")
+
+    assert answer.ungrounded_links is False
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        # 3. no unsupported claims
+        "Never make claims about where files live, how the team works, or what tools the team uses",
+        "unless a search result or a document you read shows it",
+        "List the searches you tried",
+        "who to ask",
+        # 4. search before asking
+        'Never ask "should I search for it?"',
+        "Ask a clarifying question only after searching",
+        # 5. CAD and spreadsheets
+        "MdSb26_Crush_",
+        ".SLDASM",
+        "`file_type` set to `cad`",
+        "`drive_list_folder`",
+        '"Finalized"',
+        "synonyms and part names",
+        "electronics enclosure",
+        "baseplate",
+    ],
+)
+def test_the_system_prompt_carries_the_coaching_rules(rule):
+    assert rule in llm.system_prompt()

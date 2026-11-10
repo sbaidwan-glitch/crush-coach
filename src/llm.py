@@ -29,7 +29,7 @@ DEFAULT_MODEL = "claude-haiku-4-5"
 DEFAULT_TIMEOUT_SECONDS = 30.0
 SYSTEM_PROMPT_PATH = Path(__file__).parent / "prompts" / "coach_system.md"
 
-MAX_TOOL_CALLS = 4  # per answer
+MAX_TOOL_CALLS = 6  # per answer: search, browse CAD folders, list one, read
 MAX_SEARCH_RESULTS = 8
 MAX_DOC_CHARS = 12_000
 OLD_AFTER_YEARS = 2  # a source older than this is flagged possibly_old
@@ -44,14 +44,45 @@ TOOLS: list[dict[str, Any]] = [
             "description": (
                 "Search the team's shared Google Drive by file name and document "
                 "text. Use one or two short keywords (e.g. 'latch', 'O-ring "
-                "groove'). Returns titles, links, folder paths and modified dates."
+                "groove'). Set file_type to keep only one kind of file: 'cad' "
+                "(.SLDASM, .SLDPRT, .SLDDRW, .STEP, .STP), 'sheets', 'docs' or "
+                "'pdf'. For cad, query matches file names only and may be empty "
+                "to list the newest CAD files. Returns titles, links, folder "
+                "paths and modified dates."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "Short keywords."}
+                    "query": {"type": "string", "description": "Short keywords."},
+                    "file_type": {
+                        "type": "string",
+                        "enum": list(drive.FILE_TYPES),
+                        "description": "Optional: only this kind of file.",
+                    },
                 },
                 "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "drive_list_folder",
+            "description": (
+                "List what is inside one Drive folder: names, kinds, modified "
+                "dates and links. Give a folder path (e.g. 'Mechanical/CAD') or a "
+                "folder id/link from an earlier result. If a path matches several "
+                "folders you get their ids and full paths to choose from."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "folder": {
+                        "type": "string",
+                        "description": "Folder path, folder id, or folder link.",
+                    }
+                },
+                "required": ["folder"],
             },
         },
     },
@@ -61,7 +92,8 @@ TOOLS: list[dict[str, Any]] = [
             "name": "drive_read_text",
             "description": (
                 "Read the plain text of one Google Doc found by drive_search. "
-                "Pass the link exactly as drive_search returned it."
+                "Pass the link exactly as drive_search returned it. Only Google "
+                "Docs can be read (not CAD, sheets or PDFs)."
             ),
             "parameters": {
                 "type": "object",
@@ -109,6 +141,7 @@ class CoachAnswer:
     sources: list[dict[str, str]] = field(default_factory=list)
     drive_failed: bool = False
     unsourced_numbers: bool = False
+    ungrounded_links: bool = False
     tool_calls: int = 0
 
 
@@ -247,16 +280,34 @@ def _is_possibly_old(modified: str, folder_path: str, title: str) -> bool:
     return year <= datetime.now(UTC).year - OLD_AFTER_YEARS
 
 
+StepCallback = Callable[[str], None]
+
+
 class _DriveTools:
     """Runs the model's tool calls and remembers what Drive returned."""
 
-    def __init__(self) -> None:
+    def __init__(self, on_step: StepCallback | None = None) -> None:
         self.calls = 0
         self.drive_failed = False
         self.seen: dict[str, dict[str, str]] = {}  # link -> title, modified
+        self.seen_ids: set[str] = set()  # file/folder ids Drive has returned
+        self.searches_tried: list[str] = []
+        self._on_step = on_step
+
+    def step(self, text: str) -> None:
+        """Tell the page what is happening. A broken callback never stops the chat."""
+        if self._on_step is None:
+            return
+        try:
+            self._on_step(text)
+        except Exception as exc:  # noqa: BLE001
+            log.error("Coach progress callback failed (%s)", type(exc).__name__)
 
     def _remember(self, link: str, title: str, modified: str) -> None:
         self.seen[link] = {"title": title, "link": link, "modified": modified[:10]}
+        file_id = drive_file_id(link)
+        if file_id:
+            self.seen_ids.add(file_id)
 
     def run(self, name: str, arguments: str) -> str:
         self.calls += 1
@@ -268,10 +319,20 @@ class _DriveTools:
             return json.dumps({"error": "Tool arguments were not valid JSON."})
         try:
             if name == "drive_search":
-                return self._search(str(args.get("query", "")).strip())
+                file_type = args.get("file_type")
+                return self._search(
+                    str(args.get("query", "")).strip(),
+                    str(file_type) if file_type else None,
+                )
+            if name == "drive_list_folder":
+                return self._list_folder(str(args.get("folder", "")).strip())
             if name == "drive_read_text":
                 return self._read(str(args.get("link", "")))
             return json.dumps({"error": f"Unknown tool {name!r}."})
+        except drive.FolderNotFound as exc:
+            # Drive worked; the folder just isn't there. Not a Drive failure.
+            self.searches_tried.append(f"folder {args.get('folder', '')!r} (not found)")
+            return json.dumps({"error": str(exc), "instruction": _NOT_FOUND_HINT})
         except Exception as exc:  # noqa: BLE001  (Drive must never break the chat)
             self.drive_failed = True
             log.error("Coach Drive tool failed (%s)", type(exc).__name__)
@@ -287,12 +348,27 @@ class _DriveTools:
                 }
             )
 
-    def _search(self, query: str) -> str:
-        if not query:
-            return json.dumps({"error": "drive_search needs a query."})
-        results = drive.search(query, MAX_SEARCH_RESULTS)
+    def _search(self, query: str, file_type: str | None) -> str:
+        if not query and not file_type:
+            return json.dumps({"error": "drive_search needs a query or a file_type."})
+        label = f"'{query}'" if query else "all"
+        if file_type:
+            label += f" ({file_type} files)"
+        self.step(f"Searching {label}…")
+        self.searches_tried.append(label)
+        if file_type:
+            results = drive.search(query, MAX_SEARCH_RESULTS, file_type=file_type)
+        else:
+            results = drive.search(query, MAX_SEARCH_RESULTS)
         if not results:
-            return json.dumps({"results": [], "note": "No matching documents."})
+            return json.dumps(
+                {
+                    "results": [],
+                    "note": "No matching documents.",
+                    "searches_tried": self.searches_tried,
+                    "instruction": _NOT_FOUND_HINT,
+                }
+            )
         shaped = []
         for result in results:
             modified = result["modified_time"]
@@ -323,10 +399,68 @@ class _DriveTools:
             )
         return json.dumps({"results": shaped})
 
+    def _list_folder(self, folder: str) -> str:
+        if not folder:
+            return json.dumps({"error": "drive_list_folder needs a folder."})
+        self.step(
+            f"Looking in the folder {folder}…" if "/" in folder else "Opening a folder…"
+        )
+        self.searches_tried.append(f"folder {folder!r}")
+        listing = drive.list_folder(folder)
+        if listing["candidates"]:
+            for candidate in listing["candidates"]:
+                self.seen_ids.add(candidate["id"])
+            return json.dumps(
+                {
+                    "several_folders_match": [
+                        {
+                            "id": c["id"],
+                            "folder_path": c["folder_path"],
+                            "modified": c["modified_time"][:10],
+                        }
+                        for c in listing["candidates"]
+                    ],
+                    "instruction": (
+                        "Pick the right one (prefer the newest season) and call "
+                        "drive_list_folder again with its id."
+                    ),
+                }
+            )
+        self.seen_ids.add(listing["folder_id"])
+        folder_link = f"https://drive.google.com/drive/folders/{listing['folder_id']}"
+        self._remember(folder_link, listing["folder_path"], "")
+        entries = []
+        for entry in listing["entries"]:
+            self._remember(entry["link"], entry["name"], entry["modified_time"])
+            self.seen_ids.add(entry["id"])
+            entries.append(
+                {
+                    "name": entry["name"],
+                    "kind": entry["kind"],
+                    "modified": entry["modified_time"][:10],
+                    "link": entry["link"],
+                    "id": entry["id"],
+                }
+            )
+        result: dict[str, Any] = {
+            "folder_path": listing["folder_path"],
+            "folder_link": folder_link,
+            "entries": entries,
+        }
+        if not entries:
+            result["note"] = "This folder is empty."
+        if listing["total"] > len(entries):
+            result["note"] = (
+                f"Showing {len(entries)} of {listing['total']} items, newest first."
+            )
+        return json.dumps(result)
+
     def _read(self, link: str) -> str:
         file_id = drive_file_id(link)
         if not file_id:
             return json.dumps({"error": "That is not a Drive link or file id."})
+        title = self.seen.get(link, {}).get("title")
+        self.step(f"Reading {title}…" if title else "Reading a document…")
         text = drive.read_text(file_id)
         truncated = len(text) > MAX_DOC_CHARS
         return json.dumps(
@@ -335,6 +469,13 @@ class _DriveTools:
                 "truncated": truncated,
             }
         )
+
+
+_NOT_FOUND_HINT = (
+    "Nothing was found. Tell the member plainly, list the searches tried "
+    "(searches_tried), and suggest a next step (a better search term, or who to "
+    "ask). Do not guess where the file might be."
+)
 
 
 # --- Answer checks ---------------------------------------------------------
@@ -351,6 +492,26 @@ _MACHINING_NUMBER = re.compile(
 def has_unsourced_numbers(text: str, sources: list[dict[str, str]]) -> bool:
     """Heuristic backstop: machining-looking numbers with no Drive source cited."""
     return not sources and bool(_MACHINING_NUMBER.search(text))
+
+
+_DRIVE_URL = re.compile(r"https://(?:docs|drive)\.google\.com/[^\s<>)\]]+")
+
+
+def remove_ungrounded_links(text: str, tools: "_DriveTools") -> tuple[str, bool]:
+    """Replace Drive links no tool returned: the model can't plant a made-up link."""
+    found = False
+
+    def check(match: re.Match[str]) -> str:
+        nonlocal found
+        url = match.group(0).rstrip(".,;:!?")
+        trailing = match.group(0)[len(url) :]
+        file_id = drive_file_id(url)
+        if url in tools.seen or (file_id and file_id in tools.seen_ids):
+            return match.group(0)
+        found = True
+        return f"(link removed: no search returned it){trailing}"
+
+    return _DRIVE_URL.sub(check, text), found
 
 
 # --- The coach -------------------------------------------------------------
@@ -378,11 +539,13 @@ def run_coach(
     history: list[dict[str, str]],
     user_message: str,
     record: Callable[[CallRecord], None] | None = None,
+    on_step: StepCallback | None = None,
 ) -> CoachAnswer:
     """Answer one member message. Raises LLMError if the model fails.
 
     `history` is earlier {role, content} turns. `record` is called once for every
-    model call, successful or not, so the caller can log it.
+    model call, successful or not, so the caller can log it. `on_step` gets a short
+    plain sentence each time the coach starts something ("Searching 'latch'…").
     """
     context = "\n".join(f"- {label}: {value}" for label, value in task.items())
     messages: list[dict[str, Any]] = [
@@ -393,7 +556,7 @@ def run_coach(
         *history,
         {"role": "user", "content": user_message},
     ]
-    tools = _DriveTools()
+    tools = _DriveTools(on_step)
     text = ""
 
     while True:
@@ -429,15 +592,18 @@ def run_coach(
             messages.append(
                 {"role": "tool", "tool_call_id": call.id, "content": result}
             )
+        tools.step("Writing the answer…")
 
     if not text:
         text = "I couldn't put an answer together. Try rephrasing your question."
 
+    text, ungrounded = remove_ungrounded_links(text, tools)
     sources = [s for link, s in tools.seen.items() if link in text]
     return CoachAnswer(
         text=text,
         sources=sources,
         drive_failed=tools.drive_failed,
         unsourced_numbers=has_unsourced_numbers(text, sources),
+        ungrounded_links=ungrounded,
         tool_calls=tools.calls,
     )

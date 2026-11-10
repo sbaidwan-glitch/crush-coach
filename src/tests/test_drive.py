@@ -384,3 +384,374 @@ def test_request_failures_are_drive_errors_without_secrets(files_api, operation)
             client.read_text("made-up-file-id")
 
     assert secret not in str(error.value)
+
+
+# --- file-type filter ---
+
+CAD_FILES = [
+    {
+        "id": "cad-1",
+        "name": "MdSb26_Crush_Enclosure.SLDASM",
+        "webViewLink": "https://example.test/asm",
+        "mimeType": "application/octet-stream",
+        "modifiedTime": "2026-10-30T10:00:00.000Z",
+    },
+    {
+        "id": "cad-2",
+        "name": "MdSb26_Crush_Baseplate.sldprt",
+        "webViewLink": "https://example.test/prt",
+        "mimeType": "application/octet-stream",
+        "modifiedTime": "2026-10-01T10:00:00.000Z",
+    },
+    {
+        "id": "cad-3",
+        "name": "Enclosure.STP",
+        "webViewLink": "https://example.test/stp",
+        "mimeType": "application/octet-stream",
+        "modifiedTime": "2026-09-01T10:00:00.000Z",
+    },
+    {  # matched Drive's word search but is not CAD
+        "id": "not-cad",
+        "name": "SLDASM naming guide.txt",
+        "webViewLink": "https://example.test/guide",
+        "mimeType": "text/plain",
+        "modifiedTime": "2026-11-01T10:00:00.000Z",
+    },
+]
+
+
+def test_cad_search_matches_extensions_and_names_and_skips_full_text(files_api):
+    service, files = files_api
+    files.list.return_value.execute.return_value = {"files": CAD_FILES}
+
+    results = drive.DriveClient(service=service).search("enclosure", file_type="cad")
+
+    query = files.list.call_args.kwargs["q"]
+    for extension in ("SLDASM", "SLDPRT", "SLDDRW", "STEP", "STP"):
+        assert f"name contains '{extension}'" in query
+    assert "name contains 'enclosure'" in query
+    assert "fullText" not in query
+    assert query.startswith("trashed = false and ")
+    # Exact-suffix filter, case-insensitive; name matches first, then newest.
+    assert [r["title"] for r in results] == [
+        "MdSb26_Crush_Enclosure.SLDASM",
+        "Enclosure.STP",
+        "MdSb26_Crush_Baseplate.sldprt",
+    ]
+    assert "SLDASM naming guide.txt" not in {r["title"] for r in results}
+    assert results[0]["title"] == "MdSb26_Crush_Enclosure.SLDASM"
+
+
+def test_cad_search_without_a_query_lists_the_newest_cad_files(files_api):
+    service, files = files_api
+    files.list.return_value.execute.return_value = {"files": CAD_FILES}
+
+    results = drive.DriveClient(service=service).search("", file_type="cad")
+
+    assert "name contains ''" not in files.list.call_args.kwargs["q"]
+    assert results[0]["title"] == "MdSb26_Crush_Enclosure.SLDASM"
+    assert len(results) == 3
+
+
+def test_multi_word_cad_queries_match_each_word(files_api):
+    service, files = files_api
+    files.list.return_value.execute.return_value = {"files": []}
+
+    drive.DriveClient(service=service).search("crush enclosure", file_type="cad")
+
+    query = files.list.call_args.kwargs["q"]
+    assert "name contains 'crush'" in query and "name contains 'enclosure'" in query
+
+
+@pytest.mark.parametrize(
+    ("file_type", "mime_types"),
+    [
+        (
+            "sheets",
+            [
+                "application/vnd.google-apps.spreadsheet",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "text/csv",
+            ],
+        ),
+        (
+            "docs",
+            [
+                "application/vnd.google-apps.document",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ],
+        ),
+        ("pdf", ["application/pdf"]),
+    ],
+)
+def test_other_file_types_filter_by_mime_type_and_keep_text_search(
+    files_api, file_type, mime_types
+):
+    service, files = files_api
+    files.list.return_value.execute.return_value = {"files": []}
+
+    drive.DriveClient(service=service).search("budget", file_type=file_type)
+
+    query = files.list.call_args.kwargs["q"]
+    assert "(name contains 'budget' or fullText contains 'budget')" in query
+    for mime_type in mime_types:
+        assert f"mimeType = '{mime_type}'" in query
+    kwargs = files.list.call_args.kwargs
+    assert kwargs["supportsAllDrives"] and kwargs["includeItemsFromAllDrives"]
+
+
+def test_unknown_file_type_is_a_clear_error(files_api):
+    service, files = files_api
+
+    with pytest.raises(drive.DriveError, match="cad, sheets, docs, pdf"):
+        drive.DriveClient(service=service).search("x", file_type="video")
+
+    files.list.assert_not_called()
+
+
+def test_typed_searches_stop_after_a_few_pages(files_api):
+    service, files = files_api
+    files.list.return_value.execute.return_value = {
+        "files": [],
+        "nextPageToken": "more",
+    }
+
+    drive.DriveClient(service=service).search("", file_type="cad")
+
+    assert files.list.call_count == drive.MAX_TYPED_SEARCH_PAGES
+
+
+def test_search_without_a_type_is_unchanged(files_api):
+    service, files = files_api
+    files.list.return_value.execute.return_value = {"files": []}
+
+    drive.DriveClient(service=service).search("o-ring")
+
+    assert files.list.call_args.kwargs["q"] == (
+        "trashed = false and (name contains 'o-ring' or fullText contains 'o-ring')"
+    )
+
+
+# --- list_folder ---
+
+FOLDER = drive.GOOGLE_FOLDER_MIME_TYPE
+CAD_ID = "folderCAD1234567890abcdef"
+OLD_CAD_ID = "folderOLDCAD1234567890ab"
+
+
+def folder_service(files_api, *, folders_by_name=None, children=None, info=None):
+    """A fake Drive: name lookups, parent lookups, one folder's children."""
+    service, files = files_api
+    tree = {
+        "driveroot0000000000000001": {
+            "id": "driveroot0000000000000001",
+            "name": "MuddSub",
+            "mimeType": FOLDER,
+        },
+        "mech00000000000000000001": {
+            "id": "mech00000000000000000001",
+            "name": "Mechanical",
+            "mimeType": FOLDER,
+            "parents": ["driveroot0000000000000001"],
+        },
+        "mech2400000000000000000": {
+            "id": "mech2400000000000000000",
+            "name": "Mechanical",
+            "mimeType": FOLDER,
+            "parents": ["driveroot0000000000000001"],
+        },
+        CAD_ID: {
+            "id": CAD_ID,
+            "name": "CAD",
+            "mimeType": FOLDER,
+            "parents": ["mech00000000000000000001"],
+            "modifiedTime": "2026-10-20T00:00:00.000Z",
+        },
+        **(info or {}),
+    }
+
+    def get(fileId, **kwargs):
+        call = Mock()
+        call.execute.return_value = tree[fileId]
+        return call
+
+    def list_(q, **kwargs):
+        call = Mock()
+        if "mimeType = '" + FOLDER + "'" in q:
+            call.execute.return_value = {"files": folders_by_name or []}
+        else:
+            call.execute.return_value = {"files": children or []}
+        return call
+
+    files.get.side_effect = get
+    files.list.side_effect = list_
+    return service, files
+
+
+CHILDREN = [
+    {
+        "id": "f1",
+        "name": "Finalized",
+        "mimeType": FOLDER,
+        "modifiedTime": "2026-09-01T00:00:00.000Z",
+        "webViewLink": "https://example.test/finalized",
+    },
+    {
+        "id": "f2",
+        "name": "MdSb26_Crush_Enclosure.SLDASM",
+        "mimeType": "application/octet-stream",
+        "modifiedTime": "2026-10-30T00:00:00.000Z",
+        "webViewLink": "https://example.test/asm",
+    },
+    {
+        "id": "f3",
+        "name": "Seal calculations",
+        "mimeType": "application/vnd.google-apps.spreadsheet",
+        "modifiedTime": "2026-10-01T00:00:00.000Z",
+    },
+    {
+        "id": "f4",
+        "name": "Archive",
+        "mimeType": FOLDER,
+        "modifiedTime": "2026-11-01T00:00:00.000Z",
+        "webViewLink": "https://example.test/archive",
+    },
+]
+
+
+def test_list_folder_by_id_lists_folders_first_then_newest(files_api):
+    service, files = folder_service(files_api, children=CHILDREN)
+
+    listing = drive.DriveClient(service=service).list_folder(CAD_ID)
+
+    assert listing["folder_path"] == "MuddSub / Mechanical / CAD"
+    assert listing["folder_id"] == CAD_ID
+    assert [(e["name"], e["kind"]) for e in listing["entries"]] == [
+        ("Archive", "folder"),
+        ("Finalized", "folder"),
+        ("MdSb26_Crush_Enclosure.SLDASM", "cad"),
+        ("Seal calculations", "sheet"),
+    ]
+    assert listing["entries"][2]["modified_time"] == "2026-10-30T00:00:00.000Z"
+    assert listing["entries"][3]["link"] == "https://drive.google.com/open?id=f3"
+    assert listing["total"] == 4
+    query = files.list.call_args.kwargs["q"]
+    assert f"'{CAD_ID}' in parents" in query and "trashed = false" in query
+    assert files.list.call_args.kwargs["supportsAllDrives"] is True
+    assert files.list.call_args.kwargs["includeItemsFromAllDrives"] is True
+
+
+def test_list_folder_accepts_a_folder_link(files_api):
+    service, _files = folder_service(files_api, children=CHILDREN)
+
+    listing = drive.DriveClient(service=service).list_folder(
+        f"https://drive.google.com/drive/folders/{CAD_ID}?usp=sharing"
+    )
+
+    assert listing["folder_id"] == CAD_ID
+
+
+def test_list_folder_by_path_finds_the_one_matching_folder(files_api):
+    service, _files = folder_service(
+        files_api,
+        folders_by_name=[
+            {
+                "id": CAD_ID,
+                "name": "CAD",
+                "parents": ["mech00000000000000000001"],
+                "modifiedTime": "2026-10-20T00:00:00.000Z",
+            },
+            {  # a CAD folder somewhere else does not match "Mechanical/CAD"
+                "id": "other0000000000000000001",
+                "name": "CAD",
+                "parents": ["driveroot0000000000000001"],
+            },
+        ],
+        children=CHILDREN,
+    )
+
+    listing = drive.DriveClient(service=service).list_folder("Mechanical/CAD")
+
+    assert listing["folder_path"] == "MuddSub / Mechanical / CAD"
+    assert len(listing["entries"]) == 4
+    assert listing["candidates"] == []
+
+
+def test_ambiguous_path_returns_candidates_instead_of_guessing(files_api):
+    service, _files = folder_service(
+        files_api,
+        folders_by_name=[
+            {
+                "id": OLD_CAD_ID,
+                "name": "CAD",
+                "parents": ["mech2400000000000000000"],
+                "modifiedTime": "2025-05-01T00:00:00.000Z",
+            },
+            {
+                "id": CAD_ID,
+                "name": "CAD",
+                "parents": ["mech00000000000000000001"],
+                "modifiedTime": "2026-10-20T00:00:00.000Z",
+            },
+        ],
+        children=CHILDREN,
+    )
+
+    listing = drive.DriveClient(service=service).list_folder("CAD")
+
+    assert listing["entries"] == []
+    assert [c["id"] for c in listing["candidates"]] == [CAD_ID, OLD_CAD_ID]  # newest
+    assert listing["candidates"][0]["folder_path"] == "MuddSub / Mechanical / CAD"
+
+
+def test_missing_folder_is_not_found_not_a_drive_failure(files_api):
+    service, _files = folder_service(files_api, folders_by_name=[])
+
+    with pytest.raises(drive.FolderNotFound, match="Mechanical/Nope"):
+        drive.DriveClient(service=service).list_folder("Mechanical/Nope")
+
+
+def test_an_id_that_is_not_a_folder_is_not_found(files_api):
+    service, _files = folder_service(
+        files_api,
+        info={
+            "docid0000000000000000001": {
+                "id": "docid0000000000000000001",
+                "name": "Notes",
+                "mimeType": "application/vnd.google-apps.document",
+            }
+        },
+    )
+
+    with pytest.raises(drive.FolderNotFound):
+        drive.DriveClient(service=service).list_folder("docid0000000000000000001")
+
+
+def test_empty_folder_lists_nothing(files_api):
+    service, _files = folder_service(files_api, children=[])
+
+    listing = drive.DriveClient(service=service).list_folder(CAD_ID)
+
+    assert listing["entries"] == [] and listing["total"] == 0
+
+
+def test_list_folder_limit_reports_the_full_count(files_api):
+    service, _files = folder_service(files_api, children=CHILDREN)
+
+    listing = drive.DriveClient(service=service).list_folder(CAD_ID, limit=2)
+
+    assert len(listing["entries"]) == 2 and listing["total"] == 4
+
+
+@pytest.mark.parametrize("operation", ["list", "get"])
+def test_list_folder_failures_are_safe_drive_errors(files_api, operation):
+    service, files = files_api
+    secret = "DO-NOT-PRINT-THIS-PRIVATE-KEY"
+    getattr(files, operation).return_value.execute.side_effect = RuntimeError(secret)
+    client = drive.DriveClient(service=service)
+
+    with pytest.raises(drive.DriveError) as error:
+        client.list_folder(CAD_ID if operation == "get" else "Mechanical/CAD")
+
+    assert not isinstance(error.value, drive.FolderNotFound)
+    assert secret not in str(error.value)
