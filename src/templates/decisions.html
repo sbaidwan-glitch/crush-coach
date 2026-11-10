@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% from "components/button.html" import button, button_link %}
+{% from "components/feedback.html" import notice as notice_box, empty_state, error_state %}
+{% from "components/decision_card.html" import decision_card %}
+{% block title %}Decisions – Crush Coach{% endblock %}
+{% block main %}
+<h1>Decisions</h1>
+<p class="fine">What the team decided about Crush, and why. A confirmed decision outranks old Drive documents; a lead confirms each one.</p>
+<p>{{ button_link("/decisions/new", "Propose a decision") }}</p>
+
+<form class="filter" method="get" action="/decisions">
+  <label for="subsystem">Subsystem</label>
+  <select id="subsystem" name="subsystem">
+    <option value=""{% if not subsystem %} selected{% endif %}>All</option>
+    {% for name in subsystems %}
+    <option value="{{ name }}"{% if subsystem == name %} selected{% endif %}>{{ name }}</option>
+    {% endfor %}
+  </select>
+  <label for="status">Status</label>
+  <select id="status" name="status">
+    <option value=""{% if not status %} selected{% endif %}>All</option>
+    {% for value, label in status_labels.items() %}
+    <option value="{{ value }}"{% if status == value %} selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  {{ button("Filter", "secondary", "submit") }}
+  {% if subsystem or status %}<a href="/decisions">Clear filters</a>{% endif %}
+</form>
+
+{% if error %}
+{{ error_state(error, "/decisions", "Try again") }}
+{% else %}
+  {% for text in notices %}{{ notice_box(text) }}{% endfor %}
+  {% if total_count == 0 %}
+  {{ empty_state("No decisions yet. Propose the first one.", "/decisions/new", "Propose a decision") }}
+  {% elif not decisions %}
+  {{ empty_state("No decisions match these filters.", "/decisions", "Clear filters") }}
+  {% else %}
+  <p class="count">
+    Showing {{ decisions | length }} of {{ total_count }} decision{{ "" if total_count == 1 else "s" }}.
+  </p>
+  <ul class="cards decision-cards">
+    {% for d in decisions %}{{ decision_card(d, status_labels) }}{% endfor %}
+  </ul>
+  {% endif %}
+{% endif %}
+{% endblock %}

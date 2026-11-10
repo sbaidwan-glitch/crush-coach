@@ -766,3 +766,103 @@ main {
 .code {
   font-family: var(--font-mono);
 }
+
+/* ---------- Decisions ---------- */
+.status-proposed {
+  color: var(--color-muted);
+}
+
+.status-confirmed {
+  color: var(--color-ink);
+}
+
+.status-superseded {
+  color: var(--color-muted);
+  text-decoration: line-through;
+}
+
+.decision-summary {
+  grid-column: 2;
+  max-width: var(--measure);
+}
+
+.decision-subsystem {
+  color: var(--color-muted);
+  font: var(--weight-regular) var(--text-sm) / var(--leading-body) var(--font-mono);
+}
+
+.prose {
+  max-width: var(--measure);
+  white-space: pre-line;
+}
+
+.plain-list {
+  list-style: none;
+  padding: 0;
+}
+
+.decision-form {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+  max-width: var(--measure);
+}
+
+.decision-form label {
+  margin-top: var(--space-2);
+  font-weight: var(--weight-medium);
+}
+
+.decision-form input,
+.decision-form select,
+.decision-form textarea {
+  width: 100%;
+  min-height: var(--target);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-raised);
+  color: var(--color-ink);
+  border: 1px solid var(--color-muted);
+  border-radius: var(--radius);
+  font: var(--weight-regular) var(--text-base) / var(--leading-body) var(--font-body);
+}
+
+.decision-form textarea {
+  resize: vertical;
+}
+
+.decision-form fieldset {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-4) 0 0;
+  padding: var(--space-3) 0 0;
+  border: 0;
+  border-top: 1px solid var(--color-hairline);
+}
+
+.decision-form legend {
+  padding: 0;
+  color: var(--color-muted);
+  font: var(--weight-medium) var(--text-xs) / var(--leading-body) var(--font-mono);
+  letter-spacing: var(--track-label);
+  text-transform: uppercase;
+}
+
+.form-row {
+  display: grid;
+  gap: var(--space-1);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.notice ul {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
+}
+
+.lead-actions {
+  margin-top: var(--space-6);
+}
+
+.task-decisions {
+  margin-top: var(--space-6);
+}

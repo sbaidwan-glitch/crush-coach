@@ -1,0 +1,14 @@
+{# One decision in a list: topic, then status and subsystem, then the decision in a line or two.
+   `status_labels` is DECISION_STATUS_LABELS. #}
+{% from "components/status.html" import status_label %}
+{% macro decision_card(d, status_labels) -%}
+<li class="card decision-card">
+  <span class="card-code">D{{ d.id }}</span>
+  <h3 class="card-title"><a href="/decisions/{{ d.id }}">{{ d.topic }}</a></h3>
+  <p class="card-meta">
+    {{ status_label(d.status, status_labels.get(d.status, d.status)) }}
+    <span class="decision-subsystem">{{ d.subsystem }}</span>
+  </p>
+  <p class="decision-summary">{{ d.decision }}</p>
+</li>
+{%- endmacro %}
