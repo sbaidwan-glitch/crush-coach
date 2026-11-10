@@ -23,6 +23,10 @@ psycopg[binary]==3.3.6  # Postgres driver, needed once you deploy
 # --- coach (model access via the Glassroom LiteLLM proxy) ---
 openai==3.46.0          # OpenAI-compatible client; only src/llm.py imports it
 python-multipart==0.0.33  # form posts (the coach chat)
+markdown-it-py[linkify]==4.2.0  # coach answers: Markdown -> HTML (raw HTML disabled)
+linkify-it-py==2.2.0    # bare URLs in answers become links
+mdurl==0.1.2            # markdown-it-py dependency
+nh3==0.3.7              # sanitizes the rendered HTML against an allowlist
 tzdata==2026.6          # time zones for the daily message cap
 
 # --- config (class 12) ---
