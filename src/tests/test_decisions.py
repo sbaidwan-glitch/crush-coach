@@ -440,3 +440,58 @@ def test_confirm_refuses_a_non_lead(session):
 
 def test_nav_links_to_decisions(client, session):
     assert 'href="/decisions"' in client.get("/tasks").text
+
+
+# --- on the task page ---
+
+
+def link_to(session, decision, task):
+    session.add(DecisionTask(decision_id=decision.id, task_id=task.id))
+    session.commit()
+
+
+def test_task_page_lists_related_decisions_with_their_status(client, session, task):
+    link_to(session, confirmed(session, topic="Latch style"), task)
+    link_to(session, make_decision(session, topic="Gasket groove"), task)
+    make_decision(session, topic="Unrelated thruster mount", subsystem="Thrusters")
+
+    html = client.get("/tasks/M04").text
+
+    assert "Latch style" in html and "Gasket groove" in html
+    assert "Unrelated thruster mount" not in html
+    assert "Confirmed" in html and "Proposed" in html
+    assert html.index("Latch style") < html.index("Gasket groove")  # confirmed first
+    assert 'href="/decisions/new?task=M04"' in html
+
+
+def test_task_page_without_decisions_says_so(client, session, task):
+    html = client.get("/tasks/M04").text
+
+    assert "No decisions are linked to this task yet." in html
+    assert 'href="/decisions/new?task=M04"' in html
+
+
+def test_decision_failure_only_breaks_the_decisions_section(
+    client, session, task, monkeypatch
+):
+    def broken(session, task_id):
+        raise RuntimeError("postgresql://user:secret@host/db is down")
+
+    monkeypatch.setattr(decisions, "decisions_for_task", broken)
+
+    response = client.get("/tasks/M04")
+
+    assert response.status_code == 200
+    assert "Couldn&#39;t load this task&#39;s decisions" in response.text
+    assert "secret" not in response.text
+    assert "Finish enclosure wall panels" in response.text
+    assert '<label for="coach-message">' in response.text  # the coach still works
+
+
+def test_list_puts_confirmed_decisions_first(client, session):
+    make_decision(session, topic="Gasket groove")
+    confirmed(session, topic="Latch style")
+
+    html = client.get("/decisions").text
+
+    assert html.index("Latch style") < html.index("Gasket groove")

@@ -57,7 +57,8 @@ DB_ERROR = "Couldn't reach the database right now. Nothing was saved. Try again.
 # Only Google Docs/Drive links, the same rule the coach's link renderer uses.
 _DRIVE_LINK = re.compile(r"^https://(?:docs|drive)\.google\.com/\S+$")
 _SEARCH_TERM = re.compile(r"[a-z0-9][a-z0-9/-]+")
-_STATUS_ORDER = {status: i for i, status in enumerate(DECISION_STATUSES)}
+# Confirmed decisions come first on every page: they are the ones people build from.
+_STATUS_ORDER = {"confirmed": 0, "proposed": 1, "superseded": 2}
 
 
 class DecisionError(Exception):

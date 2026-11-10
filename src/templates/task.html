@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% from "components/button.html" import button %}
+{% from "components/button.html" import button, button_link %}
+{% from "components/decision_card.html" import decision_card %}
 {% from "components/feedback.html" import notice as notice_box, empty_state, error_state, loading_indicator %}
 {% from "components/icons.html" import icon %}
 {% from "components/readout.html" import readout %}
@@ -37,6 +38,20 @@
   </dl>
 </section>
 {% endif %}
+
+<section aria-labelledby="decisions-heading" class="task-decisions">
+  <h2 id="decisions-heading">Decisions</h2>
+  {% if decisions_error %}
+  {{ error_state(decisions_error, "/tasks/" ~ task.code, "Try again") }}
+  {% elif task_decisions %}
+  <ul class="cards decision-cards">
+    {% for d in task_decisions %}{{ decision_card(d, decision_status_labels) }}{% endfor %}
+  </ul>
+  {% else %}
+  {{ empty_state("No decisions are linked to this task yet.") }}
+  {% endif %}
+  <p>{{ button_link("/decisions/new?task=" ~ task.code, "Propose a decision for " ~ task.code, "secondary") }}</p>
+</section>
 
 <section aria-labelledby="coach-heading" class="coach">
   <h2 id="coach-heading">Coach</h2>

@@ -24,9 +24,11 @@ from markupsafe import Markup, escape
 from sqlmodel import Session, func, select
 
 import db
+import decisions
 import llm
 from auth import CurrentUser, User
 from models import (
+    DECISION_STATUS_LABELS,
     STATUS_LABELS,
     TASK_DETAIL_LABELS,
     CoachMessage,
@@ -177,6 +179,16 @@ def _render_page(
         log.error("Could not load task page (%s)", type(exc).__name__)
         page_error = "Couldn't load this task from the database right now. Try again."
 
+    # Decisions load on their own, so a failure here only affects that section.
+    task_decisions: list = []
+    decisions_error: str | None = None
+    if task is not None:
+        try:
+            task_decisions = decisions.decisions_for_task(session, task.id)
+        except Exception as exc:  # noqa: BLE001  (the rest of the page still works)
+            log.error("Could not load task decisions (%s)", type(exc).__name__)
+            decisions_error = "Couldn't load this task's decisions right now."
+
     if task is None and page_error is None:
         status_code = 404
     else:
@@ -187,6 +199,9 @@ def _render_page(
         "status_labels": STATUS_LABELS,
         "details": task_details(task) if task is not None else [],
         "messages": messages,
+        "task_decisions": task_decisions,
+        "decisions_error": decisions_error,
+        "decision_status_labels": DECISION_STATUS_LABELS,
         "daily_limit": daily_limit(),
         "page_error": page_error,
         "not_found": task is None and page_error is None,
