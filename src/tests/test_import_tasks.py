@@ -82,11 +82,11 @@ def test_bad_rows_are_reported_and_skipped_but_good_rows_import(session, tmp_pat
 
     assert result.added == 2
     assert len(result.errors) == 5
-    assert result.errors[0].startswith("line 3: code is empty")
-    assert "unknown subsystem 'Cockpit'" in result.errors[1]
-    assert "unknown task type 'Welding'" in result.errors[2]
-    assert "unknown status 'finished'" in result.errors[3]
-    assert result.errors[4].startswith("line 7: duplicate code X01")
+    assert result.errors[0] == "line 3: Add a code for this row."
+    assert "“Cockpit” isn’t a subsystem" in result.errors[1]
+    assert result.errors[2].startswith("line 5: Choose a type.")
+    assert "Status “finished” isn’t valid" in result.errors[3]
+    assert result.errors[4] == "line 7: Two rows use X01. Give this one a new code"
     codes = {t.code for t in session.exec(select(Task)).all()}
     assert codes == {"X01", "X07"}
 
