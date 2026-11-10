@@ -303,6 +303,12 @@ class _DriveTools:
         except Exception as exc:  # noqa: BLE001
             log.error("Coach progress callback failed (%s)", type(exc).__name__)
 
+    def trust_links_in(self, text: str) -> None:
+        """Count Drive links in earlier, already-checked answers as returned by Drive."""
+        for match in _DRIVE_URL.finditer(text):
+            url = match.group(0).rstrip(".,;:!?")
+            self.seen_ids.add(drive_file_id(url) or drive.folder_id_from(url) or url)
+
     def _remember(self, link: str, title: str, modified: str) -> None:
         self.seen[link] = {"title": title, "link": link, "modified": modified[:10]}
         file_id = drive_file_id(link)
@@ -505,7 +511,7 @@ def remove_ungrounded_links(text: str, tools: "_DriveTools") -> tuple[str, bool]
         nonlocal found
         url = match.group(0).rstrip(".,;:!?")
         trailing = match.group(0)[len(url) :]
-        file_id = drive_file_id(url)
+        file_id = drive_file_id(url) or drive.folder_id_from(url)
         if url in tools.seen or (file_id and file_id in tools.seen_ids):
             return match.group(0)
         found = True
@@ -557,6 +563,11 @@ def run_coach(
         {"role": "user", "content": user_message},
     ]
     tools = _DriveTools(on_step)
+    # Links in the coach's earlier answers were already checked when they were
+    # written, so a follow-up ("where is it?") may cite them again without a search.
+    for turn in history:
+        if turn.get("role") == "assistant":
+            tools.trust_links_in(turn.get("content", ""))
     text = ""
 
     while True:

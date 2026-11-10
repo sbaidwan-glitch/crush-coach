@@ -660,3 +660,49 @@ def test_the_same_document_under_another_link_shape_is_still_grounded(
 )
 def test_the_system_prompt_carries_the_coaching_rules(rule):
     assert rule in llm.system_prompt()
+
+
+def test_a_follow_up_may_cite_a_link_from_the_earlier_answer(monkeypatch):
+    """Real check: "where is it?" made no search and its link was wrongly removed."""
+    use_client(monkeypatch, [fake.reply(f"It is here: {DOC_LINK}")])
+    history = [
+        {"role": "user", "content": "How do I start?"},
+        {"role": "assistant", "content": f"Open {DOC_LINK}."},
+    ]
+
+    answer = llm.run_coach(TASK, history, "Where is it?")
+
+    assert DOC_LINK in answer.text
+    assert answer.ungrounded_links is False
+
+
+def test_a_follow_up_still_cannot_invent_a_link(monkeypatch):
+    use_client(
+        monkeypatch,
+        [
+            fake.reply(
+                "See https://docs.google.com/document/d/1MadeUpDocIdThatNoToolReturned/edit"
+            )
+        ],
+    )
+    history = [{"role": "assistant", "content": f"Open {DOC_LINK}."}]
+
+    answer = llm.run_coach(TASK, history, "Where is it?")
+
+    assert "MadeUp" not in answer.text and answer.ungrounded_links is True
+
+
+def test_a_folder_link_variant_is_grounded(monkeypatch):
+    use_client(
+        monkeypatch,
+        [fake.reply(f"Browse {FOLDER_LINK}?usp=sharing")],
+    )
+    history = [{"role": "assistant", "content": f"The folder is {FOLDER_LINK}"}]
+
+    answer = llm.run_coach(TASK, history, "Where?")
+
+    assert answer.ungrounded_links is False
+
+
+def test_the_prompt_says_to_quote_paths_exactly():
+    assert "copy the folder path and file name exactly" in llm.system_prompt()
