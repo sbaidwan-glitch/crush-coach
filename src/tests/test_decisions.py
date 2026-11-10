@@ -1,13 +1,19 @@
 """Decision records: pages, who may confirm or supersede, and validation. Made-up data only."""
 
+import json
+
+import fake_openai as fake
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import select
 
 import auth
+import coach
 import decisions
+import drive
+import llm
 import main
-from models import Decision, DecisionTask, Task, utc_now
+from models import CoachMessage, Decision, DecisionTask, LlmCall, Task, utc_now
 
 LINK = "https://docs.google.com/document/d/1ExampleLatchNotes0001/edit"
 MEMBER = {"name": "Sam Example", "email": "sam@example.edu", "role": "member"}
@@ -495,3 +501,297 @@ def test_list_puts_confirmed_decisions_first(client, session):
     html = client.get("/decisions").text
 
     assert html.index("Latch style") < html.index("Gasket groove")
+
+
+# --- the coach and decisions ---
+
+HTMX = {"HX-Request": "true"}
+DRIVE_LINK = "https://docs.google.com/document/d/1AbCdEfGhIjKlMnOp/edit"
+
+
+@pytest.fixture
+def no_real_services(monkeypatch):
+    """Anything that would reach the model or Drive fails the test instead."""
+    monkeypatch.delenv("COACH_DAILY_LIMIT", raising=False)
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("tried to use a real service")
+
+    monkeypatch.setattr(llm, "get_client", refuse)
+    monkeypatch.setattr(drive, "search", refuse)
+    monkeypatch.setattr(drive, "read_text", refuse)
+
+
+def script(monkeypatch, *items):
+    model = fake.FakeClient(items)
+    monkeypatch.setattr(llm, "get_client", lambda: model)
+    return model
+
+
+def ask(client, text="Which latch did we choose?"):
+    return client.post("/tasks/M04/coach", data={"message": text}, headers=HTMX)
+
+
+def draft(client):
+    return client.post("/tasks/M04/decision-draft", headers=HTMX)
+
+
+def search_confirmed(session, **kwargs):
+    return decisions.search_confirmed(session, **kwargs)
+
+
+def test_coach_search_returns_only_confirmed_decisions(session):
+    confirmed(session, topic="Latch style")
+    make_decision(session, topic="Latch style proposal")
+    make_decision(session, topic="Latch style old", status="superseded")
+
+    found = search_confirmed(session, query="latch")
+
+    assert [d["topic"] for d in found] == ["Latch style"]
+    assert found[0]["link"].startswith("/decisions/")
+    assert found[0]["alternatives_rejected"][0]["option"] == "Toggle latch"
+    assert "confirmed_by" not in found[0]  # members' emails aren't sent to the model
+
+
+def test_coach_search_matches_keywords_filters_by_subsystem_and_ranks_the_task_first(
+    session, task
+):
+    other = confirmed(session, topic="Latch style")
+    linked = confirmed(session, topic="Panel material", decision="6061 aluminum.")
+    confirmed(session, topic="Thruster mount", subsystem="Thrusters", decision="Bolt it.")
+    link_to(session, linked, task)
+
+    assert [d["topic"] for d in search_confirmed(session, query="latch")] == [
+        "Latch style"
+    ]
+    assert search_confirmed(session, query="nothing matches this") == []
+    assert [d["topic"] for d in search_confirmed(session, subsystem="Thrusters")] == [
+        "Thruster mount"
+    ]
+    # An empty query lists confirmed decisions, this task's first.
+    everything = search_confirmed(session, task_id=task.id)
+    assert everything[0]["id"] == linked.id and everything[0]["related_to_this_task"]
+    assert {d["id"] for d in everything} >= {linked.id, other.id}
+    ranked = search_confirmed(session, query="latch aluminum", task_id=task.id)
+    assert ranked[0]["id"] == linked.id
+
+
+def test_linkify_makes_decision_paths_clickable_but_nothing_else(client):
+    html = str(coach.linkify("See /decisions/12, not /admin/import or //evil.test/decisions/3."))
+
+    assert '<a href="/decisions/12">/decisions/12</a>' in html
+    assert "<a" not in html.replace('<a href="/decisions/12">/decisions/12</a>', "")
+
+
+def test_coach_checks_decisions_before_drive_and_links_both_on_a_conflict(
+    monkeypatch, session, task, client, no_real_services
+):
+    decision = confirmed(session, topic="Latch style")
+    link_to(session, decision, task)
+    make_decision(session, topic="Latch style proposal: toggles")  # not binding
+    monkeypatch.setattr(
+        drive,
+        "search",
+        lambda query, limit=10: [
+            {
+                "title": "Latch design notes",
+                "link": DRIVE_LINK,
+                "mime_type": "application/vnd.google-apps.document",
+                "modified_time": "2023-01-02T00:00:00Z",
+                "folder_path": "Alfie / Enclosure",
+                "locations": [],
+            }
+        ],
+    )
+    model = script(
+        monkeypatch,
+        fake.tool_request(("c1", "drive_search", json.dumps({"query": "latch"}))),
+        fake.tool_request(("c2", "find_decisions", json.dumps({"query": "latch"}))),
+        fake.tool_request(("c3", "drive_search", json.dumps({"query": "latch"}))),
+        fake.reply(
+            f"Decision /decisions/{decision.id} says cam latch, but {DRIVE_LINK} "
+            "says toggle. That document is possibly stale."
+        ),
+    )
+
+    response = ask(client)
+
+    assert response.status_code == 200
+    html = response.text
+    assert f'<a href="/decisions/{decision.id}">/decisions/{decision.id}</a>' in html
+    assert f'<a href="{DRIVE_LINK}"' in html
+    assert f"Decision D{decision.id}: Latch style" in html  # listed under sources
+    # Drive was refused the first time, then the decision came back, without the proposal.
+    first = model.requests[1]["messages"][-1]["content"]
+    assert "Call find_decisions first" in first
+    found = model.requests[2]["messages"][-1]["content"]
+    assert "Use the two-point cam latch." in found and "proposal" not in found
+    assert {c.status for c in stored(session, LlmCall)} == {"ok"}
+
+
+def test_a_decision_database_failure_is_noted_and_the_answer_still_arrives(
+    monkeypatch, session, task, client, no_real_services
+):
+    def broken(*args, **kwargs):
+        raise RuntimeError("postgresql://user:secret@host/db is down")
+
+    monkeypatch.setattr(decisions, "search_confirmed", broken)
+    script(
+        monkeypatch,
+        fake.tool_request(("c1", "find_decisions", json.dumps({"query": "latch"}))),
+        fake.reply("I couldn't check the decisions, so ask your lead."),
+    )
+
+    response = ask(client)
+
+    assert response.status_code == 200
+    assert "ask your lead" in response.text
+    assert "decision records couldn&#39;t be checked" in response.text
+    assert "secret" not in response.text
+    assert len(stored(session, LlmCall)) == 2  # the exchange was still logged
+
+
+# --- the coach drafts a decision ---
+
+DRAFT_JSON = {
+    "subsystem": "Enclosure",
+    "topic": "Latch style",
+    "decision": "Use the two-point cam latch.",
+    "rationale": "Toggles loosen under vibration.",
+    "alternatives": [{"option": "Toggle", "rejected_because": "Loosens."}],
+    "sources": [
+        {"title": "Latch design notes", "link": DRIVE_LINK, "folder": "Crush", "year": 2026},
+        {"title": "Invented", "link": "https://docs.google.com/document/d/nope1234567/edit"},
+    ],
+}
+
+
+def seed_conversation(session, task):
+    session.add_all(
+        [
+            CoachMessage(task_id=task.id, member="sam@example.edu", role="user",
+                         content="Cam or toggle latch?"),
+            CoachMessage(task_id=task.id, member="Coach", role="assistant",
+                         content=f"The notes {DRIVE_LINK} favor a cam latch."),
+        ]
+    )
+    session.commit()
+
+
+def test_draft_returns_a_prefilled_form_and_saves_no_decision(
+    monkeypatch, session, task, client, no_real_services
+):
+    seed_conversation(session, task)
+    script(monkeypatch, fake.reply(json.dumps(DRAFT_JSON)))
+
+    response = draft(client)
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Draft decision" in html and "not saved yet" in html
+    assert 'value="Latch style"' in html and "Use the two-point cam latch." in html
+    assert 'name="drafted" value="1"' in html
+    assert DRIVE_LINK in html and "nope1234567" not in html  # invented link dropped
+    assert 'value="M04"' in html and '<option value="Enclosure" selected>' in html
+    assert stored(session, Decision) == []  # nothing is a decision until submitted
+    [call] = stored(session, LlmCall)
+    assert call.status == "ok" and call.member == "sam@example.edu"
+    thread = [m.content for m in stored(session, CoachMessage)]
+    assert "Draft a decision from this conversation." in thread
+    assert any(c.startswith("Drafted a decision: Latch style") for c in thread)
+
+
+def test_submitting_a_draft_makes_a_proposal_a_lead_can_accept(
+    monkeypatch, session, task, client, no_real_services
+):
+    seed_conversation(session, task)
+    script(monkeypatch, fake.reply(json.dumps(DRAFT_JSON)))
+    html = draft(client).text
+    assert 'action="/decisions"' in html
+
+    data = form_data(
+        topic="Latch style", decision="Use the two-point cam latch.", tasks="M04",
+        drafted="1",
+    )
+    response = client.post("/decisions", data=data, follow_redirects=False)
+
+    assert response.status_code == 303
+    [saved] = stored(session, Decision)
+    assert saved.status == "proposed" and saved.drafted_by_coach is True
+    assert "(drafted by the coach)" in client.get(f"/decisions/{saved.id}").text
+
+    sign_in_as(LEAD)
+    client.post(f"/decisions/{saved.id}/accept")
+    session.expire_all()
+    assert session.get(Decision, saved.id).status == "confirmed"
+
+
+def test_draft_needs_a_coach_answer_first(
+    monkeypatch, session, task, client, no_real_services
+):
+    response = draft(client)  # the model would raise if called
+
+    assert "nothing to draft from yet" in response.text
+    assert stored(session, LlmCall) == [] and stored(session, CoachMessage) == []
+
+
+def test_draft_counts_toward_the_daily_cap(
+    monkeypatch, session, task, client, no_real_services
+):
+    monkeypatch.setenv("COACH_DAILY_LIMIT", "1")
+    seed_conversation(session, task)  # sam's one message today is already used
+    session.exec(select(CoachMessage))  # (the seeded user message is "today")
+
+    response = draft(client)
+
+    assert "used your 1 coach messages" in response.text
+    assert stored(session, LlmCall) == []
+
+
+def test_draft_failure_says_so_and_keeps_the_page_working(
+    monkeypatch, session, task, client, no_real_services
+):
+    seed_conversation(session, task)
+    script(monkeypatch, fake.timed_out())
+
+    response = draft(client)
+
+    assert response.status_code == 200
+    assert "took too long" in response.text
+    assert stored(session, Decision) == []
+    [call] = stored(session, LlmCall)
+    assert call.status == "timeout"
+    assert client.get("/tasks/M04").status_code == 200
+
+
+def test_draft_that_is_not_json_is_a_plain_error(
+    monkeypatch, session, task, client, no_real_services
+):
+    seed_conversation(session, task)
+    script(monkeypatch, fake.reply("You decided on the cam latch."))
+
+    response = draft(client)
+
+    assert "couldn&#39;t turn this conversation into a draft" in response.text
+    assert stored(session, Decision) == []
+
+
+def test_draft_without_javascript_shows_the_form_on_its_own_page(
+    monkeypatch, session, task, client, no_real_services
+):
+    seed_conversation(session, task)
+    script(monkeypatch, fake.reply(json.dumps(DRAFT_JSON)))
+
+    response = client.post("/tasks/M04/decision-draft")  # no HX-Request header
+
+    assert response.status_code == 200
+    assert "<h1>Propose a decision</h1>" in response.text
+    assert 'value="Latch style"' in response.text
+
+
+def test_task_page_offers_the_draft_button(client, session, task):
+    html = client.get("/tasks/M04").text
+
+    assert 'hx-post="/tasks/M04/decision-draft"' in html
+    assert "Draft a decision from this conversation" in html
+    assert 'id="decision-draft"' in html

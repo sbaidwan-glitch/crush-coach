@@ -30,6 +30,7 @@ from auth import CurrentUser, User
 from models import (
     DECISION_STATUS_LABELS,
     STATUS_LABELS,
+    SUBSYSTEMS,
     TASK_DETAIL_LABELS,
     CoachMessage,
     LlmCall,
@@ -48,14 +49,20 @@ MAX_MESSAGE_CHARS = 2000
 MAX_CONTEXT_FIELD_CHARS = 1500  # per tracker field sent to the model
 
 # Only Google links become clickable: the model's text can't plant other links.
-_GOOGLE_URL = re.compile(r"https://(?:docs|drive)\.google\.com/[^\s<]+")
+# The one exception is this app's own decision pages, a relative path like /decisions/12
+# that the model got from find_decisions.
+_LINKABLE = re.compile(
+    r"https://(?:docs|drive)\.google\.com/[^\s<]+|(?<![\w/])/decisions/\d+(?![\w/-])"
+)
 
 
 def linkify(text: str) -> Markup:
-    """Escape text, then make Google Drive/Docs URLs real links."""
+    """Escape text, then make Google Drive/Docs URLs and /decisions/N paths real links."""
 
     def link(match: re.Match[str]) -> str:
         url = match.group(0)
+        if url.startswith("/"):  # a decision page: same site, same tab
+            return f'<a href="{url}">{url}</a>'
         trailing = ""
         while url and url[-1] in ".,;:)!?":
             trailing = url[-1] + trailing
@@ -65,7 +72,7 @@ def linkify(text: str) -> Markup:
             f"{trailing}"
         )
 
-    return Markup(_GOOGLE_URL.sub(link, str(escape(text))))
+    return Markup(_LINKABLE.sub(link, str(escape(text))))
 
 
 templates.env.filters["linkify"] = linkify
@@ -214,6 +221,26 @@ def _render_page(
     )
 
 
+def _add_llm_calls(
+    session: Session, task_id: int, member: str, calls: list[llm.CallRecord]
+) -> None:
+    """Queue one `llm_call` row per model call (the caller commits)."""
+    for call in calls:
+        session.add(
+            LlmCall(
+                task_id=task_id,
+                member=member,
+                model=call.model,
+                input_tokens=call.input_tokens,
+                output_tokens=call.output_tokens,
+                latency_ms=call.latency_ms,
+                cost=call.cost,
+                status=call.status,
+                created_at=utc_now(),
+            )
+        )
+
+
 def _fragment(
     request: Request,
     user: User,
@@ -294,12 +321,22 @@ def ask_coach(
     calls: list[llm.CallRecord] = []
     answer: llm.CoachAnswer | None = None
     llm_error: str | None = None
+    task_id = task.id
+
+    def lookup_decisions(query: str, subsystem: str) -> list[dict]:
+        try:
+            return decisions.search_confirmed(session, query, subsystem, task_id)
+        except Exception:
+            session.rollback()  # a failed query must not poison the later save
+            raise
+
     try:
         answer = llm.run_coach(
             task_context(task),
             history,
             message,
             record=calls.append,
+            find_decisions=lookup_decisions,
         )
     except llm.LLMError as exc:
         llm_error = exc.message
@@ -314,6 +351,11 @@ def ask_coach(
                 "Google Drive failed during this answer, so it may not use the "
                 "team's documents."
             )
+        if answer.decisions_failed:
+            notes.append(
+                "The team's decision records couldn't be checked for this answer, "
+                "so it may disagree with a confirmed decision."
+            )
         if answer.unsourced_numbers:
             notes.append(
                 "This answer includes numbers without a source. Don't machine "
@@ -321,24 +363,11 @@ def ask_coach(
             )
 
     try:
-        for call in calls:
-            session.add(
-                LlmCall(
-                    task_id=task.id,
-                    member=member,
-                    model=call.model,
-                    input_tokens=call.input_tokens,
-                    output_tokens=call.output_tokens,
-                    latency_ms=call.latency_ms,
-                    cost=call.cost,
-                    status=call.status,
-                    created_at=utc_now(),
-                )
-            )
+        _add_llm_calls(session, task_id, member, calls)
         if answer is not None:
             session.add(
                 CoachMessage(
-                    task_id=task.id,
+                    task_id=task_id,
                     member="Coach",
                     role="assistant",
                     content=answer.text,
@@ -366,3 +395,126 @@ def ask_coach(
     else:
         response = RedirectResponse(f"/tasks/{code}", status_code=303)
     return response
+
+
+# --- drafting a decision from the conversation ---
+
+DRAFT_REQUEST_TEXT = "Draft a decision from this conversation."
+
+
+def _draft_response(
+    request: Request,
+    user: User,
+    is_htmx: bool,
+    *,
+    form: dict | None = None,
+    error: str | None = None,
+) -> Response:
+    """The draft form (or a plain error) as a fragment for htmx, else a whole page."""
+    context = {
+        "user": user,
+        "form": form,
+        "problems": [],
+        "error": error,
+        "subsystems": SUBSYSTEMS,
+        "action": "/decisions",
+    }
+    if is_htmx:
+        return templates.TemplateResponse(request, "_decision_draft.html", context)
+    if form is not None:
+        return templates.TemplateResponse(request, "decision_form.html", context)
+    return templates.TemplateResponse(
+        request, "decision_form.html", {**context, "form": decisions.blank_form()}
+    )
+
+
+@router.post("/tasks/{code}/decision-draft", response_class=HTMLResponse)
+def draft_decision(
+    request: Request,
+    code: str,
+    session: Annotated[Session, Depends(db.get_session)],
+    user: CurrentUser,
+    hx_request: Annotated[str | None, Header()] = None,
+):
+    """The coach drafts a decision from this task's conversation.
+
+    Nothing is saved as a decision here. The member gets a pre-filled form, reviews
+    it, and submits it as a proposal; a lead then accepts or not. The draft counts as
+    one coach message toward the daily cap.
+    """
+    is_htmx = hx_request == "true"
+    member = user["email"]
+
+    def fail(text: str) -> Response:
+        return _draft_response(request, user, is_htmx, error=text)
+
+    try:
+        task = session.exec(select(Task).where(Task.code == code)).first()
+        if task is None:
+            raise HTTPException(status_code=404)
+        task_id = task.id
+        thread = _history(session, task_id)
+        if not any(m.role == "assistant" for m in thread):
+            return fail(
+                "There is nothing to draft from yet. Ask the coach about this "
+                "decision first, then draft it."
+            )
+        limit = daily_limit()
+        if messages_today(session, member) >= limit:
+            return fail(
+                f"You've used your {limit} coach messages for today. "
+                "The count starts over at midnight."
+            )
+        history = [
+            {"role": m.role, "content": m.content} for m in thread[-HISTORY_TURNS:]
+        ]
+        # Saved before the call, like a chat message, so a failed attempt still counts.
+        session.add(
+            CoachMessage(
+                task_id=task_id, member=member, role="user", content=DRAFT_REQUEST_TEXT
+            )
+        )
+        session.commit()
+        context = task_context(task)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001  (a DB failure must not break the page)
+        log.error("Decision draft could not use the database (%s)", type(exc).__name__)
+        return fail("Couldn't reach the database right now. Try again in a moment.")
+
+    calls: list[llm.CallRecord] = []
+    draft: dict | None = None
+    llm_error: str | None = None
+    try:
+        draft = llm.draft_decision(context, history, record=calls.append)
+    except llm.LLMError as exc:
+        llm_error = exc.message
+    except Exception as exc:  # noqa: BLE001  (never let the model break the page)
+        log.error("Decision draft failed unexpectedly (%s)", type(exc).__name__)
+        llm_error = "The coach hit an unexpected problem. Try again in a moment."
+
+    form = decisions.form_from_draft(draft, task) if draft is not None else None
+    try:
+        _add_llm_calls(session, task_id, member, calls)
+        if form is not None:
+            topic = form["topic"] or "untitled"
+            session.add(
+                CoachMessage(
+                    task_id=task_id,
+                    member="Coach",
+                    role="assistant",
+                    content=(
+                        f"Drafted a decision: {topic}. Review it, edit anything "
+                        "that's wrong, and submit it for a lead to accept."
+                    ),
+                    meta=json.dumps({"sources": [], "notes": []}),
+                )
+            )
+        session.commit()
+    except Exception as exc:  # noqa: BLE001  (the member still gets their draft)
+        session.rollback()
+        log.error("Decision draft could not be logged (%s)", type(exc).__name__)
+
+    if form is None:
+        return fail(llm_error or "The coach couldn't draft a decision. Try again.")
+    return _draft_response(request, user, is_htmx, form=form)

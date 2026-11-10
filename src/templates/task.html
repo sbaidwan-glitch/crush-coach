@@ -64,6 +64,17 @@
   <div id="coach-error" class="notice notice-error" role="alert" hidden>{{ icon("error") }}<span id="coach-error-text"></span></div>
   {% if error %}{{ notice_box(error, "error") }}{% endif %}
 
+  <form id="draft-form" class="coach-form" method="post" action="/tasks/{{ task.code }}/decision-draft"
+        hx-post="/tasks/{{ task.code }}/decision-draft" hx-target="#decision-draft" hx-swap="innerHTML"
+        hx-disabled-elt="find button" hx-indicator="#draft-thinking">
+    <p class="fine">Reached a decision with the coach? It can draft a record for you to review. Nothing is saved until you propose it, and a lead accepts it. Uses one of your daily messages.</p>
+    <div class="coach-actions">
+      {{ button("Draft a decision from this conversation", "secondary", "submit") }}
+      {{ loading_indicator("draft-thinking", "Drafting…") }}
+    </div>
+  </form>
+  <div id="decision-draft" aria-live="polite"></div>
+
   <form id="coach-form" class="coach-form" method="post" action="/tasks/{{ task.code }}/coach"
         hx-post="/tasks/{{ task.code }}/coach" hx-target="#coach-log" hx-swap="beforeend"
         hx-disabled-elt="find button, find textarea" hx-indicator="#coach-thinking">

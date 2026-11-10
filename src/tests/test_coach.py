@@ -90,6 +90,11 @@ def fake_drive(monkeypatch):
     monkeypatch.setattr(drive, "read_text", lambda file_id: "Use the two-point latch.")
 
 
+def check_decisions_call():
+    """The model must look at decisions before Drive; the coach refuses Drive until then."""
+    return fake.tool_request(("d0", "find_decisions", json.dumps({"query": "latch"})))
+
+
 def ask(client, text="How should the latch work?", **kwargs):
     return client.post(
         "/tasks/M04/coach", data={"message": text}, headers=HTMX, **kwargs
@@ -254,6 +259,7 @@ def test_answer_flow_cites_sources_and_logs_every_call(
     fake_drive(monkeypatch)
     script(
         monkeypatch,
+        check_decisions_call(),
         fake.tool_request(("c1", "drive_search", json.dumps({"query": "latch"}))),
         fake.tool_request(("c2", "drive_read_text", json.dumps({"link": LINK}))),
         fake.reply(f"Which latch style fits? The notes say two-point: {LINK}."),
@@ -270,14 +276,14 @@ def test_answer_flow_cites_sources_and_logs_every_call(
     assert response.headers["HX-Trigger"] == "coachSent"
 
     calls = stored(session, LlmCall)
-    assert len(calls) == 3
+    assert len(calls) == 4
     assert {c.status for c in calls} == {"ok"}
     assert {(c.task_id, c.member, c.model) for c in calls} == {
         (task.id, "sam@example.edu", "claude-haiku-4-5")
     }
-    assert [c.input_tokens for c in calls] == [80, 80, 100]
-    assert [c.output_tokens for c in calls] == [15, 15, 20]
-    assert calls[2].cost == pytest.approx(0.0012)
+    assert [c.input_tokens for c in calls] == [80, 80, 80, 100]
+    assert [c.output_tokens for c in calls] == [15, 15, 15, 20]
+    assert calls[3].cost == pytest.approx(0.0012)
     assert all(c.latency_ms >= 0 for c in calls)
 
 
@@ -399,6 +405,7 @@ def test_drive_failure_still_answers_and_names_drive(
     monkeypatch.setattr(drive, "search", broken)
     script(
         monkeypatch,
+        check_decisions_call(),
         fake.tool_request(("c1", "drive_search", json.dumps({"query": "latch"}))),
         fake.reply("Drive could not be reached, so I can't cite the team's notes."),
     )
