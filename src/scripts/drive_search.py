@@ -9,13 +9,24 @@ from dotenv import load_dotenv
 # A script is imported relative to src/scripts, so add src for `import drive`.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from drive import DriveError, search
+from drive import FILE_TYPES, DriveError, search
 
 
 def main() -> int:
     load_dotenv(Path(__file__).resolve().parents[2] / ".env")
     parser = argparse.ArgumentParser(description="Search the Crush shared drive")
-    parser.add_argument("query", help="text to find in file names or document contents")
+    parser.add_argument(
+        "query",
+        nargs="?",
+        default="",
+        help="text to find in file names or document contents "
+        "(may be empty with --type)",
+    )
+    parser.add_argument(
+        "--type",
+        choices=FILE_TYPES,
+        help="only this kind of file (cad = SLDASM, SLDPRT, SLDDRW, STEP, STP)",
+    )
     parser.add_argument(
         "--limit",
         type=int,
@@ -24,8 +35,11 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    if not args.query and not args.type:
+        parser.error("give a query, or --type, or both")
+
     try:
-        results = search(args.query, args.limit)
+        results = search(args.query, args.limit, args.type)
     except DriveError as exc:
         print(f"Drive search failed: {exc}", file=sys.stderr)
         return 1
