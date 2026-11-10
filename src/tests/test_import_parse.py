@@ -37,7 +37,6 @@ def test_real_layout_maps_every_column_including_the_misspelled_one():
     assert row.details["people_to_ask"] == "Riley Sample"
     assert row.details["documentation"] == "https://docs.google.com/document/d/example/edit"
     assert row.details["due_date"] == "Week 3"
-    assert row.error is None
 
 
 def test_blank_cells_become_none_and_unknown_columns_are_ignored():
@@ -56,19 +55,13 @@ def test_correctly_spelled_documentation_header_also_works():
     assert row.details["documentation"] == "see the example doc"
 
 
-def test_blank_code_blank_title_and_duplicate_code_are_row_errors():
+def test_parsing_does_not_judge_rows_so_the_lead_can_fix_them_in_place():
     rows = imp.parse_tracker_csv(REAL).rows
-    errors = {(r.line, r.code): r.error for r in rows if r.error}
-
-    assert len(errors) == 3
-    duplicate = next(r for r in rows if r.code == "M22(2)" and r.error)
-    assert "duplicate code M22(2)" in duplicate.error
-    first = next(r for r in rows if r.code == "M22(2)" and not r.error)
-    assert first.line < duplicate.line
-    blank_code = next(r for r in rows if r.code == "" and r.error)
-    assert blank_code.error == "code is empty"
+    blank_code = next(r for r in rows if r.code == "" and r.title)
     blank_title = next(r for r in rows if r.code == "M07")
-    assert blank_title.error == "title is empty"
+
+    assert blank_code.title.startswith("Orphan")
+    assert blank_title.title == ""
 
 
 def test_row_lines_point_at_the_file_even_with_multiline_cells():
@@ -138,13 +131,7 @@ def test_sample_layout_is_still_accepted_with_explicit_columns():
         "in_progress",
     )
     assert good.owner == "Sam Example"
-    assert bad.error == "unknown subsystem 'Cockpit'"
-
-
-def test_over_long_field_is_a_row_error():
-    text = f"#,Task,Detailed Description\nM01,Example,{'x' * (imp.MAX_FIELD_CHARS + 1)}\n"
-
-    assert "description is longer" in imp.parse_tracker_csv(text).rows[0].error
+    assert bad.subsystem == "Cockpit"  # kept as typed; check_rows asks for a fix
 
 
 @pytest.mark.parametrize(
@@ -174,3 +161,115 @@ def test_decode_rejects_bad_bytes_empty_and_oversize():
 def test_decode_strips_a_byte_order_mark():
     text = imp.decode_csv_bytes(b"\xef\xbb\xbf#,Task\nM01,Example\n")
     assert imp.parse_tracker_csv(text).rows[0].code == "M01"
+
+
+# --- checking rows (what the review page shows) ---
+
+
+def row(code="M30", title="Example", subsystem="Gripper", task_type="Design", **kw):
+    return imp.ParsedRow(
+        line=kw.pop("line", 2),
+        code=code,
+        title=title,
+        subsystem=subsystem,
+        task_type=task_type,
+        **kw,
+    )
+
+
+def test_valid_rows_are_added_and_existing_codes_are_skipped():
+    checks = imp.check_rows([row("M30"), row("M31")], existing={"M31"})
+
+    assert [c.state for c in checks] == ["add", "exists"]
+    assert all(not c.problems for c in checks)
+
+
+def test_duplicate_code_asks_for_a_new_one_and_offers_the_next_free_code():
+    rows = [row("M22(2)"), row("M22(2)"), row("M24")]
+
+    first, second, third = imp.check_rows(rows, existing={"M21"})
+
+    assert (first.state, third.state) == ("add", "add")
+    assert second.state == "fix"
+    problem = second.problem("code")
+    assert problem.message == "Two rows use M22(2). Give this one a new code:"
+    assert problem.suggestion == "M25"
+
+
+def test_two_problem_rows_are_never_offered_the_same_code():
+    checks = imp.check_rows([row("M01"), row("M01"), row("M01")], existing=set())
+
+    assert [c.problem("code").suggestion for c in checks[1:]] == ["M02", "M03"]
+
+
+def test_fixing_the_first_row_clears_the_duplicate_on_the_second():
+    rows = [row("M22(3)"), row("M22(2)")]  # the lead renamed the first one
+
+    assert [c.state for c in imp.check_rows(rows, existing=set())] == ["add", "add"]
+
+
+def test_leaving_a_row_out_removes_its_problems_and_its_claim_on_the_code():
+    rows = [row("M01", subsystem=None), row("M01")]
+
+    checks = imp.check_rows(rows, existing=set(), included=[False, True])
+
+    assert [c.state for c in checks] == ["left_out", "add"]
+
+
+def test_blank_code_borrows_the_most_common_letters():
+    checks = imp.check_rows([row("M01"), row("M02"), row("E01"), row("")], set())
+
+    assert checks[3].problem("code").message == "Add a code for this row."
+    assert checks[3].problem("code").suggestion == "M03"
+
+
+def test_a_typed_code_that_already_exists_is_a_problem_but_an_unedited_one_is_not():
+    rows = [row("M05"), row("M09")]
+
+    checks = imp.check_rows(rows, {"M05", "M09"}, original_codes=["M05", "M22(2)"])
+
+    assert checks[0].state == "exists"
+    assert checks[1].state == "fix"
+    assert checks[1].problem("code").message.startswith("M09 is already in the tracker")
+
+
+def test_other_problems_use_short_plain_messages_per_field():
+    bad = row("M01", title="", subsystem=None, task_type="Welding", status="finished")
+
+    (check,) = imp.check_rows([bad], set())
+
+    assert check.problem("title").message == "Add a title."
+    assert check.problem("subsystem").message == "Choose a subsystem."
+    assert check.problem("task_type").message == "Choose a type."
+    assert "Status “finished” isn’t valid" in check.problem("row").message
+    (cockpit,) = imp.check_rows([row(subsystem="Cockpit")], set())
+    assert cockpit.problem("subsystem").message == "“Cockpit” isn’t a subsystem. Choose one."
+
+
+def test_over_long_text_is_a_row_problem_that_cannot_be_fixed_in_place():
+    details = {**dict.fromkeys(imp.DETAIL_FIELDS), "description": "x" * 5001}
+
+    (check,) = imp.check_rows([row(details=details)], set())
+
+    assert "Description is over 5,000 characters" in check.problem("row").message
+
+
+@pytest.mark.parametrize(
+    ("code", "taken", "expected"),
+    [
+        ("M22(2)", {"M21", "M24"}, "M25"),
+        ("M9", {"M9"}, "M10"),
+        ("M05", {"M05"}, "M06"),
+        ("", {"E01", "M01", "M02"}, "M03"),
+        ("Enclosure", {"M01"}, "M02"),
+        ("", set(), None),
+    ],
+)
+def test_next_free_code(code, taken, expected):
+    assert imp.next_free_code(code, taken) == expected
+
+
+def test_a_row_whose_code_already_exists_is_skipped_even_with_other_problems():
+    (check,) = imp.check_rows([row("M05", subsystem=None, title="")], {"M05"})
+
+    assert check.state == "exists"
