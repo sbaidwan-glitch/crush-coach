@@ -587,15 +587,41 @@ main {
   display: none;
 }
 
-.msg {
+.msg,
+.pending {
   display: grid;
   gap: var(--space-2);
   padding-left: var(--space-3);
   border-left: 1px solid var(--color-muted);
 }
 
-.msg-assistant {
+.msg-assistant,
+.pending {
   border-left: var(--border-thick) solid var(--color-coach);
+}
+
+.pending[hidden] {
+  display: none;
+}
+
+/* The coach is working: the same slot the answer will fill. */
+.pending .msg-body {
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* Motion only for people who haven't asked for less; otherwise the text just sits. */
+@media (prefers-reduced-motion: no-preference) {
+  .pending .icon {
+    animation: pulse var(--pulse-duration) ease-in-out infinite;
+  }
 }
 
 .msg-who {
@@ -608,17 +634,74 @@ main {
   text-transform: uppercase;
 }
 
-.msg-assistant .msg-who {
+.msg-assistant .msg-who,
+.pending .msg-who {
   color: var(--color-coach);
 }
 
-.msg-assistant .icon {
+.msg-assistant .icon,
+.pending .icon {
   color: var(--color-coach);
 }
 
 .msg-body {
   max-width: var(--measure);
+}
+
+/* Member messages are plain text: keep their line breaks. Coach answers are Markdown. */
+.msg-user .msg-body {
   white-space: pre-wrap;
+}
+
+.msg-md > * + * {
+  margin-top: var(--space-3);
+}
+
+.msg-md ul,
+.msg-md ol {
+  display: grid;
+  gap: var(--space-1);
+  padding-left: var(--space-5);
+}
+
+.msg-md ul {
+  list-style: square;
+}
+
+.msg-md ol {
+  list-style: decimal;
+}
+
+.msg-md li::marker {
+  color: var(--color-muted);
+}
+
+.msg-md code {
+  padding: 0 var(--space-1);
+  background: var(--color-raised);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius);
+  font: var(--weight-regular) var(--text-sm) / var(--leading-body) var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.msg-md pre {
+  padding: var(--space-3);
+  background: var(--color-raised);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius);
+  overflow-x: auto;
+}
+
+.msg-md pre code {
+  padding: 0;
+  background: none;
+  border: 0;
+  overflow-wrap: normal;
+}
+
+.msg-md a {
+  overflow-wrap: anywhere;
 }
 
 .msg .readout {
@@ -636,6 +719,18 @@ main {
   margin-top: var(--space-4);
   gap: var(--space-3);
   max-width: var(--measure);
+}
+
+.coach-fields {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+}
+
+.coach-fields:disabled {
+  opacity: 0.6;
 }
 
 .coach-form label {
