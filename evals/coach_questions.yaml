@@ -137,11 +137,3 @@
   cite: ""
   must_not: []
   kind: unknown
-
-- id: welding-who
-  task: M06
-  question: Who do I talk to about welding the enclosure walls?
-  expect: [["weld", "lead"]]
-  cite: ""
-  must_not: []
-  kind: lookup
