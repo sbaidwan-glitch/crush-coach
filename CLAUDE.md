@@ -20,6 +20,7 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - `docker compose up -d`: local Postgres (matches `DATABASE_URL` in `.env.example`)
 - `make dev`: run the API on :8000 from `src/`
 - `make test`: run tests from `src/`
+- `make eval`: score the coach on `evals/coach_questions.yaml` with the real model and Drive (costs money; `ONLY=<id>` or `KIND=<kind>` to run less). See "Measuring the coach"
 - `make screenshots`: screenshot `/`, `/tasks` and `/tasks/M04` at 375px and 1280px into `.context/screenshots/` (gitignored), against a throwaway SQLite database with the sample tasks and a fake signed-in session. One-time setup: `.venv/bin/pip install -r requirements-dev.txt && .venv/bin/playwright install chromium`
 - `.venv/bin/ruff check src`: lint
 - `cd src && ../.venv/bin/python scripts/drive_search.py "latch"`: search the team shared drive (metadata only); `--type cad|sheets|docs|pdf` filters by file type (the query may be empty with `--type`)
@@ -46,6 +47,7 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - `src/llm.py`, `src/prompts/coach_system.md`: model client, Drive tools (`drive_search` with a file-type filter, `drive_list_folder`, `drive_read_text`), the coach's system prompt. Progress steps go out through `run_coach(on_step=...)`; `coach.py` serves them at `/tasks/{code}/coach/progress` for the page to poll. Drive links in an answer that no tool returned are removed.
 - `src/drive_index.py`: the local Drive index. `full_sync` / `incremental_sync` (Drive changes feed) read Docs (all tabs), Sheets (all tabs), PDFs (pypdf, skip over 20 MB) and CAD (name, folder and date only) into `DriveFile` / `DriveChunk` / `SyncState`; `search()` uses Postgres full text (`websearch_to_tsquery` + `ts_rank`) and falls back to LIKE on SQLite. Read-only Google scopes only. Triggers: `scripts/sync_drive.py` and the lead-only "Sync Drive now" button on `/admin`. The coach does not use it yet
 - `src/markup.py`: coach answers are Markdown, rendered by markdown-it-py (raw HTML off) then sanitized with nh3 (allowlist; only https Google Docs/Drive links stay clickable). Model output is untrusted: never put it in a template unescaped except through `render_markdown` (the `markdown` filter)
+- `evals/coach_questions.yaml`, `src/coach_eval.py`, `src/scripts/run_evals.py`: the coach's test questions, the scoring and report code (pure, unit-tested), and the `make eval` runner
 - `src/import_tasks.py`, `src/sample_data/`: CSV parsing, subsystem/type guesses and saving (real tracker export or the made-up sample); also the CLI import
 - `src/admin.py`, `src/templates/admin_import*.html`, `src/static/import.js`: lead-only `/admin/import` (upload, review and fix rows in place, then Import); leads are `LEAD_EMAILS`, everyone else gets 403. The review page is stateless: every edit re-posts the form and the server re-checks all rows
 - `src/migrations/`: Alembic migrations (`versions/`); `src/alembic.ini` is the config
@@ -55,7 +57,7 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 ## Rules
 - Secrets live only in the environment: `GLASSROOM_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS` (path to a key file outside the repo) or `GOOGLE_SERVICE_ACCOUNT_JSON` (file contents, on Railway), `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `SESSION_SECRET`, and `DATABASE_URL`. Never write a secret into a committed file, a log line, or a test.
 - The Google credential variable names are listed in `.env.example`; values stay in the local environment or Railway. Drive access is limited to files and folders shared with the service account.
-- This repo is public. Never commit real team data (Drive exports, member names, the real tracker). Tests and seed data use made-up tasks and people.
+- This repo is public. Never commit people's names, contact info, or exports of the tracker or Drive. Drive file names, catalog part numbers, and individual design values in eval questions are OK. Tests and seed data use made-up tasks and people.
 - One task, one branch, one PR. Small commits. Never push to `main`; everything reaches `main` through a PR Samara reviews.
 - Run /ship before opening any PR.
 - Every model change needs a new Alembic migration. Never edit a migration that has been merged; add a new one. `tests/test_migrations.py` fails if the models and migrations disagree.
@@ -80,6 +82,15 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
   - Design: requirements → concepts → lead review → CAD → fit check
   - Validate: test plan → calculations → lead approval → run → log results
 - Process router: the ordered list of machining operations for a part.
+
+## Measuring the coach
+- Run `make eval` before and after any coach change (`src/llm.py`, `src/prompts/coach_system.md`, `src/coach.py`, the Drive tools) and paste both summary lines in the PR description, e.g. `pass 11 / partial 3 / fail 2 | median 14.2s, max 31.0s | total cost $0.2210`. A change that makes the numbers worse needs a reason.
+- It asks every question in `evals/coach_questions.yaml` the way the task page does (`coach.task_context` + `llm.run_coach`, empty chat history) using the real model and Drive. Needs `GLASSROOM_API_KEY` and the Google credentials; it refuses to start without them. A task code that isn't in the local database gets a made-up task, so answers can differ a little from the live page.
+- Scoring (case-insensitive substring matches): **pass** = every `expect` appears, `cite` is the title of a source the answer links, no `must_not`; **partial** = at least half of `expect` and no `must_not`; **fail** = anything else, or an error/timeout.
+- An `expect` item can be a list of alternatives (any one counts), for answers that can be worded several ways: `expect: [["not decided", "no decision"]]`.
+- It waits 3 seconds between questions. A question that errors (rate limit, timeout, model error) is retried once after 20 seconds and the retry's cost counts. Errors still score as fail, but the summary line says how many fails were errors (`fail 5 (2 errors)`), and the report shows the server's log line for each, so provider flakiness isn't mistaken for a worse coach.
+- It stops once the total cost passes $0.40 and says so (remaining questions show "not run"; also stops if Glassroom reports the budget is used up). The Glassroom cap is $1 per 5 hours for everyone, so don't run it twice in a row on the full set. Use `ONLY=<id>` or `KIND=<kind>` while iterating.
+- Every answer is written to `.context/evals/<timestamp>.md` (to read) and `.json` (to compare runs); `.context/` is gitignored. Read the failing answers before changing anything: a wrong `expect` line is as likely as a wrong answer.
 
 ## Learned the hard way
 (Add a line here whenever the agent makes the same mistake twice.)
