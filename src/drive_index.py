@@ -14,18 +14,22 @@ import io
 import logging
 import re
 import time
-from dataclasses import dataclass, field
+from collections import Counter
+from collections.abc import Iterable
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from sqlalchemy import and_, delete, func, insert, or_, select, text, update
+from sqlalchemy import delete, func, insert, or_, select, text, update
 from sqlmodel import Session
 
 import drive
+import drive_exclude
 from drive import DriveError
-from models import DriveChunk, DriveFile, SyncState, utc_now
+from drive_exclude import ExcludeRules
+from models import KIND_WORDS, DriveChunk, DriveFile, SyncState, utc_now
 
 log = logging.getLogger("crush_coach")
 
@@ -53,7 +57,12 @@ CHUNK_MIN_WORDS = 300
 CHUNK_MAX_WORDS = 600
 API_RETRIES = 4  # google-api-python-client backs off on 429 and 5xx by itself
 DOCS_SHEETS_INTERVAL = 1.0  # seconds between Docs/Sheets reads (quota ~60/min/user)
-STALE_LOCK_AFTER = timedelta(hours=2)  # a crashed sync can't block the next forever
+# A running sync touches its lock every HEARTBEAT_SECONDS. A lock with no sign of life
+# for STALE_LOCK_AFTER belongs to a dead process (killed, out of memory, redeployed)
+# and is taken over, so a stopped job can be restarted and resume within minutes.
+STALE_LOCK_AFTER = timedelta(minutes=15)
+HEARTBEAT_SECONDS = 30
+PROGRESS_LOG_SECONDS = 60
 INTERRUPTED = "The last sync was interrupted before it finished."
 MAX_CONSECUTIVE_FAILURES = 10  # database writes failing back to back: stop
 MAX_REPORTED_ERRORS = 25
@@ -80,14 +89,6 @@ CAD_EXTENSIONS = (
 )
 
 KINDS = ("doc", "sheet", "pdf", "cad", "folder", "other")
-# Words a person uses for a kind of file, so "enclosure CAD" matches a .SLDPRT.
-KIND_WORDS = {
-    "cad": "cad model",
-    "doc": "doc document",
-    "sheet": "sheet spreadsheet",
-    "pdf": "pdf",
-    "folder": "folder",
-}
 
 
 class SyncError(RuntimeError):
@@ -106,6 +107,7 @@ class SyncReport:
     files_seen: int = 0
     files_read: int = 0  # files whose text was (re)read this run
     removed: int = 0
+    excluded: int = 0  # items left out by the exclude rules
     text_errors: int = 0
     errors: list[str] = field(default_factory=list)  # "name: reason", capped
 
@@ -348,28 +350,123 @@ def _column_letter(index: int) -> str:
     return name
 
 
-def sheet_lines(rows: list[list[Any]]) -> list[str]:
+# --- sheet rows -> "header: value" lines --------------------------------------
+
+MAX_LABEL_CHARS = 32  # a column label is short...
+MAX_LABEL_WORDS = 5  # ...and not a sentence
+LABEL_SHARE = 0.8  # a header row is mostly labels
+HEADER_SCAN_ROWS = 30  # how far down to look when judging how wide the table is
+_NUMBERISH = re.compile(r"^[\s$€£¥+\-−(]*\d[\d\s.,/:%)\-]*$")  # 40, 9/19/2026, $1,200
+
+
+def _cell_text(value: Any) -> str:
+    """One cell as one line: line breaks inside a cell must not split its row."""
+    return " ".join(clean_text(str(value)).split())
+
+
+def _is_label(cell: str) -> bool:
+    """A short piece of text that could name a column (not a number, date or sentence).
+
+    Short symbols count too: "#", "%", "No." head real columns.
+    """
+    if not cell or len(cell) > MAX_LABEL_CHARS or len(cell.split()) > MAX_LABEL_WORDS:
+        return False
+    if _NUMBERISH.match(cell):
+        return False
+    has_letter = any(ch.isalpha() for ch in cell)
+    return has_letter or (len(cell) <= 3 and not any(ch.isdigit() for ch in cell))
+
+
+def _looks_like_header(row: list[str], widest: int) -> bool:
+    """Mostly short text labels, and spanning most of the table.
+
+    The width test is what skips a title row ("Master Task Spreadsheet") sitting
+    above the real header: a title is one or two cells, a header spans the table.
+    """
+    cells = [cell for cell in row if cell]
+    if len(cells) < 2 or len(cells) < 0.6 * widest:
+        return False
+    return sum(_is_label(cell) for cell in cells) >= LABEL_SHARE * len(cells)
+
+
+def _starts_new_table(row: list[str], header: list[str]) -> bool:
+    """A later header row: tabs often stack tables with different columns.
+
+    Stricter than the first header, since a row of short status words is easy to
+    mistake for labels: it must follow a blank row, have four or more cells that
+    are all distinct labels, and differ from the current header.
+    """
+    cells = [cell for cell in row if cell]
+    return (
+        len(cells) >= 4
+        and len({cell.casefold() for cell in cells}) == len(cells)
+        and all(_is_label(cell) for cell in cells)
+        and [c.casefold() for c in row] != [c.casefold() for c in header]
+    )
+
+
+def sheet_lines(
+    rows: list[list[Any]], trace: list[tuple[int, str]] | None = None
+) -> list[str]:
     """One 'header: value; header: value' line per data row.
 
-    The first non-empty row is the header. Blank cells are left out; a column
-    without a header is labeled by its letter.
+    The header is the first row that is mostly short text labels and spans the
+    table (so a title row above it is skipped and kept as a plain line). If no row
+    qualifies, columns are labeled by letter (A, B, C...) rather than guessing.
+    Blank cells are left out; a column with no label is labeled by its letter. A
+    header row repeated, or a different one after a blank row, starts a new block.
+    `trace`, if given, collects (sheet row number, "header") for each header row
+    used, so a person can check what was detected (scripts/sheet_preview.py).
     """
-    cleaned = [[clean_text(str(cell)).strip() for cell in row] for row in rows]
-    start = next((i for i, row in enumerate(cleaned) if any(row)), None)
-    if start is None:
-        return []
-    header = cleaned[start]
+    cleaned = [[_cell_text(cell) for cell in row] for row in rows]
+    widest = max(
+        (sum(1 for cell in row if cell) for row in cleaned[:HEADER_SCAN_ROWS]),
+        default=0,
+    )
+    header: list[str] | None = None
     lines: list[str] = []
-    for row in cleaned[start + 1 : start + 1 + MAX_SHEET_ROWS]:
+    rows_kept = 0
+    after_blank = True
+    # With no header, letters label every row. With one, rows above it (titles,
+    # notes) are kept as plain text.
+    has_header = any(_looks_like_header(row, widest) for row in cleaned if any(row))
+    for number, row in enumerate(cleaned, start=1):
+        if not any(row):
+            after_blank = True
+            continue
+        if has_header and header is None:
+            if _looks_like_header(row, widest):
+                header = row
+                if trace is not None:
+                    trace.append((number, "header"))
+            else:
+                lines.append("; ".join(cell for cell in row if cell))
+            after_blank = False
+            continue
+        if header is not None and after_blank and _looks_like_header(row, widest):
+            if _starts_new_table(row, header):
+                header = row
+                if trace is not None:
+                    trace.append((number, "header"))
+                after_blank = False
+                continue
+            if [c.casefold() for c in row] == [c.casefold() for c in header]:
+                after_blank = False
+                continue  # the same header repeated: not data
+        after_blank = False
         pairs = [
-            f"{header[j] if j < len(header) and header[j] else _column_letter(j)}: {cell}"
+            f"{header[j] if header and j < len(header) and header[j] else _column_letter(j)}: {cell}"
             for j, cell in enumerate(row)
             if cell
         ]
-        if pairs:
-            lines.append("; ".join(pairs))
-    if not lines:  # a one-row sheet: the header is all there is
-        lines = ["; ".join(cell for cell in header if cell)]
+        lines.append("; ".join(pairs))
+        rows_kept += 1
+        if rows_kept >= MAX_SHEET_ROWS:
+            break
+    if (
+        header is not None and rows_kept == 0
+    ):  # a one-row sheet: the header is all there is
+        lines.append("; ".join(cell for cell in header if cell))
     return lines
 
 
@@ -437,6 +534,8 @@ def _extract_sheet(services: GoogleServices, drive_id: str) -> Extracted:
         if sheet.get("properties", {}).get("sheetType", "GRID") == "GRID"
     ]
     sections: list[Section] = []
+    seen_tabs: set[str] = set()
+    repeated_tabs = 0
     for i in range(0, len(titles), SHEET_RANGES_PER_CALL):
         batch = titles[i : i + SHEET_RANGES_PER_CALL]
         services.pace()
@@ -452,9 +551,19 @@ def _extract_sheet(services: GoogleServices, drive_id: str) -> Extracted:
             batch, response.get("valueRanges", []), strict=False
         ):
             lines = sheet_lines(value_range.get("values", []))
-            if lines:
-                sections.append(Section(title, "\n".join(lines)))
-    return _finish(sections)
+            if not lines:
+                continue
+            body = "\n".join(lines)
+            if _normal_text(body) in seen_tabs:  # a tab copied as-is: index it once
+                repeated_tabs += 1
+                continue
+            seen_tabs.add(_normal_text(body))
+            sections.append(Section(title, body))
+    result = _finish(sections)
+    if repeated_tabs:
+        note = f"{repeated_tabs} tab(s) identical to an earlier tab were skipped"
+        result.reason = f"{result.reason}; {note}" if result.reason else note
+    return result
 
 
 def _extract_pdf(services: GoogleServices, drive_id: str) -> Extracted:
@@ -609,19 +718,24 @@ def get_state(session: Session) -> SyncState:
 
 
 def claim(session: Session) -> None:
-    """Take the sync lock, or raise SyncAlreadyRunning. Atomic on both databases."""
+    """Take the sync lock, or raise SyncAlreadyRunning. Atomic on both databases.
+
+    A lock is free if nobody holds it, or if its holder has shown no sign of life
+    (heartbeat) for STALE_LOCK_AFTER.
+    """
     get_state(session)
     now = utc_now()
+    last_seen = func.coalesce(SyncState.heartbeat_at, SyncState.running_since)
     claimed = session.execute(
         update(SyncState)
         .where(
             SyncState.id == 1,
             or_(
                 SyncState.running_since.is_(None),
-                SyncState.running_since < now - STALE_LOCK_AFTER,
+                last_seen < now - STALE_LOCK_AFTER,
             ),
         )
-        .values(running_since=now)
+        .values(running_since=now, heartbeat_at=now)
     )
     session.commit()
     if claimed.rowcount != 1:
@@ -633,9 +747,43 @@ def release(session: Session, error: str | None) -> None:
     session.execute(
         update(SyncState)
         .where(SyncState.id == 1)
-        .values(running_since=None, last_error=error)
+        .values(running_since=None, heartbeat_at=None, last_error=error)
     )
     session.commit()
+
+
+def heartbeat(session: Session) -> None:
+    """Show the running sync is alive, and refresh the counts /admin displays."""
+    session.execute(
+        update(SyncState).where(SyncState.id == 1).values(heartbeat_at=utc_now())
+    )
+    refresh_counts(session)
+    session.commit()
+
+
+class _Pulse:
+    """Heartbeat and a progress line, at most every HEARTBEAT_SECONDS / 60 s."""
+
+    def __init__(self, session: Session, total: int):
+        self.session = session
+        self.total = total
+        self._beat = time.monotonic()
+        self._logged = time.monotonic()
+
+    def tick(self, done: int, report: "SyncReport") -> None:
+        now = time.monotonic()
+        if now - self._beat >= HEARTBEAT_SECONDS:
+            heartbeat(self.session)
+            self._beat = now
+        if now - self._logged >= PROGRESS_LOG_SECONDS:
+            log.info(
+                "Drive index: %s of %s files checked (%s read, %s errors)",
+                f"{done:,}",
+                f"{self.total:,}",
+                f"{report.files_read:,}",
+                report.text_errors,
+            )
+            self._logged = now
 
 
 def release_quietly(session: Session, error: str | None) -> None:
@@ -739,7 +887,7 @@ def _folder_map(session: Session) -> dict[str, tuple[str, str | None]]:
     return {drive_id: (name, parent) for drive_id, name, parent in rows}
 
 
-def _upsert_roots(session: Session, services: GoogleServices) -> set[str]:
+def _upsert_roots(session: Session, services: GoogleServices) -> dict[str, str]:
     """Store each shared drive's root as a folder, so paths start with its name."""
     roots: dict[str, str] = {}
     page_token = None
@@ -775,7 +923,7 @@ def _upsert_roots(session: Session, services: GoogleServices) -> set[str]:
         row.last_indexed_at = utc_now()
         session.add(row)
     session.commit()
-    return set(roots)
+    return roots
 
 
 def _upsert_folders(session: Session, items: list[dict[str, Any]]) -> bool:
@@ -838,6 +986,7 @@ def _index_file(
     folders: dict[str, tuple[str, str | None]],
     force: bool,
     report: SyncReport,
+    force_kinds: frozenset[str] = frozenset(),
 ) -> None:
     """Store one file's metadata and, if it is new or changed, its text chunks."""
     info = _file_info(item)
@@ -845,6 +994,7 @@ def _index_file(
     changed = (
         known is None
         or force
+        or info["kind"] in force_kinds
         or known.modified_time != info["modified_time"]
         or known.size != info["size"]
         or known.mime_type != info["mime_type"]
@@ -882,17 +1032,31 @@ def _index_files(
     items: list[dict[str, Any]],
     force: bool,
     report: SyncReport,
+    force_kinds: frozenset[str] = frozenset(),
 ) -> None:
-    """Index every non-folder item. A failure on one file is logged; the rest go on."""
+    """Index every non-folder item. A failure on one file is logged; the rest go on.
+
+    Files already indexed and unchanged cost no Google call, so running this again
+    after a stop resumes where it left off.
+    """
     known = _known_files(session)
     folders = _folder_map(session)
     failures_in_a_row = 0
-    for item in items:
+    pulse = _Pulse(session, len(items))
+    for done, item in enumerate(items, start=1):
+        pulse.tick(done, report)
         if not item.get("id") or _file_info(item)["kind"] == "folder":
             continue
         try:
             _index_file(
-                session, services, item, known.get(item["id"]), folders, force, report
+                session,
+                services,
+                item,
+                known.get(item["id"]),
+                folders,
+                force,
+                report,
+                force_kinds,
             )
             failures_in_a_row = 0
         except Exception as exc:  # one bad file must not stop the sync
@@ -905,6 +1069,132 @@ def _index_files(
                 raise SyncError(
                     "The database rejected several files in a row, so the sync stopped."
                 ) from exc
+
+
+# --- exclude rules ---------------------------------------------------------
+
+
+def _ancestor_names(
+    parent_id: str | None,
+    folders: dict[str, tuple[str, str | None]],
+    root_ids: set[str],
+) -> list[str]:
+    """Names of the folders above an item, outermost first, not counting the drive."""
+    names: list[str] = []
+    seen: set[str] = set()
+    current = parent_id
+    while current and current in folders and current not in seen:
+        seen.add(current)
+        if current in root_ids:
+            break
+        name, current = folders[current]
+        names.append(name)
+    return list(reversed(names))
+
+
+def _is_excluded(item: dict[str, Any], names: list[str], rules: ExcludeRules):
+    info = _file_info(item)
+    return rules.match(names, info["name"], info["mime_type"], info["kind"] == "folder")
+
+
+def _drop_excluded(
+    items: list[dict[str, Any]], rules: ExcludeRules, root_ids: set[str]
+) -> tuple[list[dict[str, Any]], Counter]:
+    """The items the exclude rules keep, and how many each rule dropped (full sync).
+
+    Folder names come from the listing itself, so a folder that is excluded takes
+    everything inside it with it.
+    """
+    if not rules:
+        return items, Counter()
+    folders = {
+        item["id"]: (_file_info(item)["name"], _file_info(item)["parent_id"])
+        for item in items
+        if item.get("id") and _file_info(item)["kind"] == "folder"
+    }
+    kept: list[dict[str, Any]] = []
+    dropped: Counter = Counter()
+    for item in items:
+        names = _ancestor_names(_file_info(item)["parent_id"], folders, root_ids)
+        rule = _is_excluded(item, names, rules)
+        if rule:
+            dropped[rule.text] += 1
+        else:
+            kept.append(item)
+    return kept, dropped
+
+
+def _learn_ancestors(
+    services: GoogleServices,
+    parent_id: str | None,
+    folders: dict[str, tuple[str, str | None]],
+    root_ids: set[str],
+) -> None:
+    """Fetch, from Drive, any folders above `parent_id` the index doesn't know.
+
+    Excluded folders are never stored, so a file changed inside one has a parent
+    the index has no row for. Costs a call per unknown folder, once per run.
+    """
+    current = parent_id
+    for _ in range(64):
+        if not current or current in folders or current in root_ids:
+            return
+        meta = _run(
+            services.drive.files().get(
+                fileId=current,
+                fields="id,name,parents",
+                supportsAllDrives=True,
+            )
+        )
+        parents = meta.get("parents") or []
+        folders[current] = (meta.get("name") or "", parents[0] if parents else None)
+        current = folders[current][1]
+
+
+def _drop_excluded_changes(
+    session: Session,
+    services: GoogleServices,
+    items: list[dict[str, Any]],
+    rules: ExcludeRules,
+    report: SyncReport,
+) -> tuple[list[dict[str, Any]], list[int]]:
+    """The changed items the rules keep, and ids of indexed rows that are now excluded."""
+    if not rules:
+        return items, []
+    folders = _folder_map(session)
+    root_ids = {drive_id for drive_id, (_, parent) in folders.items() if parent is None}
+    for item in items:  # folders created or renamed in this same batch
+        info = _file_info(item)
+        if info["kind"] == "folder":
+            folders[info["drive_id"]] = (info["name"], info["parent_id"])
+    known = _known_files(session)
+    kept: list[dict[str, Any]] = []
+    to_delete: list[int] = []
+    for item in items:
+        info = _file_info(item)
+        try:
+            _learn_ancestors(services, info["parent_id"], folders, root_ids)
+        except Exception as exc:  # noqa: BLE001 (can't tell if excluded: skip, don't guess)
+            reason = describe_error(exc)
+            log.warning(
+                "Drive index: could not check exclusions for %s (%s)",
+                item["id"],
+                reason,
+            )
+            report.add_error(
+                info["name"], f"not checked against exclude rules: {reason}"
+            )
+            continue
+        rule = _is_excluded(
+            item, _ancestor_names(info["parent_id"], folders, root_ids), rules
+        )
+        if not rule:
+            kept.append(item)
+            continue
+        report.excluded += 1
+        if info["drive_id"] in known:
+            to_delete.append(known[info["drive_id"]].id)
+    return kept, to_delete
 
 
 # --- sync entry points ------------------------------------------------------
@@ -942,13 +1232,21 @@ def _start_page_token(services: GoogleServices) -> str:
     return token
 
 
-def _run_full(session: Session, services: GoogleServices, force: bool) -> SyncReport:
+def _run_full(
+    session: Session,
+    services: GoogleServices,
+    force: bool,
+    force_kinds: frozenset[str],
+    rules: ExcludeRules,
+) -> SyncReport:
     report = SyncReport("full")
     # Take the token first: anything that changes during the walk is then replayed
     # by the next incremental sync (re-indexing is harmless), never missed.
     token = _start_page_token(services)
-    root_ids = _upsert_roots(session, services)
+    roots = _upsert_roots(session, services)
+    root_ids = set(roots)
     items = _list_everything(services)
+    heartbeat(session)  # the listing of a big drive takes minutes
     indexed = session.scalar(select(func.count()).select_from(DriveFile)) or 0
     if not items and indexed > len(root_ids):
         # An empty listing over a non-empty index means lost access, not a deleted
@@ -956,10 +1254,21 @@ def _run_full(session: Session, services: GoogleServices, force: bool) -> SyncRe
         raise SyncError("Google Drive listed no files; the existing index was kept.")
 
     report.files_seen = len(items)
+    items, dropped = _drop_excluded(items, rules, root_ids)
+    report.excluded = sum(dropped.values())
+    if dropped:
+        log.info(
+            "Drive index: %s items left out by exclude rules (%s)",
+            f"{report.excluded:,}",
+            ", ".join(f"{rule}: {n:,}" for rule, n in dropped.most_common(8)),
+        )
+    log.info("Drive index: %s items to check", f"{len(items):,}")
     _upsert_folders(session, items)
     _refresh_paths(session)
-    _index_files(session, services, items, force, report)
+    heartbeat(session)
+    _index_files(session, services, items, force, report, force_kinds)
 
+    # Anything indexed earlier that is no longer listed, or is now excluded, goes.
     seen = {item["id"] for item in items if item.get("id")} | root_ids
     stale = [
         known.id
@@ -1024,7 +1333,10 @@ def _descendant_ids(session: Session, folder_drive_ids: set[str]) -> set[str]:
 
 
 def _run_incremental(
-    session: Session, services: GoogleServices, state: SyncState
+    session: Session,
+    services: GoogleServices,
+    state: SyncState,
+    rules: ExcludeRules,
 ) -> SyncReport:
     report = SyncReport("incremental")
     try:
@@ -1035,7 +1347,7 @@ def _run_incremental(
             log.warning(
                 "Drive index: stored changes token rejected; running a full sync"
             )
-            return _run_full(session, services, force=False)
+            return _run_full(session, services, False, frozenset(), rules)
         raise
 
     try:
@@ -1071,7 +1383,10 @@ def _run_incremental(
     _delete_files(session, ids_to_delete)
     report.removed = len(ids_to_delete)
 
-    items = list(changed_items.values())
+    items, newly_excluded = _drop_excluded_changes(
+        session, services, list(changed_items.values()), rules, report
+    )
+    _delete_files(session, newly_excluded)  # indexed earlier, now in an excluded place
     folders_changed = _upsert_folders(session, items)
     _refresh_paths(session)  # cheap, and keeps files right when a folder moved
     if folders_changed:
@@ -1092,6 +1407,8 @@ def _locked_sync(
     mode: str,
     force: bool,
     already_claimed: bool,
+    force_kinds: frozenset[str] = frozenset(),
+    exclude: ExcludeRules | None = None,
 ) -> SyncReport:
     if not already_claimed:
         claim(session)  # raises SyncAlreadyRunning without touching the running sync
@@ -1101,12 +1418,17 @@ def _locked_sync(
     error: str | None = INTERRUPTED
     try:
         services = services or GoogleServices.from_environment()
+        rules = exclude if exclude is not None else drive_exclude.load_rules()
         state = get_state(session)
         if mode == "incremental" and state.page_token:
-            report = _run_incremental(session, services, state)
+            report = _run_incremental(session, services, state, rules)
         else:
-            # No token yet (or an unusable one): the first sync has to be a full one.
-            report = _run_full(session, services, force)
+            # No token yet (or an unusable one): the first sync has to be a full
+            # one. The token is stored only when it finishes, so if it stops partway
+            # the next run (even an incremental one) picks up the rest.
+            if mode == "incremental":
+                log.info("Drive index: no completed full sync yet; running one")
+            report = _run_full(session, services, force, force_kinds, rules)
         refresh_counts(session)
         session.commit()
         error = None
@@ -1126,15 +1448,26 @@ def full_sync(
     services: GoogleServices | None = None,
     *,
     force: bool = False,
+    reindex: Iterable[str] = (),
     already_claimed: bool = False,
+    exclude: ExcludeRules | None = None,
 ) -> SyncReport:
     """Walk the whole shared drive and (re)index it.
 
     Files whose modified time hasn't changed keep their stored text, unless
-    `force` is set or their last read failed. Files no longer in the drive are
-    removed. Raises SyncError if the sync as a whole fails.
+    `force` is set or their last read failed. `reindex` re-reads every file of the
+    given kinds ("sheet", "doc", "pdf") and nothing else: use it after a change to
+    how one kind is read. Files no longer in the drive, or now excluded, are
+    removed. Safe to run again after a stop: files already done cost no Google call.
+    Raises SyncError if the sync as a whole fails.
     """
-    return _locked_sync(session, services, "full", force, already_claimed)
+    kinds = frozenset(reindex)
+    unknown = kinds - set(KINDS)
+    if unknown:
+        raise ValueError(f"unknown kinds to reindex: {', '.join(sorted(unknown))}")
+    return _locked_sync(
+        session, services, "full", force, already_claimed, kinds, exclude
+    )
 
 
 def incremental_sync(
@@ -1142,21 +1475,30 @@ def incremental_sync(
     services: GoogleServices | None = None,
     *,
     already_claimed: bool = False,
+    exclude: ExcludeRules | None = None,
 ) -> SyncReport:
     """Apply what changed in Drive since the last sync (full, if there was none).
 
     `already_claimed`: the caller already took the lock with `claim()` (the admin
     button does, so its page can show "running" straight away).
     """
-    return _locked_sync(session, services, "incremental", False, already_claimed)
+    return _locked_sync(
+        session, services, "incremental", False, already_claimed, frozenset(), exclude
+    )
 
 
 # --- search -----------------------------------------------------------------
 
-NAME_ALL_BOOST = 0.5  # every query word is in the file's name/folder/kind
-NAME_ANY_BOOST = 0.2  # some query word is
+NAME_ALL_BOOST = 0.9  # every query word is in the file's name: a very strong signal
+NAME_ANY_BOOST = 0.45  # some query word is in the name
+PATH_ALL_BOOST = 0.6  # every word is somewhere in name + folder + kind (name-only hits)
+ALL_TERMS_BOOST = 0.25  # a chunk that contains every query word
+COPY_PENALTY = 0.4  # "Copy of ..." files rank below the original
 SNIPPET_CHARS = 240
+SEARCH_TYPES = ("cad", "doc", "sheet", "pdf")
 _WORD = re.compile(r"\w+")
+_COPY_PREFIX = re.compile(r"^(copy of\s+)+", re.IGNORECASE)
+_OPERATORS = re.compile(r'"|(^|\s)-\w|\bor\b', re.IGNORECASE)  # websearch syntax
 
 
 @dataclass(frozen=True)
@@ -1175,6 +1517,7 @@ class SearchHit:
     snippet: str
     score: float
     chunk_id: int | None = None
+    also_in: int = 0  # identical copies left out of the results (kept: the newer)
 
 
 def make_snippet(body: str, words: list[str], width: int = SNIPPET_CHARS) -> str:
@@ -1189,188 +1532,174 @@ def make_snippet(body: str, words: list[str], width: int = SNIPPET_CHARS) -> str
     return ("…" if start else "") + excerpt + ("…" if start + width < len(flat) else "")
 
 
-_FILE_TEXT_SQL = (
-    "to_tsvector('english', "
-    "regexp_replace(f.name || ' ' || f.folder_path, '[_./-]+', ' ', 'g') || ' ' || "
-    "CASE f.kind "
-    + " ".join(f"WHEN '{kind}' THEN '{words}'" for kind, words in KIND_WORDS.items())
-    + " ELSE '' END)"
-)
+# The file's name alone (for the strong name boost), built the same way as the
+# stored full-text column on drive_file.
+_NAME_SQL = "to_tsvector('english', regexp_replace(f.name, '[_./-]+', ' ', 'g'))"
+_KIND_FILTER = "(CAST(:kind AS text) IS NULL OR f.kind = CAST(:kind AS text))"
 
 _PG_CHUNK_QUERY = text(
     f"""
     WITH q AS (
-        SELECT websearch_to_tsquery('english', :q) AS tsq,
-               websearch_to_tsquery('english', :q_all) AS tsq_all,
+        SELECT websearch_to_tsquery('english', :q_all) AS tsq_all,
                websearch_to_tsquery('english', :q_any) AS tsq_any
     )
     SELECT c.id AS chunk_id, c.heading, c.text, f.id AS file_id, f.drive_id, f.name,
            f.kind, f.folder_path, f.web_link, f.modified_time,
-           ts_rank(c.search_vector, q.tsq, 32)
+           ts_rank(c.search_vector, q.tsq_any, 32)
+             + CASE WHEN c.search_vector @@ q.tsq_all THEN {ALL_TERMS_BOOST} ELSE 0 END
              + CASE WHEN n.v @@ q.tsq_all THEN {NAME_ALL_BOOST}
                     WHEN n.v @@ q.tsq_any THEN {NAME_ANY_BOOST} ELSE 0 END AS score
     FROM q, drive_chunk c
     JOIN drive_file f ON f.id = c.file_id
-    CROSS JOIN LATERAL (SELECT {_FILE_TEXT_SQL} AS v) n
-    WHERE c.search_vector @@ q.tsq
+    CROSS JOIN LATERAL (SELECT {_NAME_SQL} AS v) n
+    WHERE c.search_vector @@ q.tsq_any AND {_KIND_FILTER}
     ORDER BY score DESC, f.modified_time DESC NULLS LAST, c.position
     LIMIT :n
     """
 )
 
+# Every file and folder is in this one, text or not: its stored full-text column
+# holds the name (weight A), folder path (C) and kind words (D).
 _PG_FILE_QUERY = text(
     f"""
     WITH q AS (
-        SELECT websearch_to_tsquery('english', :q) AS tsq,
-               websearch_to_tsquery('english', :q_all) AS tsq_all
+        SELECT websearch_to_tsquery('english', :q_all) AS tsq_all,
+               websearch_to_tsquery('english', :q_any) AS tsq_any
     )
     SELECT f.id AS file_id, f.drive_id, f.name, f.kind, f.folder_path, f.web_link,
            f.modified_time,
-           CASE WHEN n.v @@ q.tsq_all THEN {NAME_ALL_BOOST} ELSE {NAME_ANY_BOOST} END
-             + 0.3 * ts_rank(n.v, q.tsq, 32) AS score
+           CASE WHEN n.v @@ q.tsq_all THEN {NAME_ALL_BOOST}
+                WHEN f.search_vector @@ q.tsq_all THEN {PATH_ALL_BOOST}
+                WHEN n.v @@ q.tsq_any THEN {NAME_ANY_BOOST} ELSE 0.3 END
+             + 0.3 * ts_rank(f.search_vector, q.tsq_any, 32) AS score
     FROM q, drive_file f
-    CROSS JOIN LATERAL (SELECT {_FILE_TEXT_SQL} AS v) n
-    WHERE n.v @@ q.tsq
+    CROSS JOIN LATERAL (SELECT {_NAME_SQL} AS v) n
+    WHERE f.search_vector @@ q.tsq_any AND {_KIND_FILTER}
     ORDER BY score DESC, f.modified_time DESC NULLS LAST
     LIMIT :n
     """
 )
 
 
-def _or_query(words: list[str]) -> str:
-    return " or ".join(words)
+def _row_hit(row, words: list[str], with_chunk: bool) -> SearchHit:
+    return SearchHit(
+        file_id=row["file_id"],
+        drive_id=row["drive_id"],
+        name=row["name"],
+        kind=row["kind"],
+        folder_path=row["folder_path"],
+        web_link=row["web_link"],
+        modified_time=row["modified_time"],
+        heading=row["heading"] if with_chunk else None,
+        text=row["text"] if with_chunk else "",
+        snippet=make_snippet(row["text"], words) if with_chunk else "",
+        score=float(row["score"]),
+        chunk_id=row["chunk_id"] if with_chunk else None,
+    )
 
 
 def _postgres_hits(
-    session: Session, query: str, words: list[str], fetch: int
+    session: Session, query: str, any_query: str, words: list[str], fetch: int, kind
 ) -> list[SearchHit]:
-    def run(q: str) -> list[SearchHit]:
-        any_q = _or_query(words)
-        chunk_rows = (
-            session.execute(
-                _PG_CHUNK_QUERY,
-                {"q": q, "q_all": query, "q_any": any_q, "n": fetch},
-            )
-            .mappings()
-            .all()
-        )
-        hits = [
-            SearchHit(
-                file_id=r["file_id"],
-                drive_id=r["drive_id"],
-                name=r["name"],
-                kind=r["kind"],
-                folder_path=r["folder_path"],
-                web_link=r["web_link"],
-                modified_time=r["modified_time"],
-                heading=r["heading"],
-                text=r["text"],
-                snippet=make_snippet(r["text"], words),
-                score=float(r["score"]),
-                chunk_id=r["chunk_id"],
-            )
-            for r in chunk_rows
-        ]
-        with_chunks = {hit.file_id for hit in hits}
-        file_rows = (
-            session.execute(_PG_FILE_QUERY, {"q": q, "q_all": query, "n": fetch})
-            .mappings()
-            .all()
-        )
-        hits.extend(
-            SearchHit(
-                file_id=r["file_id"],
-                drive_id=r["drive_id"],
-                name=r["name"],
-                kind=r["kind"],
-                folder_path=r["folder_path"],
-                web_link=r["web_link"],
-                modified_time=r["modified_time"],
-                heading=None,
-                text="",
-                snippet="",
-                score=float(r["score"]),
-            )
-            for r in file_rows
-            if r["file_id"] not in with_chunks
-        )
-        return hits
-
-    hits = run(query)
-    if not hits and len(words) > 1:  # "where's the latest enclosure CAD": loosen to OR
-        hits = run(_or_query(words))
+    params = {"q_all": query, "q_any": any_query, "kind": kind, "n": fetch}
+    chunk_rows = session.execute(_PG_CHUNK_QUERY, params).mappings().all()
+    hits = [_row_hit(row, words, True) for row in chunk_rows]
+    with_chunks = {hit.file_id for hit in hits}
+    file_rows = session.execute(_PG_FILE_QUERY, params).mappings().all()
+    hits.extend(
+        _row_hit(row, words, False)
+        for row in file_rows
+        if row["file_id"] not in with_chunks
+    )
     return hits
 
 
-def _like_hits(session: Session, words: list[str], fetch: int) -> list[SearchHit]:
-    """The SQLite fallback (tests, and a laptop without Postgres): plain LIKE."""
+def _like_hits(
+    session: Session, words: list[str], fetch: int, kind: str | None
+) -> list[SearchHit]:
+    """The SQLite fallback (tests, a laptop without Postgres): any word, LIKE."""
+    folded = [word.casefold() for word in words]
 
-    def run(match_all: bool) -> list[SearchHit]:
-        join = and_ if match_all else or_
-        file_text = (
-            func.coalesce(DriveFile.name, "")
-            + " "
-            + func.coalesce(DriveFile.folder_path, "")
-            + " "
-            + func.coalesce(DriveFile.kind, "")
-        )
-        kind_hits = [
-            DriveFile.kind == kind
-            for word in words
-            for kind, kind_words in KIND_WORDS.items()
-            if word.casefold() in kind_words.split()
-        ]
-        in_file = [
-            or_(file_text.icontains(word, autoescape=True), *kind_hits)
-            for word in words
-        ]
-        in_chunk = [
+    def name_boost(name: str) -> float:
+        """The boost for the query words being in the file's name."""
+        in_name = [w for w in folded if w in name.casefold()]
+        if len(in_name) == len(folded):
+            return NAME_ALL_BOOST
+        return NAME_ANY_BOOST if in_name else 0.0
+
+    def file_only_score(name: str, path: str, file_kind: str) -> float:
+        """A name-only result, tiered like the Postgres query: every word in the
+        name; every word across name + folder + kind; some word in the name."""
+        boost = name_boost(name)
+        if boost == NAME_ALL_BOOST:
+            return boost
+        everywhere = f"{name} {path} {KIND_WORDS.get(file_kind, '')}".casefold()
+        if all(w in everywhere for w in folded):
+            return PATH_ALL_BOOST
+        return boost or 0.3
+
+    file_text = (
+        func.coalesce(DriveFile.name, "")
+        + " "
+        + func.coalesce(DriveFile.folder_path, "")
+        + " "
+        + func.coalesce(DriveFile.kind, "")
+    )
+    kind_clauses = [
+        DriveFile.kind == file_kind
+        for word in folded
+        for file_kind, kind_words in KIND_WORDS.items()
+        if word in kind_words.split()
+    ]
+    in_file = or_(
+        *(file_text.icontains(word, autoescape=True) for word in words), *kind_clauses
+    )
+    in_chunk = or_(
+        *(
             or_(
                 DriveChunk.text.icontains(word, autoescape=True),
                 func.coalesce(DriveChunk.heading, "").icontains(word, autoescape=True),
             )
             for word in words
-        ]
+        )
+    )
+    type_filter = [DriveFile.kind == kind] if kind else []
 
-        def name_boost(file_name: str, path: str, kind: str) -> float:
-            haystack = f"{file_name} {path} {kind}".casefold()
-            matched = [w for w in words if w.casefold() in haystack]
-            if len(matched) == len(words):
-                return NAME_ALL_BOOST
-            return NAME_ANY_BOOST if matched else 0.0
-
-        chunk_rows = session.execute(
-            select(DriveChunk, DriveFile)
-            .join(DriveFile, DriveFile.id == DriveChunk.file_id)
-            .where(join(*in_chunk))
-            .limit(fetch * 4)
-        ).all()
-        hits = []
-        for chunk, file in chunk_rows:
-            body = f"{chunk.heading or ''} {chunk.text}".casefold()
-            share = sum(w.casefold() in body for w in words) / len(words)
-            hits.append(
-                SearchHit(
-                    file_id=file.id,
-                    drive_id=file.drive_id,
-                    name=file.name,
-                    kind=file.kind,
-                    folder_path=file.folder_path,
-                    web_link=file.web_link,
-                    modified_time=file.modified_time,
-                    heading=chunk.heading,
-                    text=chunk.text,
-                    snippet=make_snippet(chunk.text, words),
-                    score=0.4 * share
-                    + name_boost(file.name, file.folder_path, file.kind),
-                    chunk_id=chunk.id,
-                )
+    hits: list[SearchHit] = []
+    chunk_rows = session.execute(
+        select(DriveChunk, DriveFile)
+        .join(DriveFile, DriveFile.id == DriveChunk.file_id)
+        .where(in_chunk, *type_filter)
+        .limit(fetch * 4)
+    ).all()
+    for chunk, file in chunk_rows:
+        body = f"{chunk.heading or ''} {chunk.text}".casefold()
+        share = sum(w in body for w in folded) / len(folded)
+        hits.append(
+            SearchHit(
+                file_id=file.id,
+                drive_id=file.drive_id,
+                name=file.name,
+                kind=file.kind,
+                folder_path=file.folder_path,
+                web_link=file.web_link,
+                modified_time=file.modified_time,
+                heading=chunk.heading,
+                text=chunk.text,
+                snippet=make_snippet(chunk.text, words),
+                score=0.3 * share
+                + (ALL_TERMS_BOOST if share == 1 else 0)
+                + name_boost(file.name),
+                chunk_id=chunk.id,
             )
-        with_chunks = {hit.file_id for hit in hits}
-        file_rows = session.execute(
-            select(DriveFile).where(join(*in_file)).limit(fetch * 4)
-        ).scalars()
-        hits.extend(
+        )
+    with_chunks = {hit.file_id for hit in hits}
+    for file in session.execute(
+        select(DriveFile).where(in_file, *type_filter).limit(fetch * 4)
+    ).scalars():
+        if file.id in with_chunks:
+            continue
+        hits.append(
             SearchHit(
                 file_id=file.id,
                 drive_id=file.drive_id,
@@ -1382,17 +1711,58 @@ def _like_hits(session: Session, words: list[str], fetch: int) -> list[SearchHit
                 heading=None,
                 text="",
                 snippet="",
-                score=name_boost(file.name, file.folder_path, file.kind),
+                score=file_only_score(file.name, file.folder_path, file.kind),
             )
-            for file in file_rows
-            if file.id not in with_chunks
         )
-        return hits
-
-    hits = run(True)
-    if not hits and len(words) > 1:
-        hits = run(False)
     return hits
+
+
+def _normal_name(name: str) -> str:
+    """A file name without any leading 'Copy of ', for finding its original."""
+    return _COPY_PREFIX.sub("", name).strip().casefold()
+
+
+def _normal_text(body: str) -> str:
+    return " ".join(body.split()).casefold()
+
+
+def _collapse(hits: list[SearchHit]) -> list[SearchHit]:
+    """Drop duplicates, keeping the best copy and counting the rest.
+
+    Results with identical text collapse into one (across files, and across tabs of
+    one spreadsheet); name-only results collapse by name and type, so the same CAD
+    file saved in seven version folders is one row. Which copy is kept: an original
+    over a "Copy of ...", then the newer file, then the higher score.
+    """
+    oldest = datetime.fromtimestamp(0, UTC).replace(tzinfo=None)
+
+    def preference(hit: SearchHit):
+        return (
+            not _COPY_PREFIX.match(hit.name),
+            hit.modified_time or oldest,
+            hit.score,
+            -(hit.chunk_id or 0),
+        )
+
+    groups: dict[tuple, list[SearchHit]] = {}
+    for hit in hits:
+        key = (
+            ("text", _normal_text(hit.text))
+            if hit.text
+            else ("file", _normal_name(hit.name), hit.kind)
+        )
+        groups.setdefault(key, []).append(hit)
+    kept = []
+    for group in groups.values():
+        best = max(group, key=preference)
+        kept.append(
+            replace(
+                best,
+                score=max(hit.score for hit in group),
+                also_in=len(group) - 1,
+            )
+        )
+    return kept
 
 
 def search(
@@ -1401,24 +1771,37 @@ def search(
     limit: int = 10,
     *,
     max_per_file: int | None = 3,
+    kind: str | None = None,
 ) -> list[SearchHit]:
     """Ranked chunks (or name-only file hits) for a question's keywords.
 
-    Postgres: websearch_to_tsquery + ts_rank, with a boost when the query words
-    are in the file's name, folder path or kind. When nothing matches every word,
-    it retries matching any word. Scores that agree to three decimals are broken
-    by the newer file. SQLite falls back to LIKE. `max_per_file` stops one long
-    document from filling the list.
+    Any query word can match, but a result with every word ranks above one with
+    some, and a file whose *name* has the words ranks well above a text-only match
+    (every file has a full-text entry for its name and folder, so CAD files and
+    scans with no text are found too). Postgres: `websearch_to_tsquery` +
+    `ts_rank`; SQLite falls back to LIKE. Typed operators (quotes, -word, or) are
+    kept as written. `kind` ("cad", "doc", "sheet", "pdf") limits the file type.
+    "Copy of ..." files rank below the original, identical results collapse to
+    the newer file, and `max_per_file` stops one long document filling the list.
     """
+    if kind is not None and kind not in SEARCH_TYPES:
+        raise ValueError(f"kind must be one of {', '.join(SEARCH_TYPES)}")
     words = [w for w in _WORD.findall(query) if any(c.isalnum() for c in w)]
     if limit <= 0 or not words:
         return []
     fetch = max(limit * 5, 50)
     if session.get_bind().dialect.name == "postgresql":
-        hits = _postgres_hits(session, query, words, fetch)
+        any_query = query if _OPERATORS.search(query) else " or ".join(words)
+        hits = _postgres_hits(session, query, any_query, words, fetch, kind)
     else:
-        hits = _like_hits(session, words, fetch)
+        hits = _like_hits(session, words, fetch, kind)
 
+    hits = [
+        replace(hit, score=hit.score - COPY_PENALTY)
+        if _COPY_PREFIX.match(hit.name)
+        else hit
+        for hit in _collapse(hits)
+    ]
     oldest = datetime.fromtimestamp(0, UTC).replace(tzinfo=None)
     hits.sort(
         key=lambda hit: (round(hit.score, 3), hit.modified_time or oldest),

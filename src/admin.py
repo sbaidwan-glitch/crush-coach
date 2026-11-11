@@ -342,7 +342,8 @@ def _drive_status(session: Session) -> dict[str, Any]:
     """What the Drive block shows: counts, last sync time, running, last error."""
     state = session.get(SyncState, 1) or SyncState(id=1)
     stale = utc_now() - drive_index.STALE_LOCK_AFTER
-    running = state.running_since is not None and state.running_since > stale
+    alive = state.heartbeat_at or state.running_since
+    running = state.running_since is not None and alive is not None and alive > stale
     synced = [t for t in (state.last_full_sync, state.last_incremental_sync) if t]
     last_synced = max(synced) if synced else None
     return {

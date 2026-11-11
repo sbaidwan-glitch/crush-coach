@@ -3,6 +3,7 @@
 All files, text and Google responses here are made up (see fake_google.py).
 """
 
+import logging
 from datetime import datetime
 
 import pytest
@@ -553,21 +554,16 @@ def test_search_loosens_to_any_word_when_nothing_has_them_all(session, fake):
 
 
 def test_search_caps_chunks_per_file_and_limit(session, fake):
-    fake.documents["docLid"] = {
-        "tabs": [
-            doc_tab(
-                "T", *[doc_paragraph(f"Section {i}", "HEADING_1") for i in range(1)]
-            )
+    sections = [
+        di.Section(f"Part {i}", words(320, f"latch{i}") + " latch") for i in range(5)
+    ]
+    paragraphs = []
+    for section in sections:
+        paragraphs += [
+            doc_paragraph(section.heading, "HEADING_1"),
+            doc_paragraph(section.text),
         ]
-    }
-    sections = [di.Section(f"Part {i}", words(320, "latch")) for i in range(5)]
-    document_paragraphs = []
-    for s in sections:
-        document_paragraphs += [
-            doc_paragraph(s.heading, "HEADING_1"),
-            doc_paragraph(s.text),
-        ]
-    fake.documents["docLid"] = {"tabs": [doc_tab("T", *document_paragraphs)]}
+    fake.documents["docLid"] = {"tabs": [doc_tab("T", *paragraphs)]}
     di.full_sync(session, fake.google())
 
     capped = [
@@ -582,9 +578,9 @@ def test_search_caps_chunks_per_file_and_limit(session, fake):
 def test_search_ties_go_to_the_newer_file(session, fake):
     fake.add("twinOld", "Twin plan", DOC, "fDocs", modified="2026-01-01T00:00:00Z")
     fake.add("twinNew", "Twin plan", DOC, "fDocs", modified="2026-06-01T00:00:00Z")
-    for twin in ("twinOld", "twinNew"):
+    for twin, extra in (("twinOld", "alpha"), ("twinNew", "bravo")):
         fake.documents[twin] = {
-            "tabs": [doc_tab("T", doc_paragraph("gasket torque plan"))]
+            "tabs": [doc_tab("T", doc_paragraph(f"gasket torque plan {extra}"))]
         }
     di.full_sync(session, fake.google())
 
@@ -765,3 +761,439 @@ def test_sighup_is_left_alone_under_nohup(monkeypatch):
     sync_drive.install_signal_handlers()
 
     assert installed == [signal.SIGTERM]  # SIGHUP stays ignored, as nohup set it
+
+
+# --- file names, types, copies and repeated tabs in search ---
+
+
+def add_cad(fake, file_id, name, folder, modified="2026-03-29T00:00:00Z"):
+    fake.add(
+        file_id, name, "application/sldworks", folder, modified=modified, size="900"
+    )
+
+
+def test_a_cad_file_named_for_one_query_word_is_found_without_any_text(session, fake):
+    add_cad(fake, "latchCad", "6082A12_Draw Latch.SLDPRT", "fCad")
+    di.full_sync(session, fake.google())
+
+    names = [h.name for h in di.search(session, "lid latch", limit=20)]
+
+    assert "6082A12_Draw Latch.SLDPRT" in names  # "lid" isn't in its name; "latch" is
+    assert names.index("Lid latch design notes") < names.index(
+        "6082A12_Draw Latch.SLDPRT"
+    )
+
+
+def test_type_filter_lists_only_that_kind(session, fake):
+    add_cad(fake, "latchCad", "6082A12_Draw Latch.SLDPRT", "fCad")
+    di.full_sync(session, fake.google())
+
+    cad = di.search(session, "latch", kind="cad")
+    assert [h.name for h in cad] == ["6082A12_Draw Latch.SLDPRT"]
+    assert {h.kind for h in di.search(session, "latch", kind="pdf")} == {"pdf"}
+    assert {h.kind for h in di.search(session, "latch", kind="doc")} == {"doc"}
+    assert di.search(session, "latch", kind="sheet")[0].name == "Parts list"
+    with pytest.raises(ValueError, match="kind must be one of"):
+        di.search(session, "latch", kind="folder")
+
+
+def test_the_same_cad_file_in_many_version_folders_is_one_result_the_newest(
+    session, fake
+):
+    for i, day in enumerate(("2026-02-11", "2026-03-29", "2025-01-05")):
+        fake.add(f"v{i}", f"Version {i}", FOLDER, "fCad")
+        add_cad(
+            fake, f"dup{i}", "6082A12_Draw Latch.SLDPRT", f"v{i}", f"{day}T00:00:00Z"
+        )
+    di.full_sync(session, fake.google())
+
+    hits = di.search(session, "latch", kind="cad")
+
+    assert len(hits) == 1
+    assert hits[0].modified_time == utc_naive(2026, 3, 29)
+    assert hits[0].also_in == 2
+    assert hits[0].folder_path.endswith("Version 1")
+
+
+def doc_with(fake, file_id, name, modified, text):
+    fake.add(file_id, name, DOC, "fDocs", modified=modified)
+    fake.documents[file_id] = {"tabs": [doc_tab("T", doc_paragraph(text))]}
+
+
+def test_copy_of_ranks_below_the_original(session, fake):
+    # Same name words, slightly different text, and the copy is the NEWER file.
+    doc_with(
+        fake, "orig", "Seal notes", "2026-01-01T00:00:00Z", "o-ring seal notes groove"
+    )
+    doc_with(
+        fake,
+        "copy",
+        "Copy of Seal notes",
+        "2026-09-01T00:00:00Z",
+        "o-ring seal notes groove v2",
+    )
+    di.full_sync(session, fake.google())
+
+    hits = di.search(session, "seal notes")
+
+    assert [h.drive_id for h in hits[:2]] == ["orig", "copy"]
+
+
+def test_identical_text_collapses_keeping_the_original_not_the_copy(session, fake):
+    doc_with(
+        fake, "orig", "Seal notes", "2026-01-01T00:00:00Z", "o-ring groove depth notes"
+    )
+    doc_with(
+        fake,
+        "copy",
+        "Copy of Seal notes",
+        "2026-09-01T00:00:00Z",
+        "o-ring groove depth notes",
+    )
+    doc_with(
+        fake,
+        "newer",
+        "Seal notes (2)",
+        "2026-10-01T00:00:00Z",
+        "o-ring groove depth notes",
+    )
+    di.full_sync(session, fake.google())
+
+    hits = [h for h in di.search(session, "groove depth") if h.text]
+
+    assert len(hits) == 1
+    assert hits[0].drive_id == "newer"  # among non-copies, the newer file
+    assert hits[0].also_in == 2
+
+
+def test_a_copy_alone_is_still_found(session, fake):
+    doc_with(
+        fake,
+        "copy",
+        "Copy of Only notes",
+        "2026-09-01T00:00:00Z",
+        "unique ballast text",
+    )
+    di.full_sync(session, fake.google())
+    assert [h.drive_id for h in di.search(session, "ballast")] == ["copy"]
+
+
+def big_tab(prefix):
+    return [["Part", "Note"], *[[f"{prefix} {i}", "word " * 8] for i in range(45)]]
+
+
+def test_identical_big_tabs_of_one_spreadsheet_come_back_once(session, fake):
+    fake.add("sheetDup", "Tracker", SHEET, "fDocs")
+    fake.spreadsheets["sheetDup"] = [
+        ("Master", big_tab("bracket")),
+        ("Master (old)", big_tab("bracket")),
+    ]
+    di.full_sync(session, fake.google())
+
+    hits = [
+        h for h in di.search(session, "bracket", limit=20) if h.drive_id == "sheetDup"
+    ]
+
+    assert len(hits) == 1
+    assert "identical to an earlier tab" in files_by_id(session)["sheetDup"].text_reason
+
+
+def test_a_small_repeated_tab_is_not_indexed_twice(session, fake):
+    fake.add("sheetSmall", "Small tracker", SHEET, "fDocs")
+    rows = [["Part", "Qty"], ["clamp", "3"]]
+    fake.spreadsheets["sheetSmall"] = [
+        ("A", rows),
+        ("B", rows),
+        ("C", [["Part", "Qty"], ["rail", "1"]]),
+    ]
+    di.full_sync(session, fake.google())
+
+    text_ = " ".join(c.text for c in chunks_of(session, "sheetSmall"))
+    assert text_.count("clamp") == 1 and "rail" in text_
+
+
+# --- sheet header detection ---
+
+
+def test_a_title_row_above_the_header_is_not_mistaken_for_it():
+    rows = [
+        ["Master Task Spreadsheet"],
+        [],
+        ["Subteam", "#", "Task", "Owner", "Notes"],
+        ["Mechanical", "M005", "Machining", "Needs review", "Finish the baseplate"],
+        ["Electrical", "E001", "Regulators", "Unassigned", "Replace 3v3"],
+    ]
+    lines = di.sheet_lines(rows)
+    assert lines == [
+        "Master Task Spreadsheet",
+        "Subteam: Mechanical; #: M005; Task: Machining; Owner: Needs review; Notes: Finish the baseplate",
+        "Subteam: Electrical; #: E001; Task: Regulators; Owner: Unassigned; Notes: Replace 3v3",
+    ]
+
+
+def test_a_two_cell_note_above_a_wide_header_is_skipped_too():
+    rows = [
+        ["Updated", "11/9/2026"],
+        ["Name", "Role", "Owner", "Notes"],
+        ["Latch", "part", "Sam", "ordered"],
+    ]
+    assert (
+        di.sheet_lines(rows)[-1]
+        == "Name: Latch; Role: part; Owner: Sam; Notes: ordered"
+    )
+
+
+def test_when_no_row_looks_like_a_header_columns_are_lettered_not_guessed():
+    rows = [
+        ["12", "3.5", "9/19/2026"],
+        ["A very long sentence that is certainly not a column label at all", "7", "x"],
+    ]
+    assert di.sheet_lines(rows) == [
+        "A: 12; B: 3.5; C: 9/19/2026",
+        "A: A very long sentence that is certainly not a column label at all; B: 7; C: x",
+    ]
+
+
+def test_a_new_table_stacked_below_a_blank_row_gets_its_own_header():
+    rows = [
+        ["Subteam", "#", "Task", "Owner"],
+        ["Electrical", "E1", "Regulators", "Ana"],
+        [],
+        ["Subteam", "#", "Category", "Description", "Status", "Due"],
+        [
+            "Mechanical",
+            "M88",
+            "Training",
+            "Machine shop access",
+            "Needs review",
+            "9/19/2026",
+        ],
+    ]
+    lines = di.sheet_lines(rows)
+    assert lines[0] == "Subteam: Electrical; #: E1; Task: Regulators; Owner: Ana"
+    assert lines[1] == (
+        "Subteam: Mechanical; #: M88; Category: Training; Description: Machine shop access; "
+        "Status: Needs review; Due: 9/19/2026"
+    )
+
+
+def test_a_repeated_identical_header_is_not_data_and_status_words_are_not_headers():
+    rows = [
+        ["Part", "Qty", "Status", "Owner"],
+        ["clamp", "3", "ok", "Ana"],
+        [],
+        ["Part", "Qty", "Status", "Owner"],
+        ["rail", "1", "ok", "Ben"],
+        [],
+        ["Done", "Open", "Blocked"],  # three words, not a table header
+    ]
+    lines = di.sheet_lines(rows)
+    assert lines == [
+        "Part: clamp; Qty: 3; Status: ok; Owner: Ana",
+        "Part: rail; Qty: 1; Status: ok; Owner: Ben",
+        "Part: Done; Qty: Open; Status: Blocked",
+    ]
+
+
+def test_line_breaks_inside_a_cell_do_not_split_the_row():
+    rows = [["Task", "Skills"], ["Regulators", "- charging\n- monitoring\n\n- labels"]]
+    assert di.sheet_lines(rows) == [
+        "Task: Regulators; Skills: - charging - monitoring - labels"
+    ]
+
+
+# --- heartbeat, resuming and re-indexing ---
+
+
+def test_a_running_sync_keeps_its_lock_alive_and_shows_live_counts(
+    session, fake, monkeypatch
+):
+    monkeypatch.setattr(di, "HEARTBEAT_SECONDS", 0)
+    seen = []
+    original = di.heartbeat
+
+    def spy(s):
+        original(s)
+        state = s.get(SyncState, 1)
+        seen.append((state.heartbeat_at is not None, state.file_count))
+
+    monkeypatch.setattr(di, "heartbeat", spy)
+
+    di.full_sync(session, fake.google())
+
+    assert len(seen) > 3 and all(alive for alive, _ in seen)
+    counts = [count for _, count in seen]
+    assert counts == sorted(counts) and counts[-1] > counts[0]  # the count grows live
+    state = session.get(SyncState, 1)
+    assert state.running_since is None and state.heartbeat_at is None
+
+
+def test_progress_is_logged_while_a_sync_runs(session, fake, monkeypatch, caplog):
+    monkeypatch.setattr(di, "PROGRESS_LOG_SECONDS", 0)
+    monkeypatch.setattr(di, "HEARTBEAT_SECONDS", 0)
+    with caplog.at_level(logging.INFO, logger="crush_coach"):
+        di.full_sync(session, fake.google())
+    assert "files checked" in caplog.text and "items to check" in caplog.text
+
+
+def test_a_recent_heartbeat_keeps_the_lock_however_long_the_sync_has_run(session, fake):
+    state = di.get_state(session)
+    state.running_since = di.utc_now() - di.timedelta(hours=5)
+    state.heartbeat_at = di.utc_now() - di.timedelta(minutes=1)
+    session.add(state)
+    session.commit()
+    with pytest.raises(di.SyncAlreadyRunning):
+        di.full_sync(session, fake.google())
+
+
+def test_a_lock_whose_heartbeat_stopped_is_taken_over_within_minutes(session, fake):
+    state = di.get_state(session)
+    state.running_since = di.utc_now() - di.timedelta(hours=1)
+    state.heartbeat_at = (
+        di.STALE_LOCK_AFTER
+        and di.utc_now() - di.STALE_LOCK_AFTER - di.timedelta(minutes=1)
+    )
+    session.add(state)
+    session.commit()
+    assert di.full_sync(session, fake.google()).mode == "full"
+
+
+def test_a_full_sync_killed_partway_resumes_and_reads_only_what_is_left(
+    session, fake, monkeypatch
+):
+    real_extract = di.extract
+    attempts = []
+
+    def killed_on_the_fourth_file(services, info):
+        attempts.append(info["drive_id"])
+        if len(attempts) == 4:
+            raise KeyboardInterrupt  # as if the job was stopped here
+        return real_extract(services, info)
+
+    monkeypatch.setattr(di, "extract", killed_on_the_fourth_file)
+    with pytest.raises(KeyboardInterrupt):
+        di.full_sync(session, fake.google())
+
+    state = session.get(SyncState, 1)
+    assert state.running_since is None  # released, so the restart isn't blocked
+    assert state.page_token is None and state.last_full_sync is None  # not finished
+    done = {
+        f.drive_id
+        for f in session.exec(select(DriveFile)).all()
+        if f.text_status == "ok"
+    }
+    assert {"docLid", "sheetParts", "pdfData"} == done  # the files read before the stop
+    reads_before = [c for c in fake.calls]
+    fake.calls.clear()
+
+    monkeypatch.setattr(di, "extract", real_extract)
+    report = di.incremental_sync(session, fake.google())  # no token yet: a full sync
+
+    assert report.mode == "full"
+    assert fake.calls == []  # nothing already read was read again
+    assert len(reads_before) == 4  # (the docs, sheet get + batchGet, and the pdf)
+    files = files_by_id(session)
+    assert (
+        files["cadNew"].text_status == "skipped"
+        and files["word"].text_status == "skipped"
+    )
+    state = session.get(SyncState, 1)
+    assert state.page_token == fake.token and state.last_full_sync is not None
+
+
+def test_reindex_rereads_only_the_named_kind(session, fake):
+    di.full_sync(session, fake.google())
+    fake.calls.clear()
+    fake.spreadsheets["sheetParts"] = [
+        ("Fasteners", [["Part", "Qty"], ["Dowel pin", "9"]])
+    ]
+
+    report = di.full_sync(session, fake.google(), reindex=["sheet"])
+
+    assert {(api, method) for api, method, _ in fake.calls} == {
+        ("sheets", "get"),
+        ("sheets", "batchGet"),
+    }
+    assert report.files_read == 1
+    assert [c.text for c in chunks_of(session, "sheetParts")] == [
+        "Part: Dowel pin; Qty: 9"
+    ]
+    with pytest.raises(ValueError, match="unknown kinds"):
+        di.full_sync(session, fake.google(), reindex=["spreadsheet"])
+
+
+# --- the scripts ---
+
+
+def test_sync_script_reindex_option(session, fake, monkeypatch, capsys):
+    from scripts import sync_drive
+
+    monkeypatch.setattr(di.GoogleServices, "from_environment", lambda: fake.google())
+    assert sync_drive.main(["--full"]) == 0
+    capsys.readouterr()
+    fake.calls.clear()
+
+    assert sync_drive.main(["--full", "--reindex", "sheet"]) == 0
+
+    assert {call[0] for call in fake.calls} == {"sheets"}
+    assert "excluded" in capsys.readouterr().out
+    for argv in (
+        ["--incremental", "--reindex", "sheet"],
+        ["--full", "--reindex", "cad"],
+    ):
+        with pytest.raises(SystemExit):
+            sync_drive.main(argv)
+
+
+def test_sheet_lines_can_report_which_rows_were_taken_as_headers():
+    rows = [
+        ["Title only"],
+        ["Part", "Qty", "Owner"],
+        ["clamp", "3", "Ana"],
+        [],
+        ["Name", "Role", "Notes", "Due"],
+        ["Sam", "lead", "ok", "x"],
+    ]
+    trace: list = []
+    di.sheet_lines(rows, trace)
+    assert trace == [(2, "header"), (5, "header")]
+
+
+def test_sheet_preview_script_shows_the_detected_header(
+    session, fake, monkeypatch, capsys
+):
+    from scripts import sheet_preview
+
+    di.full_sync(session, fake.google())
+    fake.spreadsheets["sheetParts"] = [
+        ("Master", [["Parts list"], ["Part", "Qty", "Owner"], ["clamp", "3", "Ana"]])
+    ]
+    monkeypatch.setattr(di.GoogleServices, "from_environment", lambda: fake.google())
+    monkeypatch.setattr("sys.argv", ["sheet_preview.py", "Parts list"])
+
+    assert sheet_preview.main() == 0
+
+    out = capsys.readouterr().out
+    assert (
+        "tab 'Master'" in out
+        and "header = sheet row 2: ['Part', 'Qty', 'Owner']" in out
+    )
+    assert "Part: clamp; Qty: 3; Owner: Ana" in out
+
+    monkeypatch.setattr("sys.argv", ["sheet_preview.py", "No such sheet"])
+    assert sheet_preview.main() == 1
+
+
+def test_index_stats_script_prints_the_numbers(session, fake, monkeypatch, capsys):
+    from scripts import index_stats
+
+    di.full_sync(session, fake.google())
+    monkeypatch.setattr("sys.argv", ["index_stats.py", "--noise"])
+
+    assert index_stats.main() == 0
+
+    out = capsys.readouterr().out
+    assert "Files by kind and text status" in out
+    assert "10 largest files by chunk count" in out
+    assert "Files not read" in out and "CAD file: no text" in out
+    assert "text chunks" in out

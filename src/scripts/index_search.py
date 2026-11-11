@@ -27,6 +27,11 @@ def main() -> int:
     parser.add_argument("query", help="keywords, e.g. 'lid latch'")
     parser.add_argument("--limit", type=int, default=10, help="results (default: 10)")
     parser.add_argument(
+        "--type",
+        choices=drive_index.SEARCH_TYPES,
+        help="only this kind of file (cad = SLDPRT, SLDASM, STEP, STL, ...)",
+    )
+    parser.add_argument(
         "--full-text",
         action="store_true",
         help="print each whole chunk instead of a short excerpt",
@@ -35,7 +40,7 @@ def main() -> int:
 
     try:
         with Session(db.engine) as session:
-            hits = drive_index.search(session, args.query, args.limit)
+            hits = drive_index.search(session, args.query, args.limit, kind=args.type)
             state = session.get(SyncState, 1)
             indexed = session.scalar(select(func.count()).select_from(DriveFile))
     except Exception as exc:  # noqa: BLE001  (one clean line, not a traceback)
@@ -63,7 +68,12 @@ def main() -> int:
     print(f"{len(hits)} result(s); index last synced {synced or 'never'} UTC\n")
     for number, hit in enumerate(hits, start=1):
         modified = hit.modified_time.strftime("%Y-%m-%d") if hit.modified_time else "?"
-        print(f"{number}. {hit.name}  [{hit.kind}, score {hit.score:.3f}]")
+        copies = (
+            f"  (+{hit.also_in} identical cop{'y' if hit.also_in == 1 else 'ies'} left out)"
+            if hit.also_in
+            else ""
+        )
+        print(f"{number}. {hit.name}  [{hit.kind}, score {hit.score:.3f}]{copies}")
         print(f"   {hit.folder_path}  ·  modified {modified}")
         if hit.heading:
             print(f"   Section: {hit.heading}")

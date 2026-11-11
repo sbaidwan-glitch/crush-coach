@@ -163,6 +163,19 @@ class _Drive:
 
                 return _Request(run)
 
+            def get(self, fileId, **kw):
+                def run():
+                    fake.calls.append(("drive", "get", fileId))
+                    if fileId in fake.drives:
+                        return {"id": fileId, "name": fake.drives[fileId]}
+                    return {
+                        key: value
+                        for key, value in fake.files[fileId].items()
+                        if key in ("id", "name", "parents", "mimeType")
+                    }
+
+                return _Request(run)
+
             def get_media(self, fileId, **kw):
                 def run():
                     fake.calls.append(("drive", "get_media", fileId))

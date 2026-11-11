@@ -1,0 +1,29 @@
+# What the Drive index skips. One rule per line; # starts a comment.
+# Skipped items are not indexed at all (no row, no name). The sync that applies a
+# new rule to files already indexed is a full one: python -m scripts.sync_drive --full
+# More rules can be added without a deploy in the DRIVE_INDEX_EXCLUDE environment
+# variable (separate rules with a semicolon or a new line).
+#
+#   name            a folder with this name, anywhere, and everything inside it
+#   Parent/Child    a folder "Child" directly inside a folder "Parent"
+#   file: *.log     a file whose name matches (* and ? are wildcards)
+#   mime: image/*   a file whose MIME type matches
+# Matching is case-insensitive.
+
+# Code repositories and tool caches
+.git
+.grabcad
+.filecache
+__pycache__
+node_modules
+file: *.pyc
+
+# Photos, video and audio: no text to search, and they bury real documents
+mime: image/*
+mime: video/*
+mime: audio/*
+
+# Ideas to add when they get in the way (check `scripts/index_stats.py --noise`):
+# logs
+# file: *.log
+# file: .DS_Store
