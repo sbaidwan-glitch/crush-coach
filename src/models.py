@@ -99,10 +99,36 @@ CHUNK_SEARCH_VECTOR_SQL = (
 )
 
 
+# Words a person uses for a kind of file, so "enclosure CAD" matches a .SLDPRT.
+KIND_WORDS = {
+    "cad": "cad model",
+    "doc": "doc document",
+    "sheet": "sheet spreadsheet",
+    "pdf": "pdf",
+    "folder": "folder",
+}
+_KIND_CASE = " ".join(
+    f"WHEN '{kind}' THEN '{words}'" for kind, words in KIND_WORDS.items()
+)
+
+# Every file and folder gets a full-text entry made of its name (strongest), its
+# folder path and its kind, so files with no text (CAD, scans) can still be found.
+# `_`, `.`, `-` and `/` become spaces so "6082A12_Draw Latch.SLDPRT" is words.
+FILE_SEARCH_VECTOR_SQL = (
+    "setweight(to_tsvector('english', regexp_replace(name, '[_./-]+', ' ', 'g')), 'A') || "
+    "setweight(to_tsvector('english', "
+    "regexp_replace(folder_path, '[_./-]+', ' ', 'g')), 'C') || "
+    f"setweight(to_tsvector('english', CASE kind {_KIND_CASE} ELSE '' END), 'D')"
+)
+
+
 class DriveFile(SQLModel, table=True):
     """One file or folder in the shared drive: metadata, plus how its text went."""
 
     __tablename__ = "drive_file"
+    __table_args__ = (
+        Index("ix_drive_file_search_vector", "search_vector", postgresql_using="gin"),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
     drive_id: str = Field(index=True, unique=True)  # Google's file id
@@ -117,6 +143,14 @@ class DriveFile(SQLModel, table=True):
     text_status: str  # ok, skipped, error
     text_reason: str | None = None  # why it was skipped, failed, or cut short
     last_indexed_at: datetime = Field(default_factory=utc_now)
+    # Never set from Python: Postgres fills it in from name, folder_path and kind.
+    search_vector: str | None = Field(
+        default=None,
+        sa_column=Column(
+            TSVECTOR().with_variant(Text(), "sqlite"),
+            Computed(FILE_SEARCH_VECTOR_SQL, persisted=True),
+        ),
+    )
 
 
 class DriveChunk(SQLModel, table=True):
@@ -163,5 +197,8 @@ class SyncState(SQLModel, table=True):
     file_count: int = 0  # files and folders in the index
     chunk_count: int = 0
     error_count: int = 0  # files whose text could not be read
-    running_since: datetime | None = None  # set while a sync runs; stale after 2 h
+    running_since: datetime | None = None  # when the running sync started
+    # Refreshed every ~30 s while a sync runs. A lock with no heartbeat for
+    # drive_index.STALE_LOCK_AFTER belongs to a dead process and is taken over.
+    heartbeat_at: datetime | None = None
     last_error: str | None = None  # why the last sync failed, if it did

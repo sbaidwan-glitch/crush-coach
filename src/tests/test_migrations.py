@@ -147,6 +147,7 @@ def test_upgrade_creates_drive_index_tables(fresh_engine):
         "text_status",
         "text_reason",
         "last_indexed_at",
+        "search_vector",
     }
     drive_id_index = [
         i
@@ -164,12 +165,34 @@ def test_upgrade_creates_drive_index_tables(fresh_engine):
     assert "ix_drive_chunk_search_vector" in names
 
     state = {c["name"] for c in inspector.get_columns("sync_state")}
-    assert {"page_token", "last_full_sync", "last_incremental_sync"} <= state
+    assert {
+        "page_token",
+        "last_full_sync",
+        "last_incremental_sync",
+        "heartbeat_at",
+    } <= state
+    file_indexes = {i["name"] for i in inspector.get_indexes("drive_file")}
+    assert "ix_drive_file_search_vector" in file_indexes
 
 
-def test_downgrade_one_step_removes_only_the_drive_index(fresh_engine):
+def test_downgrade_one_step_keeps_the_drive_tables_but_drops_their_new_columns(
+    fresh_engine,
+):
     db.run_migrations(fresh_engine)
     command.downgrade(db.alembic_config(fresh_engine), "-1")
+    inspector = inspect(fresh_engine)
+    assert "search_vector" not in {
+        c["name"] for c in inspector.get_columns("drive_file")
+    }
+    assert "heartbeat_at" not in {
+        c["name"] for c in inspector.get_columns("sync_state")
+    }
+    assert "drive_chunk" in inspector.get_table_names()
+
+
+def test_downgrade_to_0003_removes_only_the_drive_index(fresh_engine):
+    db.run_migrations(fresh_engine)
+    command.downgrade(db.alembic_config(fresh_engine), "0003")
     tables = inspect(fresh_engine).get_table_names()
     assert {"drive_file", "drive_chunk", "sync_state"}.isdisjoint(tables)
     assert {"task", "coach_message", "llm_call"} <= set(tables)
