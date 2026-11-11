@@ -9,6 +9,8 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
 DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
+DOCS_READONLY_SCOPE = "https://www.googleapis.com/auth/documents.readonly"
+SHEETS_READONLY_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly"
 GOOGLE_DOC_MIME_TYPE = "application/vnd.google-apps.document"
 GOOGLE_SHEET_MIME_TYPE = "application/vnd.google-apps.spreadsheet"
 GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
@@ -89,8 +91,13 @@ class DriveFileLocation(TypedDict):
     folder_path: str
 
 
-def _load_credentials():
-    """Load service-account credentials without exposing their contents."""
+def _load_credentials(scopes: list[str] | None = None):
+    """Load service-account credentials without exposing their contents.
+
+    `scopes` defaults to Drive read-only; the Drive index also asks for the
+    read-only Docs and Sheets scopes. Never pass a write scope.
+    """
+    scopes = scopes or [DRIVE_READONLY_SCOPE]
     credential_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
     credential_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
 
@@ -101,12 +108,12 @@ def _load_credentials():
                 raise ValueError("service-account JSON must be an object")
             return service_account.Credentials.from_service_account_info(
                 credential_info,
-                scopes=[DRIVE_READONLY_SCOPE],
+                scopes=scopes,
             )
         if credential_path:
             return service_account.Credentials.from_service_account_file(
                 credential_path,
-                scopes=[DRIVE_READONLY_SCOPE],
+                scopes=scopes,
             )
     except Exception:  # noqa: BLE001 (credential libraries raise varied errors)
         raise DriveError("Google Drive credentials could not be loaded.") from None
