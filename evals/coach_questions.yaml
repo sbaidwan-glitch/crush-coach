@@ -1,0 +1,147 @@
+# Coach test questions ("evals"). `make eval` runs every question through the coach
+# and scores it. Samara: check every `expect` line against what you actually know.
+# Edit, delete or add questions. Aim for 15-20 that a real member would ask.
+#
+# Fields
+#   id          short unique name
+#   task        task code the question is asked from (gives the coach the task context)
+#   question    exactly what a member would type
+#   expect      facts that must appear in a good answer (case-insensitive substring).
+#               An item can be a list of alternatives, any one of which counts:
+#               ["not decided", "no decision"]. Use that when a right answer can be
+#               worded several ways.
+#   cite        a file/doc name the answer should link (substring match)
+#   must_not    things a good answer must NOT do (phrases or behaviors)
+#   kind        lookup | how-to | why | conflict | unknown
+#               (conflict = sources disagree; unknown = nothing in the Drive answers it)
+#
+# Drafted from documents already seen in the Drive. VERIFY each one.
+
+- id: lid-latch
+  task: M08
+  question: Which latch do we use on the lid?
+  expect: ["6082A12"]
+  cite: "6082A12_Draw Latch"
+  must_not: ["which season", "should I search"]
+  kind: lookup
+
+- id: side-panel-router
+  task: M03.5
+  question: Where's the process router for the side panel?
+  expect: ["side panel"]
+  cite: "Process Router"
+  must_not: ["should I search"]
+  kind: lookup
+
+- id: other-routers
+  task: M03.5
+  question: Are there any other process routers?
+  expect: ["front panel", "rear panel", "corner fillet", "baseplate", "bellypan"]
+  cite: "Crush Fab Guidelines and Process Routers"
+  must_not: ["only one"]
+  kind: lookup
+
+- id: enclosure-cad-latest
+  task: E01
+  question: Where is the latest Crush enclosure assembly CAD?
+  expect: ["ElectronicsEnclosure_SubAssem", "Chamfered Corners"]
+  cite: "MdSb26_Crush_ElectronicsEnclosure_SubAssem.SLDASM"
+  must_not: ["which season", "outside Google Drive", "local server"]
+  kind: lookup
+
+- id: e01-start
+  task: E01
+  question: How do I start?
+  expect: ["SubAssem", "spreadsheet", "electrical"]
+  cite: "ElectronicsEnclosure_SubAssem"
+  must_not: ["which season", "should I search"]
+  kind: how-to
+
+- id: m02-start
+  task: M02
+  question: How do I start?
+  expect: ["drawing", "side panel"]
+  cite: "Fab Guidelines"
+  must_not: ["which season", "do you have that ZIP"]
+  kind: how-to
+
+- id: gasket-clearance
+  task: M03
+  question: What clearance should the baseplate gasket have?
+  expect: [".030", ".050"]
+  cite: "Seal"
+  must_not: ["the clearance is .030 in.", "the clearance is .050 in."]   # must flag the conflict, not pick silently
+  kind: conflict
+
+- id: gasket-material
+  task: M03
+  question: What material is the gasket and how is it made?
+  expect: ["Buna-N", "laser"]
+  cite: "O-Ring/Gasket Selection Notes"
+  must_not: []
+  kind: lookup
+
+- id: why-flat-gasket
+  task: M03
+  question: Why did we go with a flat gasket instead of a grooved one?
+  expect: ["machining"]
+  cite: "O-Ring/Gasket Selection Notes"
+  must_not: []
+  kind: why
+
+- id: window-thickness
+  task: M10
+  question: How thick is the window stock?
+  expect: [".226", ".250"]
+  cite: ""
+  must_not: []
+  kind: conflict
+
+- id: enclosure-height
+  task: M07
+  question: What should the overall enclosure height be after milling the top face?
+  expect: ["5.75", ["verify", "confirm", "check with"]]
+  cite: ""
+  must_not: []
+  kind: conflict
+
+- id: torpedo-why-spring
+  task: T01
+  question: Why did we look at a spring launcher instead of compressed air?
+  expect: ["tank", "compressor"]
+  cite: "Torpedo"
+  must_not: []
+  kind: why
+
+- id: bellypan-pattern
+  task: M23
+  question: What mounting pattern does the bellypan use for actuators?
+  expect: ["1/4-20", "1.5"]
+  cite: "Mechanical Tasks and Potential Projects"
+  must_not: []
+  kind: lookup
+
+- id: oring-lubricant
+  task: M10
+  question: What lubricant should I use on the O-rings?
+  # verify: the docs list this as an open question. Any of these wordings counts.
+  expect: [["not decided", "isn't recorded", "not recorded", "no decision", "not in the docs", "open question"]]
+  cite: ""
+  must_not: ["use silicone grease."]   # must not present an open question as decided
+  kind: unknown
+
+- id: tether-connector
+  task: M13
+  question: Which tether connector are we using?
+  expect: ["electrical"]
+  cite: ""
+  must_not: []
+  kind: unknown
+
+- id: welding-who
+  task: M06
+  question: Who do I talk to about welding the enclosure walls?
+  expect: [["weld", "lead"]]
+  cite: ""
+  must_not: []
+  kind: lookup
