@@ -110,7 +110,7 @@ def test_tracker_columns_are_nullable_text(fresh_engine):
         assert columns[name]["nullable"] is True
 
 
-def test_downgrade_one_step_removes_only_the_tracker_columns(fresh_engine):
+def test_downgrade_to_0002_removes_only_the_tracker_columns(fresh_engine):
     db.run_migrations(fresh_engine)
     command.downgrade(db.alembic_config(fresh_engine), "0002")
     inspector = inspect(fresh_engine)
@@ -120,7 +120,7 @@ def test_downgrade_one_step_removes_only_the_tracker_columns(fresh_engine):
     assert "coach_message" in inspector.get_table_names()
 
 
-def test_downgrade_two_steps_removes_only_the_coach_tables(fresh_engine):
+def test_downgrade_to_0001_removes_only_the_coach_tables(fresh_engine):
     db.run_migrations(fresh_engine)
     command.downgrade(db.alembic_config(fresh_engine), "0001")
     tables = inspect(fresh_engine).get_table_names()
@@ -190,11 +190,61 @@ def test_downgrade_one_step_keeps_the_drive_tables_but_drops_their_new_columns(
     assert "drive_chunk" in inspector.get_table_names()
 
 
-def test_downgrade_to_0003_removes_only_the_drive_index(fresh_engine):
+def test_downgrade_to_0004_removes_only_the_drive_index(fresh_engine):
     db.run_migrations(fresh_engine)
-    command.downgrade(db.alembic_config(fresh_engine), "0003")
+    command.downgrade(db.alembic_config(fresh_engine), "0004")
     tables = inspect(fresh_engine).get_table_names()
     assert {"drive_file", "drive_chunk", "sync_state"}.isdisjoint(tables)
+    assert {"task", "coach_message", "llm_call"} <= set(tables)
+    assert {"decision", "decision_task"} <= set(tables)
+
+
+def test_upgrade_creates_decision_tables(fresh_engine):
+    db.run_migrations(fresh_engine)
+
+    inspector = inspect(fresh_engine)
+    columns = {c["name"]: c for c in inspector.get_columns("decision")}
+    assert set(columns) == {
+        "id",
+        "subsystem",
+        "topic",
+        "decision",
+        "rationale",
+        "alternatives",
+        "sources",
+        "status",
+        "superseded_by_id",
+        "proposed_by",
+        "created_at",
+        "confirmed_by",
+        "confirmed_at",
+        "drafted_by_coach",
+    }
+    for name in ("subsystem", "topic", "decision", "rationale", "status"):
+        assert columns[name]["nullable"] is False
+    for name in ("confirmed_by", "confirmed_at", "superseded_by_id"):
+        assert columns[name]["nullable"] is True
+    # A decision can point at the decision that replaced it.
+    decision_fks = inspector.get_foreign_keys("decision")
+    assert [fk["referred_table"] for fk in decision_fks] == ["decision"]
+
+    links = inspector.get_columns("decision_task")
+    assert {c["name"] for c in links} == {"decision_id", "task_id"}
+    assert set(inspector.get_pk_constraint("decision_task")["constrained_columns"]) == {
+        "decision_id",
+        "task_id",
+    }
+    assert sorted(
+        fk["referred_table"] for fk in inspector.get_foreign_keys("decision_task")
+    ) == ["decision", "task"]
+
+
+def test_downgrade_to_0003_removes_only_the_decision_tables(fresh_engine):
+    db.run_migrations(fresh_engine)
+    command.downgrade(db.alembic_config(fresh_engine), "0003")
+
+    tables = inspect(fresh_engine).get_table_names()
+    assert "decision" not in tables and "decision_task" not in tables
     assert {"task", "coach_message", "llm_call"} <= set(tables)
 
 

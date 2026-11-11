@@ -1,7 +1,7 @@
 """create the Drive index tables: drive_file, drive_chunk, sync_state
 
-Revision ID: 0004
-Revises: 0003
+Revision ID: 0005
+Revises: 0004
 Create Date: 2026-11-09 10:00:00.000000
 
 """
@@ -14,8 +14,8 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = "0004"
-down_revision: str | Sequence[str] | None = "0003"
+revision: str = "0005"
+down_revision: str | Sequence[str] | None = "0004"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

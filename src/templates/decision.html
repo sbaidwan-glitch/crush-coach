@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% from "components/button.html" import button %}
+{% from "components/feedback.html" import notice as notice_box, empty_state, error_state %}
+{% from "components/readout.html" import readout %}
+{% from "components/status.html" import status_label %}
+{% block title %}{% if decision %}{{ decision.topic }}{% else %}Decision{% endif %} – Crush Coach{% endblock %}
+{% block main %}
+<p class="back"><a href="/decisions">All decisions</a></p>
+
+{% if page_error %}
+<h1>Decision</h1>
+{{ error_state(page_error, "/decisions/" ~ decision_id, "Try again") }}
+{% elif not_found %}
+<h1>Decision not found</h1>
+{{ error_state("There is no decision D" ~ decision_id ~ ".", "/decisions", "Back to the decisions") }}
+{% else %}
+<h1><span class="task-code">D{{ decision.id }} · {{ decision.subsystem }}</span> {{ decision.topic }}</h1>
+{% if error %}{{ notice_box(error, "error") }}{% endif %}
+
+{{ readout([
+  {"label": "Status", "value": status_label(decision.status, status_labels.get(decision.status, decision.status))},
+  {"label": "Subsystem", "value": decision.subsystem},
+  {"label": "Proposed by", "value": decision.proposed_by ~ (" (drafted by the coach)" if decision.drafted_by_coach else ""), "wide": True},
+  {"label": "Confirmed by", "value": (decision.confirmed_by ~ " on " ~ decision.confirmed_at.date().isoformat()) if decision.confirmed_by else "Not confirmed yet", "muted": not decision.confirmed_by, "wide": True},
+]) }}
+
+{% if decision.status == "superseded" %}
+  {% if replaced_by %}
+  {{ notice_box("This decision was superseded. Don't build from it.") }}
+  <p>Superseded by <a href="/decisions/{{ replaced_by.id }}">D{{ replaced_by.id }}: {{ replaced_by.topic }}</a>.</p>
+  {% else %}
+  {{ notice_box("This decision was superseded, but the decision that replaced it can't be found.") }}
+  {% endif %}
+{% elif decision.status == "proposed" %}
+  {{ notice_box("Proposed, not confirmed. A lead has to accept it before the team treats it as decided.") }}
+{% endif %}
+{% for old in replaces %}
+<p>Supersedes <a href="/decisions/{{ old.id }}">D{{ old.id }}: {{ old.topic }}</a>.</p>
+{% endfor %}
+
+<section aria-labelledby="decision-heading" class="decision-section">
+  <h2 id="decision-heading">Decision</h2>
+  <p class="prose">{{ decision.decision }}</p>
+</section>
+
+<section aria-labelledby="rationale-heading" class="decision-section">
+  <h2 id="rationale-heading">Rationale</h2>
+  <p class="prose">{{ decision.rationale }}</p>
+</section>
+
+<section aria-labelledby="alternatives-heading" class="decision-section">
+  <h2 id="alternatives-heading">Alternatives considered</h2>
+  {% if decision.alternatives %}
+  <dl class="task-details">
+    {% for alt in decision.alternatives %}
+    <dt>{{ alt.option }}</dt>
+    <dd><span class="muted">Rejected because</span> {{ alt.rejected_because }}</dd>
+    {% endfor %}
+  </dl>
+  {% else %}
+  {{ empty_state("No alternatives were recorded.") }}
+  {% endif %}
+</section>
+
+<section aria-labelledby="sources-heading" class="decision-section">
+  <h2 id="sources-heading">Sources</h2>
+  {% if decision.sources %}
+  <dl class="readout">
+    {% for s in decision.sources %}
+    <div class="wide"><dt>Source</dt><dd><a href="{{ s.link }}" target="_blank" rel="noopener noreferrer">{{ s.title }}</a>{% if s.folder or s.year %}<span class="source-meta">{{ s.folder }}{% if s.folder and s.year %}, {% endif %}{{ s.year or "" }}</span>{% endif %}</dd></div>
+    {% endfor %}
+  </dl>
+  {% else %}
+  {{ empty_state("No Drive sources were recorded.") }}
+  {% endif %}
+</section>
+
+<section aria-labelledby="tasks-heading" class="decision-section">
+  <h2 id="tasks-heading">Related tasks</h2>
+  {% if task_codes %}
+  <ul class="plain-list">
+    {% for code in task_codes %}<li><a href="/tasks/{{ code }}">{{ code }}</a></li>{% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">Not linked to a task.</p>
+  {% endif %}
+</section>
+
+{% if user.role == "lead" and decision.status == "proposed" %}
+<section aria-labelledby="accept-heading" class="lead-actions">
+  <h2 id="accept-heading">Lead: accept this decision</h2>
+  <form class="decision-form" method="post" action="/decisions/{{ decision.id }}/accept">
+    {% if replaceable %}
+    <label for="replaces">Replaces (optional)</label>
+    <select id="replaces" name="replaces">
+      <option value="">Nothing: this is a new decision</option>
+      {% for old in replaceable %}<option value="{{ old.id }}">D{{ old.id }}: {{ old.topic }}</option>{% endfor %}
+    </select>
+    <p class="fine">Choosing one marks it superseded and links it to this decision.</p>
+    {% endif %}
+    {{ button("Accept decision", "primary", "submit") }}
+  </form>
+</section>
+{% elif user.role == "lead" and decision.status == "confirmed" %}
+<section aria-labelledby="supersede-heading" class="lead-actions">
+  <h2 id="supersede-heading">Lead: supersede this decision</h2>
+  {% if replacements %}
+  <form class="decision-form" method="post" action="/decisions/{{ decision.id }}/supersede">
+    <label for="by">Replace it with this proposal</label>
+    <select id="by" name="by" required>
+      {% for new in replacements %}<option value="{{ new.id }}">D{{ new.id }}: {{ new.topic }}</option>{% endfor %}
+    </select>
+    <p class="fine">The proposal becomes confirmed and this decision is marked superseded.</p>
+    {{ button("Confirm replacement", "primary", "submit") }}
+  </form>
+  {% else %}
+  {{ empty_state("No proposed decision in " ~ decision.subsystem ~ " to replace it with. Propose the replacement first.", "/decisions/new?subsystem=" ~ (decision.subsystem | urlencode), "Propose a decision") }}
+  {% endif %}
+</section>
+{% elif decision.status == "proposed" %}
+<p class="fine">A lead accepts proposals.</p>
+{% endif %}
+{% endif %}
+{% endblock %}

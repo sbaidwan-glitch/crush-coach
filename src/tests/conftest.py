@@ -28,7 +28,8 @@ os.environ["LEAD_EMAILS"] = ""
 
 @pytest.fixture
 def session():
-    """A session on the shared in-memory database with empty task, coach and Drive index tables.
+    """A session on the shared in-memory database with empty task, coach, decision and
+    Drive index tables.
 
     The in-memory database lives for the whole test run, so rows would leak
     between tests; clear them before and after.
@@ -38,6 +39,8 @@ def session():
     import db
     from models import (
         CoachMessage,
+        Decision,
+        DecisionTask,
         DriveChunk,
         DriveFile,
         LlmCall,
@@ -46,8 +49,17 @@ def session():
     )
 
     def clear(s):
-        # Children first: the coach tables point at task, chunks at files.
-        for table in (CoachMessage, LlmCall, Task, DriveChunk, DriveFile, SyncState):
+        # Children first: they all point at task (or at decision, or at a file).
+        for table in (
+            DecisionTask,
+            Decision,
+            CoachMessage,
+            LlmCall,
+            Task,
+            DriveChunk,
+            DriveFile,
+            SyncState,
+        ):
             s.exec(delete(table))
         s.commit()
 

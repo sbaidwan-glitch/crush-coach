@@ -16,6 +16,7 @@ import auth
 import board
 import coach
 import db
+import decisions
 
 STATIC_DIR = Path(__file__).parent / "static"
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
@@ -50,6 +51,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(auth.router)
 app.include_router(board.router)
 app.include_router(coach.router)
+app.include_router(decisions.router)
 app.include_router(admin.router)
 
 

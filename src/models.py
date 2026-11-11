@@ -1,6 +1,16 @@
 from datetime import UTC, datetime
+from typing import Any
 
-from sqlalchemy import BigInteger, Column, Computed, ForeignKey, Index, Integer, Text
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Column,
+    Computed,
+    ForeignKey,
+    Index,
+    Integer,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlmodel import Field, SQLModel
 
@@ -22,6 +32,12 @@ SUBSYSTEMS = (
 TASK_TYPES = ("Fabricate", "Design", "Validate")
 STATUS_LABELS = {"todo": "To do", "in_progress": "In progress", "done": "Done"}
 STATUSES = tuple(STATUS_LABELS)
+DECISION_STATUS_LABELS = {
+    "proposed": "Proposed",
+    "confirmed": "Confirmed",
+    "superseded": "Superseded",
+}
+DECISION_STATUSES = tuple(DECISION_STATUS_LABELS)
 
 
 # Task text fields from the tracker, in display order, with their labels.
@@ -202,3 +218,45 @@ class SyncState(SQLModel, table=True):
     # drive_index.STALE_LOCK_AFTER belongs to a dead process and is taken over.
     heartbeat_at: datetime | None = None
     last_error: str | None = None  # why the last sync failed, if it did
+
+
+# --- team decisions (see decisions.py) ---
+
+
+class Decision(SQLModel, table=True):
+    """A team decision: members propose, leads confirm or supersede.
+
+    A confirmed decision outranks anything the Drive says (see the coach prompt).
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    subsystem: str = Field(index=True)
+    topic: str
+    decision: str
+    rationale: str
+    # JSON lists: [{"option", "rejected_because"}] and [{"title", "link", "folder", "year"}]
+    alternatives: list[dict[str, Any]] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    sources: list[dict[str, Any]] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    status: str = Field(
+        default="proposed", index=True
+    )  # proposed, confirmed, superseded
+    superseded_by_id: int | None = Field(default=None, foreign_key="decision.id")
+    proposed_by: str
+    created_at: datetime = Field(default_factory=utc_now)
+    confirmed_by: str | None = None
+    confirmed_at: datetime | None = None
+    # True when the coach wrote the first draft (a member still reviewed and submitted it).
+    drafted_by_coach: bool = False
+
+
+class DecisionTask(SQLModel, table=True):
+    """Links a decision to the tasks it relates to (optional, many to many)."""
+
+    __tablename__ = "decision_task"
+
+    decision_id: int = Field(foreign_key="decision.id", primary_key=True)
+    task_id: int = Field(foreign_key="task.id", primary_key=True, index=True)

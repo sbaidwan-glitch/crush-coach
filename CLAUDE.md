@@ -21,7 +21,7 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - `make dev`: run the API on :8000 from `src/`
 - `make test`: run tests from `src/`
 - `make eval`: score the coach on `evals/coach_questions.yaml` with the real model and Drive (costs money; `ONLY=<id>` or `KIND=<kind>` to run less). See "Measuring the coach"
-- `make screenshots`: screenshot `/`, `/tasks` and `/tasks/M04` at 375px and 1280px into `.context/screenshots/` (gitignored), against a throwaway SQLite database with the sample tasks and a fake signed-in session. One-time setup: `.venv/bin/pip install -r requirements-dev.txt && .venv/bin/playwright install chromium`
+- `make screenshots`: screenshot `/`, `/tasks`, `/tasks/M04` and the decision pages (as a member and as a lead) at 375px and 1280px into `.context/screenshots/` (gitignored), against a throwaway SQLite database with the sample tasks and a fake signed-in session. One-time setup: `.venv/bin/pip install -r requirements-dev.txt && .venv/bin/playwright install chromium`
 - `.venv/bin/ruff check src`: lint
 - `cd src && ../.venv/bin/python scripts/drive_search.py "latch"`: search the team shared drive (metadata only); `--type cad|sheets|docs|pdf` filters by file type (the query may be empty with `--type`)
 - `cd src && ../.venv/bin/python scripts/drive_list.py "Mechanical/CAD"`: list a Drive folder by path, id or link (names, kinds, modified dates)
@@ -52,6 +52,7 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - `src/drive_exclude.py`, `src/drive_index_exclude.txt`, `DRIVE_INDEX_EXCLUDE`: the exclude rules for the Drive index (folders, `file:` names, `mime:` types), config not code
 - `src/markup.py`: coach answers are Markdown, rendered by markdown-it-py (raw HTML off) then sanitized with nh3 (allowlist; only https Google Docs/Drive links stay clickable). Model output is untrusted: never put it in a template unescaped except through `render_markdown` (the `markdown` filter)
 - `evals/coach_questions.yaml`, `src/coach_eval.py`, `src/scripts/run_evals.py`: the coach's test questions, the scoring and report code (pure, unit-tested), and the `make eval` runner
+- `src/decisions.py`, `src/templates/decision*.html`, `src/templates/_decision_*.html`: decision records (`/decisions`, a decision's page, the propose form, lead-only accept/supersede) and the `search_confirmed` lookup the coach's `find_decisions` tool uses. `src/prompts/draft_decision.md` is the prompt for "draft a decision from this conversation" (`coach.py`, `llm.draft_decision`)
 - `src/import_tasks.py`, `src/sample_data/`: CSV parsing, subsystem/type guesses and saving (real tracker export or the made-up sample); also the CLI import
 - `src/admin.py`, `src/templates/admin_import*.html`, `src/static/import.js`: lead-only `/admin/import` (upload, review and fix rows in place, then Import); leads are `LEAD_EMAILS`, everyone else gets 403. The review page is stateless: every edit re-posts the form and the server re-checks all rows
 - `src/migrations/`: Alembic migrations (`versions/`); `src/alembic.ini` is the config

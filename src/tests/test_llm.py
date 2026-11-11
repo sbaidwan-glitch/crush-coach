@@ -706,3 +706,231 @@ def test_a_folder_link_variant_is_grounded(monkeypatch):
 
 def test_the_prompt_says_to_quote_paths_exactly():
     assert "copy the folder path and file name exactly" in llm.system_prompt()
+
+
+# --- find_decisions: confirmed decisions come before Drive ---
+
+DECISION = {
+    "id": 12,
+    "link": "/decisions/12",
+    "topic": "Latch style",
+    "decision": "Use the two-point cam latch.",
+    "confirmed": "2026-10-20",
+    "sources": [
+        {"title": "Latch trade study", "link": OLD_LINK, "folder": "Crush", "year": 2026}
+    ],
+}
+
+
+def decisions_call(call_id="d1", query="latch"):
+    return (call_id, "find_decisions", json.dumps({"query": query}))
+
+
+def tool_names(request):
+    return [t["function"]["name"] for t in request["tools"]]
+
+
+def test_find_decisions_is_offered_only_when_the_caller_can_look_them_up(
+    monkeypatch, drive_calls
+):
+    client = use_client(monkeypatch, [fake.reply("a"), fake.reply("b")])
+
+    llm.run_coach(TASK, [], "latch?")
+    llm.run_coach(TASK, [], "latch?", find_decisions=lambda q, s: [])
+
+    assert "find_decisions" not in tool_names(client.requests[0])
+    assert tool_names(client.requests[1]) == [
+        *tool_names(client.requests[0]),
+        "find_decisions",
+    ]
+
+
+def test_drive_is_refused_until_decisions_were_checked(monkeypatch, drive_calls):
+    lookups = []
+    client = use_client(
+        monkeypatch,
+        [
+            fake.tool_request(search_call("early")),
+            fake.tool_request(decisions_call()),
+            fake.tool_request(search_call("late")),
+            fake.reply("Here is what I found."),
+        ],
+    )
+
+    answer = llm.run_coach(
+        TASK,
+        [],
+        "latch?",
+        find_decisions=lambda q, s: lookups.append((q, s)) or [DECISION],
+    )
+
+    assert lookups == [("latch", "")]
+    assert drive_calls["search"] == ["latch"]  # only the call after the check ran
+    refused = client.requests[1]["messages"][-1]
+    assert "Call find_decisions first" in refused["content"]
+    assert "Latch design notes" not in refused["content"]
+    assert answer.tool_calls == 3  # the refusal counts, so it can't loop forever
+
+
+def test_the_decision_check_does_not_use_up_a_drive_call(monkeypatch, drive_calls):
+    limit = llm.MAX_TOOL_CALLS
+    use_client(
+        monkeypatch,
+        [
+            fake.tool_request(decisions_call(), search_call("a")),
+            fake.tool_request(*[search_call(f"s{i}") for i in range(limit)]),
+            fake.reply("Done."),
+        ],
+    )
+
+    answer = llm.run_coach(TASK, [], "latch?", find_decisions=lambda q, s: [])
+
+    assert len(drive_calls["search"]) == limit  # the full Drive allowance, plus the check
+    assert answer.tool_calls == limit + 1
+
+
+def test_decisions_reach_the_model_and_conflicts_cite_both_links(
+    monkeypatch, drive_calls
+):
+    client = use_client(
+        monkeypatch,
+        [
+            fake.tool_request(decisions_call()),
+            fake.tool_request(search_call()),
+            fake.reply(
+                "Decision /decisions/12 says two-point cam latch, but the Drive "
+                f"notes {DOC_LINK} (2026) say toggle. The notes are possibly stale."
+            ),
+        ],
+    )
+
+    answer = llm.run_coach(TASK, [], "latch?", find_decisions=lambda q, s: [DECISION])
+
+    result = json.loads(client.requests[1]["messages"][-1]["content"])
+    assert result["confirmed_decisions"][0]["decision"] == "Use the two-point cam latch."
+    assert result["confirmed_decisions"][0]["link"] == "/decisions/12"
+    links = {s["link"] for s in answer.sources}
+    assert links == {"/decisions/12", DOC_LINK}
+    titles = {s["title"] for s in answer.sources}
+    assert "Decision D12: Latch style" in titles
+
+
+def test_a_decision_link_is_not_mistaken_for_a_longer_one(monkeypatch, drive_calls):
+    use_client(
+        monkeypatch,
+        [fake.tool_request(decisions_call()), fake.reply("See /decisions/123 for it.")],
+    )
+
+    answer = llm.run_coach(TASK, [], "latch?", find_decisions=lambda q, s: [DECISION])
+
+    assert answer.sources == []  # D12 was not cited; /decisions/123 is a different page
+
+
+def test_a_failed_decision_lookup_is_reported_and_drive_still_works(
+    monkeypatch, drive_calls, caplog
+):
+    def broken(query, subsystem):
+        raise RuntimeError("postgresql://user:secret@host/db is down")
+
+    client = use_client(
+        monkeypatch,
+        [
+            fake.tool_request(decisions_call()),
+            fake.tool_request(search_call()),
+            fake.reply("I couldn't check the decisions."),
+        ],
+    )
+
+    answer = llm.run_coach(TASK, [], "latch?", find_decisions=broken)
+
+    assert answer.decisions_failed is True
+    result = client.requests[1]["messages"][-1]["content"]
+    assert "could not be loaded" in result and "secret" not in result
+    assert drive_calls["search"] == ["latch"]  # Drive is still allowed afterwards
+    assert "secret" not in caplog.text
+
+
+def test_system_prompt_makes_decisions_outrank_drive_and_demands_both_links():
+    prompt = llm.system_prompt()
+
+    assert "find_decisions" in prompt
+    assert "outranks every Drive document" in prompt
+    assert "link both" in prompt and "possibly stale" in prompt
+    assert "Only confirmed decisions bind" in prompt
+
+
+# --- drafting a decision ---
+
+TRANSCRIPT = [
+    {"role": "user", "content": "Should we use a toggle or a cam latch?"},
+    {"role": "assistant", "content": f"The notes {DOC_LINK} favor a cam latch."},
+    {"role": "user", "content": "OK, cam latch. Toggles loosen with vibration."},
+]
+DRAFT = {
+    "subsystem": "Enclosure",
+    "topic": "Latch style",
+    "decision": "Use the cam latch.",
+    "rationale": "It holds under vibration.",
+    "alternatives": [{"option": "Toggle", "rejected_because": "Loosens."}],
+    "sources": [
+        {"title": "Latch design notes", "link": DOC_LINK},
+        {"title": "Invented", "link": "https://docs.google.com/document/d/nope1234567/edit"},
+        {"title": "No link", "link": ""},
+    ],
+}
+
+
+def test_draft_decision_returns_the_draft_and_drops_invented_sources(monkeypatch):
+    client = use_client(monkeypatch, [fake.reply(json.dumps(DRAFT))])
+    records = []
+
+    draft = llm.draft_decision(TASK, TRANSCRIPT, record=records.append)
+
+    assert draft["topic"] == "Latch style"
+    assert [s["link"] for s in draft["sources"]] == [DOC_LINK]
+    assert [r.status for r in records] == ["ok"]
+    request = client.requests[0]
+    assert "tools" not in request  # a draft never calls tools
+    assert "Never invent a link" in request["messages"][0]["content"]
+    assert "cam latch" in request["messages"][1]["content"]
+
+
+def test_draft_decision_accepts_json_wrapped_in_a_code_fence(monkeypatch):
+    use_client(monkeypatch, [fake.reply("```json\n" + json.dumps(DRAFT) + "\n```")])
+
+    assert llm.draft_decision(TASK, TRANSCRIPT)["decision"] == "Use the cam latch."
+
+
+@pytest.mark.parametrize("reply", ["I think you chose the cam latch.", "[1, 2]", "{broken"])
+def test_draft_decision_that_is_not_json_is_a_plain_error(monkeypatch, reply):
+    use_client(monkeypatch, [fake.reply(reply)])
+
+    with pytest.raises(llm.LLMError) as error:
+        llm.draft_decision(TASK, TRANSCRIPT)
+
+    assert "couldn't turn this conversation into a draft" in error.value.message
+
+
+def test_draft_decision_model_failure_is_logged_and_raised(monkeypatch):
+    use_client(monkeypatch, [fake.timed_out()])
+    records = []
+
+    with pytest.raises(llm.LLMError) as error:
+        llm.draft_decision(TASK, TRANSCRIPT, record=records.append)
+
+    assert error.value.kind == "timeout"
+    assert [r.status for r in records] == ["timeout"]
+
+
+def test_drive_folder_listing_is_also_refused_until_decisions_were_checked(
+    monkeypatch, drive_calls
+):
+    client = use_client(
+        monkeypatch,
+        [fake.tool_request(list_call("early")), fake.reply("Checked first.")],
+    )
+
+    llm.run_coach(TASK, [], "where is the CAD?", find_decisions=lambda q, s: [])
+
+    refused = client.requests[1]["messages"][-1]["content"]
+    assert "Call find_decisions first" in refused

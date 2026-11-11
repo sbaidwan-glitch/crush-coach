@@ -1,0 +1,71 @@
+{# The propose-a-decision form. Expects `form` (see decisions.blank_form), `subsystems`,
+   `action`, and optionally `problems`. Used on /decisions/new and for a coach draft. #}
+{% from "components/button.html" import button %}
+{% from "components/icons.html" import icon %}
+{% if problems %}
+<div class="notice notice-error" role="alert" tabindex="-1">
+  {{ icon("error") }}
+  <div>
+    <p>Nothing was saved. Fix {{ "this" if problems | length == 1 else "these" }}:</p>
+    <ul>{% for p in problems %}<li>{{ p }}</li>{% endfor %}</ul>
+  </div>
+</div>
+{% endif %}
+<form id="decision-form" class="decision-form" method="post" action="{{ action }}">
+  {% if form.drafted %}<input type="hidden" name="drafted" value="1">{% endif %}
+
+  <label for="d-subsystem">Subsystem</label>
+  <select id="d-subsystem" name="subsystem" required>
+    <option value=""{% if not form.subsystem %} selected{% endif %}>Choose a subsystem</option>
+    {% for name in subsystems %}<option value="{{ name }}"{% if form.subsystem == name %} selected{% endif %}>{{ name }}</option>{% endfor %}
+  </select>
+
+  <label for="d-topic">Topic</label>
+  <input id="d-topic" name="topic" type="text" required maxlength="200" value="{{ form.topic }}">
+
+  <label for="d-decision">Decision</label>
+  <textarea id="d-decision" name="decision" required maxlength="2000" rows="3">{{ form.decision }}</textarea>
+
+  <label for="d-rationale">Rationale</label>
+  <textarea id="d-rationale" name="rationale" required maxlength="4000" rows="4">{{ form.rationale }}</textarea>
+
+  <fieldset>
+    <legend>Alternatives considered</legend>
+    <p class="fine">For each option you passed on, say why. Leave unused rows blank.</p>
+    {% for alt in form.alternatives %}
+    {% set n = loop.index0 %}
+    <div class="form-row">
+      <label for="d-alt-option-{{ n }}">Alternative {{ loop.index }}</label>
+      <input id="d-alt-option-{{ n }}" name="alt_option_{{ n }}" type="text" maxlength="300" value="{{ alt.option }}">
+      <label for="d-alt-why-{{ n }}">Why it was rejected</label>
+      <input id="d-alt-why-{{ n }}" name="alt_why_{{ n }}" type="text" maxlength="1000" value="{{ alt.rejected_because }}">
+    </div>
+    {% endfor %}
+  </fieldset>
+
+  <fieldset>
+    <legend>Drive sources</legend>
+    <p class="fine">Link the documents that back this up, with the folder and year so readers can judge how current they are.</p>
+    {% for src in form.sources %}
+    {% set n = loop.index0 %}
+    <div class="form-row">
+      <label for="d-src-title-{{ n }}">Source {{ loop.index }} title</label>
+      <input id="d-src-title-{{ n }}" name="src_title_{{ n }}" type="text" maxlength="200" value="{{ src.title }}">
+      <label for="d-src-link-{{ n }}">Drive link</label>
+      <input id="d-src-link-{{ n }}" name="src_link_{{ n }}" type="url" maxlength="500" placeholder="https://docs.google.com/…" value="{{ src.link }}">
+      <label for="d-src-folder-{{ n }}">Folder</label>
+      <input id="d-src-folder-{{ n }}" name="src_folder_{{ n }}" type="text" maxlength="300" value="{{ src.folder }}">
+      <label for="d-src-year-{{ n }}">Year</label>
+      <input id="d-src-year-{{ n }}" name="src_year_{{ n }}" type="text" inputmode="numeric" maxlength="4" value="{{ src.year }}">
+    </div>
+    {% endfor %}
+  </fieldset>
+
+  <label for="d-tasks">Related task codes (optional)</label>
+  <input id="d-tasks" name="tasks" type="text" maxlength="200" placeholder="M04, E02" value="{{ form.tasks }}">
+
+  <div class="coach-actions">
+    {{ button("Propose decision", "primary", "submit") }}
+    <span class="fine">A lead has to accept it before it counts.</span>
+  </div>
+</form>
