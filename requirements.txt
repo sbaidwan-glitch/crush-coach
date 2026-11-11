@@ -31,6 +31,7 @@ tzdata==2026.6          # time zones for the daily message cap
 
 # --- config (class 12) ---
 python-dotenv==1.2.3
+pyyaml==6.0.3           # evals/coach_questions.yaml (make eval)
 
 # --- Google Drive (read-only team docs) ---
 google-api-python-client==2.201.0
