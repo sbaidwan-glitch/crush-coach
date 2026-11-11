@@ -1,7 +1,8 @@
 {% extends "base.html" %}
-{% from "components/button.html" import button %}
+{% from "components/button.html" import button, button_link %}
 {% from "components/coach_message.html" import coach_message %}
-{% from "components/feedback.html" import notice as notice_box, empty_state, error_state %}
+{% from "components/decision_card.html" import decision_card %}
+{% from "components/feedback.html" import notice as notice_box, empty_state, error_state, loading_indicator %}
 {% from "components/icons.html" import icon %}
 {% from "components/readout.html" import readout %}
 {% from "components/status.html" import status_label %}
@@ -39,6 +40,20 @@
 </section>
 {% endif %}
 
+<section aria-labelledby="decisions-heading" class="task-decisions">
+  <h2 id="decisions-heading">Decisions</h2>
+  {% if decisions_error %}
+  {{ error_state(decisions_error, "/tasks/" ~ task.code, "Try again") }}
+  {% elif task_decisions %}
+  <ul class="cards decision-cards">
+    {% for d in task_decisions %}{{ decision_card(d, decision_status_labels) }}{% endfor %}
+  </ul>
+  {% else %}
+  {{ empty_state("No decisions are linked to this task yet.") }}
+  {% endif %}
+  <p>{{ button_link("/decisions/new?task=" ~ task.code, "Propose a decision for " ~ task.code, "secondary") }}</p>
+</section>
+
 <section aria-labelledby="coach-heading" class="coach">
   <h2 id="coach-heading">Coach</h2>
   <p class="fine">The coach advises and asks questions; your lead approves. It answers from the team Drive and links its sources. Limit: {{ daily_limit }} messages per person per day.</p>
@@ -57,6 +72,17 @@
   <template id="coach-user-template">{{ coach_message({"role": "user", "member": "You", "content": "", "notes": [], "sources": []}) }}</template>
   <div id="coach-error" class="notice notice-error" role="alert" hidden>{{ icon("error") }}<span id="coach-error-text"></span></div>
   {% if error %}{{ notice_box(error, "error") }}{% endif %}
+
+  <form id="draft-form" class="coach-form" method="post" action="/tasks/{{ task.code }}/decision-draft"
+        hx-post="/tasks/{{ task.code }}/decision-draft" hx-target="#decision-draft" hx-swap="innerHTML"
+        hx-disabled-elt="find button" hx-indicator="#draft-thinking">
+    <p class="fine">Reached a decision with the coach? It can draft a record for you to review. Nothing is saved until you propose it, and a lead accepts it. Uses one of your daily messages.</p>
+    <div class="coach-actions">
+      {{ button("Draft a decision from this conversation", "secondary", "submit") }}
+      {{ loading_indicator("draft-thinking", "Drafting…") }}
+    </div>
+  </form>
+  <div id="decision-draft" aria-live="polite"></div>
 
   <form id="coach-form" class="coach-form" method="post" action="/tasks/{{ task.code }}/coach"
         hx-post="/tasks/{{ task.code }}/coach" hx-target="#coach-pending" hx-swap="beforebegin"

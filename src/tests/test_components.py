@@ -5,7 +5,7 @@ import re
 import pytest
 
 import main
-from models import STATUS_LABELS, Task
+from models import DECISION_STATUS_LABELS, STATUS_LABELS, Decision, Task
 
 
 def macros(name: str):
@@ -20,6 +20,35 @@ def test_status_label_is_icon_plus_words_for_every_status():
         assert "<svg" in html and 'aria-hidden="true"' in html  # an icon
         assert f"<span>{label}</span>" in html  # and words
         assert f"status-{value}" in html
+
+
+def test_decision_statuses_are_icon_plus_words_and_each_icon_differs():
+    status = macros("status")
+    icons = {}
+
+    for value, label in DECISION_STATUS_LABELS.items():
+        html = str(status.status_label(value, label))
+        assert "<svg" in html and 'aria-hidden="true"' in html
+        assert f"<span>{label}</span>" in html and f"status-{value}" in html
+        icons[value] = html.split("<span>")[0]
+    assert len(set(icons.values())) == len(icons)  # never the same shape for two statuses
+
+
+def test_decision_card_links_to_the_decision_with_status_and_subsystem():
+    d = Decision(
+        id=7,
+        subsystem="Enclosure",
+        topic="Latch style",
+        decision="Use the cam latch.",
+        rationale="r",
+        status="confirmed",
+        proposed_by="sam@example.edu",
+    )
+
+    html = str(macros("decision_card").decision_card(d, DECISION_STATUS_LABELS))
+
+    assert '<a href="/decisions/7">Latch style</a>' in html
+    assert "Confirmed" in html and "Enclosure" in html and "Use the cam latch." in html
 
 
 def test_error_notice_is_an_alert_and_a_note_is_a_status():

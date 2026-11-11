@@ -4,7 +4,8 @@
 
 Starts the app against a throwaway SQLite database seeded with the made-up sample
 tasks, signs in with a forged session cookie for a made-up member, and saves
-/, /tasks and /tasks/M04 at 375px and 1280px into .context/screenshots/ (gitignored).
+/, /tasks, /tasks/M04 and the decision pages at 375px and 1280px into
+.context/screenshots/ (gitignored).
 It never touches your real database, your .env secrets, the model or Google.
 
 One-time setup: `.venv/bin/pip install -r requirements-dev.txt`
@@ -26,11 +27,23 @@ SRC = Path(__file__).resolve().parents[1]
 ROOT = SRC.parent
 OUT = ROOT / ".context" / "screenshots"
 WIDTHS = (375, 1280)
-PAGES = (("home", "/"), ("tasks", "/tasks"), ("task-M04", "/tasks/M04"))
+# (file name, path, who is signed in)
+PAGES = (
+    ("home", "/", "member"),
+    ("tasks", "/tasks", "member"),
+    ("task-M04", "/tasks/M04", "member"),
+    ("decisions", "/decisions", "member"),
+    ("decision-confirmed", "/decisions/1", "member"),
+    ("decision-proposed", "/decisions/2", "member"),
+    ("decision-new", "/decisions/new?task=M04", "member"),
+    ("decision-proposed-lead", "/decisions/2", "lead"),
+    ("decision-confirmed-lead", "/decisions/1", "lead"),
+)
 
 # Made-up values; nothing here is a real secret, person or team data.
 SESSION_SECRET = "screenshots-only-not-a-secret"
 MEMBER = {"name": "Riley Sample", "email": "member@example.edu", "role": "member"}
+LEAD = {"name": "Lee Sample", "email": "lead@example.edu", "role": "lead"}
 
 
 def free_port() -> int:
@@ -39,11 +52,11 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
-def session_cookie() -> str:
+def session_cookie(user: dict[str, str]) -> str:
     """A Starlette session cookie: base64 JSON signed with the session secret."""
     from itsdangerous import TimestampSigner
 
-    payload = base64.b64encode(json.dumps({"user": MEMBER}).encode("utf-8"))
+    payload = base64.b64encode(json.dumps({"user": user}).encode("utf-8"))
     return TimestampSigner(SESSION_SECRET).sign(payload).decode("utf-8")
 
 
@@ -54,7 +67,7 @@ def seed() -> None:
 
     import db
     import import_tasks
-    from models import CoachMessage, Task
+    from models import CoachMessage, Decision, DecisionTask, Task, utc_now
 
     assert db.database_url().startswith("sqlite"), (
         "refusing to seed a non-SQLite database"
@@ -94,6 +107,47 @@ def seed() -> None:
                 meta=json.dumps(meta),
             )
         )
+        # Two made-up decisions: one confirmed, one waiting for a lead.
+        latch = Decision(
+            subsystem=task.subsystem,
+            topic="Lid gasket style",
+            decision="Use a face-seal O-ring on the lid.",
+            rationale="It seals evenly under pressure and we can buy standard sizes.",
+            alternatives=[
+                {
+                    "option": "Flat gasket",
+                    "rejected_because": "Hard to keep compressed evenly across the lid.",
+                }
+            ],
+            sources=[
+                {
+                    "title": "O-ring groove notes (example)",
+                    "link": "https://docs.google.com/document/d/example",
+                    "folder": "Crush / Seals",
+                    "year": 2026,
+                }
+            ],
+            status="confirmed",
+            proposed_by=MEMBER["email"],
+            confirmed_by=LEAD["email"],
+            confirmed_at=utc_now(),
+        )
+        proposal = Decision(
+            subsystem=task.subsystem,
+            topic="Lid latch style",
+            decision="Use two cam latches on the long sides.",
+            rationale="Toggle latches loosen under vibration.",
+            alternatives=[
+                {"option": "Toggle latch", "rejected_because": "Loosens under vibration."}
+            ],
+            sources=[],
+            status="proposed",
+            proposed_by=MEMBER["email"],
+        )
+        session.add_all([latch, proposal])
+        session.flush()
+        session.add(DecisionTask(decision_id=latch.id, task_id=task.id))
+        session.add(DecisionTask(decision_id=proposal.id, task_id=task.id))
         session.commit()
 
 
@@ -126,9 +180,9 @@ def main() -> int:
             GLASSROOM_API_KEY="sk-screenshots-not-a-real-key",
             GOOGLE_OAUTH_CLIENT_ID="screenshots-client-id",
             GOOGLE_OAUTH_CLIENT_SECRET="screenshots-client-secret",
-            ALLOWED_EMAILS=MEMBER["email"],
+            ALLOWED_EMAILS=f"{MEMBER['email']},{LEAD['email']}",
             ALLOWED_DOMAIN="",
-            LEAD_EMAILS="",
+            LEAD_EMAILS=LEAD["email"],
         )
         seed()
 
@@ -147,20 +201,23 @@ def main() -> int:
             with sync_playwright() as p:
                 browser = p.chromium.launch()
                 for width in WIDTHS:
-                    context = browser.new_context(
-                        viewport={"width": width, "height": 900}
-                    )
-                    context.add_cookies(
-                        [
-                            {
-                                "name": "crush_coach_session",
-                                "value": session_cookie(),
-                                "url": base,
-                            }
-                        ]
-                    )
-                    page = context.new_page()
-                    for name, path in PAGES:
+                    contexts = {}
+                    for who, user in (("member", MEMBER), ("lead", LEAD)):
+                        context = browser.new_context(
+                            viewport={"width": width, "height": 900}
+                        )
+                        context.add_cookies(
+                            [
+                                {
+                                    "name": "crush_coach_session",
+                                    "value": session_cookie(user),
+                                    "url": base,
+                                }
+                            ]
+                        )
+                        contexts[who] = context
+                    for name, path, who in PAGES:
+                        page = contexts[who].new_page()
                         response = page.goto(f"{base}{path}")
                         page.wait_for_load_state("networkidle")
                         page.evaluate("document.fonts.ready")
@@ -178,7 +235,9 @@ def main() -> int:
                             problems.append(
                                 f"{path} scrolls sideways by {overflow}px at {width}px"
                             )
-                    context.close()
+                        page.close()
+                    for context in contexts.values():
+                        context.close()
                 browser.close()
         finally:
             server.terminate()

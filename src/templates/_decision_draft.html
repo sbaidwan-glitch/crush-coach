@@ -1,0 +1,11 @@
+{# htmx fragment for #decision-draft: the coach's draft as a form to review, or an error. #}
+{% from "components/feedback.html" import notice %}
+{% if error %}
+{{ notice(error, "error") }}
+{% else %}
+<div class="draft">
+  <h3>Draft decision</h3>
+  {{ notice("The coach wrote this draft from your conversation. It is not saved yet. Check every field, fix what's wrong, then propose it. A lead has to accept it before it counts.") }}
+  {% include "_decision_form.html" %}
+</div>
+{% endif %}

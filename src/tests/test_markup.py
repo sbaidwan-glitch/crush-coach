@@ -102,3 +102,25 @@ def test_raw_html_is_shown_as_text_not_run():
 
 def test_empty_text_is_fine():
     assert str(render_markdown("")) == ""
+
+
+def test_decision_pages_are_clickable_and_no_other_site_path_is():
+    html = str(
+        render_markdown(
+            "Decision /decisions/12 stands. Also [admin](/admin/import), "
+            "[other](//evil.example/decisions/3), and /decisions/12abc, /x/decisions/4."
+        )
+    )
+
+    assert '<a href="/decisions/12"' in html
+    assert html.count("<a ") == 1  # nothing else became a link
+    assert "/admin/import" in html and 'href="/admin' not in html
+    assert 'href="//evil' not in html
+    assert 'href="/decisions/12abc' not in html and 'href="/x/decisions/4' not in html
+
+
+def test_decision_path_in_a_markdown_link_or_code_is_not_doubled():
+    html = str(render_markdown("[see it](/decisions/7) and `/decisions/8`"))
+
+    assert html.count("<a ") == 1
+    assert 'href="/decisions/7"' in html and "<code>/decisions/8</code>" in html

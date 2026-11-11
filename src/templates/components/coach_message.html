@@ -11,7 +11,7 @@
   {% if m.sources %}
   <dl class="readout">
     {% for s in m.sources %}
-    <div class="wide"><dt>Source</dt><dd><a href="{{ s.link }}" target="_blank" rel="noopener noreferrer">{{ s.title }}</a>{% if s.modified %}<span class="source-meta">modified {{ s.modified }}</span>{% endif %}</dd></div>
+    <div class="wide"><dt>Source</dt><dd>{% if s.link.startswith("/") %}<a href="{{ s.link }}">{{ s.title }}</a>{% if s.modified %}<span class="source-meta">confirmed {{ s.modified }}</span>{% endif %}{% else %}<a href="{{ s.link }}" target="_blank" rel="noopener noreferrer">{{ s.title }}</a>{% if s.modified %}<span class="source-meta">modified {{ s.modified }}</span>{% endif %}{% endif %}</dd></div>
     {% endfor %}
   </dl>
   {% endif %}

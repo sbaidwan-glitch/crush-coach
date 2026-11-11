@@ -21,7 +21,7 @@ test:  ## run the tests (from src/; no server needed)
 eval:  ## score the coach on evals/coach_questions.yaml (real model + Drive, costs money; ONLY=<id>, KIND=<kind>)
 	cd src && ../.venv/bin/python scripts/run_evals.py $(if $(ONLY),--only $(ONLY)) $(if $(KIND),--kind $(KIND))
 
-screenshots:  ## screenshot /, /tasks and /tasks/M04 at 375px and 1280px into .context/screenshots/
+screenshots:  ## screenshot the main pages (incl. decisions) at 375px and 1280px into .context/screenshots/
 	cd src && ../.venv/bin/python scripts/screenshots.py
 
 # Package a tagged snapshot for Canvas.

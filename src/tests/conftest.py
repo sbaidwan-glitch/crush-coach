@@ -18,7 +18,7 @@ os.environ["LEAD_EMAILS"] = ""
 
 @pytest.fixture
 def session():
-    """A session on the shared in-memory database with empty task and coach tables.
+    """A session on the shared in-memory database with empty task, coach and decision tables.
 
     The in-memory database lives for the whole test run, so rows would leak
     between tests; clear them before and after.
@@ -26,11 +26,11 @@ def session():
     from sqlmodel import Session, delete
 
     import db
-    from models import CoachMessage, LlmCall, Task
+    from models import CoachMessage, Decision, DecisionTask, LlmCall, Task
 
     def clear(s):
-        # Children first: both tables point at task.
-        for table in (CoachMessage, LlmCall, Task):
+        # Children first: they all point at task (or at decision).
+        for table in (DecisionTask, Decision, CoachMessage, LlmCall, Task):
             s.exec(delete(table))
         s.commit()
 
