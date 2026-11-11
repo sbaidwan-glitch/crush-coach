@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "components/button.html" import button, button_link %}
+{% from "components/coach_message.html" import coach_message %}
 {% from "components/decision_card.html" import decision_card %}
 {% from "components/feedback.html" import notice as notice_box, empty_state, error_state, loading_indicator %}
 {% from "components/icons.html" import icon %}
@@ -60,7 +61,15 @@
   <div id="coach-log" role="log" aria-live="polite" aria-label="Conversation with the coach">
     {% if not messages %}{{ empty_state("No messages yet. Ask about this task and the coach answers from the team Drive.") }}{% endif %}
     {% for m in messages %}{% include "_coach_message.html" %}{% endfor %}
+    {# Shown by coach.js while the coach works; the answer lands just above it. The
+       live region is always in the page and only its text changes, so screen readers
+       announce each step. #}
+    <article id="coach-pending" class="pending" aria-busy="true" hidden>
+      <h3 class="msg-who">{{ icon("coach") }}<span>Coach</span></h3>
+      <p id="coach-status" class="msg-body" role="status" aria-live="polite"></p>
+    </article>
   </div>
+  <template id="coach-user-template">{{ coach_message({"role": "user", "member": "You", "content": "", "notes": [], "sources": []}) }}</template>
   <div id="coach-error" class="notice notice-error" role="alert" hidden>{{ icon("error") }}<span id="coach-error-text"></span></div>
   {% if error %}{{ notice_box(error, "error") }}{% endif %}
 
@@ -76,15 +85,17 @@
   <div id="decision-draft" aria-live="polite"></div>
 
   <form id="coach-form" class="coach-form" method="post" action="/tasks/{{ task.code }}/coach"
-        hx-post="/tasks/{{ task.code }}/coach" hx-target="#coach-log" hx-swap="beforeend"
-        hx-disabled-elt="find button, find textarea" hx-indicator="#coach-thinking">
-    <p class="fine">Asking as {{ user.name }}.</p>
-    <label for="coach-message">Ask the coach about this task</label>
-    <textarea id="coach-message" name="message" required maxlength="2000" rows="4">{{ draft }}</textarea>
-    <div class="coach-actions">
-      {{ button("Ask the coach", "coach", "submit") }}
-      {{ loading_indicator("coach-thinking", "Thinking…") }}
-    </div>
+        hx-post="/tasks/{{ task.code }}/coach" hx-target="#coach-pending" hx-swap="beforebegin"
+        hx-disabled-elt="find fieldset" data-progress-url="/tasks/{{ task.code }}/coach/progress">
+    <fieldset class="coach-fields">
+      <legend class="sr-only">Message to the coach</legend>
+      <p class="fine">Asking as {{ user.name }}.</p>
+      <label for="coach-message">Ask the coach about this task</label>
+      <textarea id="coach-message" name="message" required maxlength="2000" rows="4">{{ draft }}</textarea>
+      <div class="coach-actions">
+        {{ button("Ask the coach", "coach", "submit") }}
+      </div>
+    </fieldset>
   </form>
 </section>
 {% endif %}

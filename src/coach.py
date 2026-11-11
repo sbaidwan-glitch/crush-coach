@@ -18,7 +18,7 @@ from typing import Annotated
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Form, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup, escape
 from sqlmodel import Session, func, select
@@ -27,6 +27,7 @@ import db
 import decisions
 import llm
 from auth import CurrentUser, User
+from markup import render_markdown
 from models import (
     DECISION_STATUS_LABELS,
     STATUS_LABELS,
@@ -76,6 +77,16 @@ def linkify(text: str) -> Markup:
 
 
 templates.env.filters["linkify"] = linkify
+templates.env.filters["markdown"] = render_markdown
+
+# What each member's in-flight coach answer is doing right now, for the progress poll.
+# One entry per (member, task) while a question is being answered. It lives in this
+# process only; if the poll can't see it the page just keeps its generic text.
+_progress: dict[tuple[str, str], str] = {}
+
+
+def _progress_key(member: str, code: str) -> tuple[str, str]:
+    return (member.casefold(), code)
 
 
 # --- configuration (read per request so tests and Railway env changes apply) ---
@@ -245,14 +256,15 @@ def _fragment(
     request: Request,
     user: User,
     *,
-    user_text: str | None = None,
     answer: dict | None = None,
     error: str | None = None,
 ) -> Response:
+    """The htmx reply: the coach's answer or an error. The page already shows the
+    member's own message (it adds it on submit), so it is not repeated here."""
     return templates.TemplateResponse(
         request,
         "_coach_exchange.html",
-        {"user_text": user_text, "answer": answer, "error": error, "user": user},
+        {"answer": answer, "error": error, "user": user},
     )
 
 
@@ -269,6 +281,13 @@ def task_page(
     return _render_page(request, session, user, code)
 
 
+@router.get("/tasks/{code}/coach/progress")
+def coach_progress(code: str, user: CurrentUser):
+    """What the coach is doing for this member on this task ("" when idle)."""
+    step = _progress.get(_progress_key(user["email"], code), "")
+    return JSONResponse({"step": step}, headers={"Cache-Control": "no-store"})
+
+
 @router.post("/tasks/{code}/coach", response_class=HTMLResponse)
 def ask_coach(
     request: Request,
@@ -282,10 +301,10 @@ def ask_coach(
     member = user["email"]
     message = message.strip()
 
-    def fail(text: str, *, user_text: str | None = None) -> Response:
+    def fail(text: str) -> Response:
         """Show a plain error; the rest of the page keeps working."""
         if is_htmx:
-            return _fragment(request, user, user_text=user_text, error=text)
+            return _fragment(request, user, error=text)
         return _render_page(request, session, user, code, error=text, draft=message)
 
     if not message or len(message) > MAX_MESSAGE_CHARS:
@@ -330,6 +349,7 @@ def ask_coach(
             session.rollback()  # a failed query must not poison the later save
             raise
 
+    progress_key = _progress_key(member, code)
     try:
         answer = llm.run_coach(
             task_context(task),
@@ -337,12 +357,15 @@ def ask_coach(
             message,
             record=calls.append,
             find_decisions=lookup_decisions,
+            on_step=lambda step: _progress.__setitem__(progress_key, step),
         )
     except llm.LLMError as exc:
         llm_error = exc.message
     except Exception as exc:  # noqa: BLE001  (never let the model break the page)
         log.error("Coach failed unexpectedly (%s)", type(exc).__name__)
         llm_error = "The coach hit an unexpected problem. Try again in a moment."
+    finally:
+        _progress.pop(progress_key, None)
 
     notes: list[str] = []
     if answer is not None:
@@ -355,6 +378,11 @@ def ask_coach(
             notes.append(
                 "The team's decision records couldn't be checked for this answer, "
                 "so it may disagree with a confirmed decision."
+            )
+        if answer.ungrounded_links:
+            notes.append(
+                "A link in the first draft of this answer did not come from a "
+                "search, so it was removed."
             )
         if answer.unsourced_numbers:
             notes.append(
@@ -381,13 +409,12 @@ def ask_coach(
         notes.append("This answer could not be saved to the task history.")
 
     if llm_error is not None:
-        response = fail(llm_error, user_text=message)
+        response = fail(llm_error)
     elif is_htmx:
         assert answer is not None
         response = _fragment(
             request,
             user,
-            user_text=message,
             answer={"content": answer.text, "sources": answer.sources, "notes": notes},
         )
         # Tells coach.js to clear the box; on a failure the text stays for a retry.

@@ -587,15 +587,41 @@ main {
   display: none;
 }
 
-.msg {
+.msg,
+.pending {
   display: grid;
   gap: var(--space-2);
   padding-left: var(--space-3);
   border-left: 1px solid var(--color-muted);
 }
 
-.msg-assistant {
+.msg-assistant,
+.pending {
   border-left: var(--border-thick) solid var(--color-coach);
+}
+
+.pending[hidden] {
+  display: none;
+}
+
+/* The coach is working: the same slot the answer will fill. */
+.pending .msg-body {
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* Motion only for people who haven't asked for less; otherwise the text just sits. */
+@media (prefers-reduced-motion: no-preference) {
+  .pending .icon {
+    animation: pulse var(--pulse-duration) ease-in-out infinite;
+  }
 }
 
 .msg-who {
@@ -608,17 +634,74 @@ main {
   text-transform: uppercase;
 }
 
-.msg-assistant .msg-who {
+.msg-assistant .msg-who,
+.pending .msg-who {
   color: var(--color-coach);
 }
 
-.msg-assistant .icon {
+.msg-assistant .icon,
+.pending .icon {
   color: var(--color-coach);
 }
 
 .msg-body {
   max-width: var(--measure);
+}
+
+/* Member messages are plain text: keep their line breaks. Coach answers are Markdown. */
+.msg-user .msg-body {
   white-space: pre-wrap;
+}
+
+.msg-md > * + * {
+  margin-top: var(--space-3);
+}
+
+.msg-md ul,
+.msg-md ol {
+  display: grid;
+  gap: var(--space-1);
+  padding-left: var(--space-5);
+}
+
+.msg-md ul {
+  list-style: square;
+}
+
+.msg-md ol {
+  list-style: decimal;
+}
+
+.msg-md li::marker {
+  color: var(--color-muted);
+}
+
+.msg-md code {
+  padding: 0 var(--space-1);
+  background: var(--color-raised);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius);
+  font: var(--weight-regular) var(--text-sm) / var(--leading-body) var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.msg-md pre {
+  padding: var(--space-3);
+  background: var(--color-raised);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius);
+  overflow-x: auto;
+}
+
+.msg-md pre code {
+  padding: 0;
+  background: none;
+  border: 0;
+  overflow-wrap: normal;
+}
+
+.msg-md a {
+  overflow-wrap: anywhere;
 }
 
 .msg .readout {
@@ -636,6 +719,18 @@ main {
   margin-top: var(--space-4);
   gap: var(--space-3);
   max-width: var(--measure);
+}
+
+.coach-fields {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+}
+
+.coach-fields:disabled {
+  opacity: 0.6;
 }
 
 .coach-form label {
@@ -689,17 +784,6 @@ main {
   font-weight: var(--weight-medium);
 }
 
-.import-form input[type="file"],
-.import-table select {
-  min-height: var(--target);
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-bg);
-  color: var(--color-ink);
-  border: 1px solid var(--color-muted);
-  border-radius: var(--radius);
-  font: var(--weight-regular) var(--text-sm) / var(--leading-body) var(--font-mono);
-}
-
 .import-actions {
   display: flex;
   flex-wrap: wrap;
@@ -722,14 +806,9 @@ main {
 
 .import-table {
   width: 100%;
+  min-width: var(--import-table-min);
   border-collapse: collapse;
   font-size: var(--text-sm);
-}
-
-.import-table caption {
-  padding: var(--space-2) var(--space-3);
-  color: var(--color-muted);
-  text-align: left;
 }
 
 .import-table th,
@@ -741,26 +820,132 @@ main {
 }
 
 .import-table thead th {
+  border-top: 0;
   color: var(--color-muted);
   font: var(--weight-regular) var(--text-xs) / var(--leading-body) var(--font-mono);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
 }
 
-/* Problem rows: an alert rule on the left, not color alone (the row also lists its error). */
-.row-error th {
+/* The first column holds the include box and the row's status. It stays in view when the
+   table scrolls sideways at phone width, so the status is never off screen. */
+.import-table .cell-row {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  display: table-cell;
+  min-width: var(--field-min);
+  background: var(--color-bg);
+}
+
+.cell-row > * + * {
+  margin-top: var(--space-1);
+}
+
+.row-line {
+  color: var(--color-muted);
+  font: var(--weight-regular) var(--text-sm) / var(--leading-body) var(--font-mono);
+}
+
+.cell-note {
+  margin-top: var(--space-1);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+/* A row that needs a fix gets an alert rule on its left edge; it also says so in words. */
+.row-fix > :first-child {
   border-left: var(--border-thick) solid var(--color-alert);
 }
 
-.row-exists {
+.row-exists,
+.row-left_out {
   color: var(--color-muted);
 }
 
-.problem-list {
+.review-summary {
+  margin: var(--space-3) 0;
+  font: var(--weight-medium) var(--text-base) / var(--leading-body) var(--font-mono);
+}
+
+.review-summary .needs-fix {
+  color: var(--color-alert);
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--target);
+  margin: calc(var(--space-2) * -1) 0 0 calc(var(--space-2) * -1);
+  padding-left: var(--space-2);
+}
+
+.check input {
+  width: var(--icon);
+  height: var(--icon);
+  accent-color: var(--color-ink);
+}
+
+.field {
   display: grid;
   gap: var(--space-1);
-  padding-left: var(--space-4);
-  list-style: disc;
+}
+
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.field-input,
+.import-form input[type="file"] {
+  min-height: var(--target);
+  min-width: var(--field-min);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg);
+  color: var(--color-ink);
+  border: 1px solid var(--color-muted);
+  border-radius: var(--radius);
+  font: var(--weight-regular) var(--text-sm) / var(--leading-body) var(--font-mono);
+}
+
+.field-code {
+  min-width: 0;
+  width: var(--field-code);
+}
+
+.field-input[aria-invalid="true"] {
+  border-color: var(--color-alert);
+  border-width: var(--border-thick);
+}
+
+.field-error {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  margin-top: var(--space-1);
+  color: var(--color-alert);
+  font-size: var(--text-sm);
+}
+
+.field-error .icon {
+  margin-top: var(--space-1);
+}
+
+.row-state {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font: var(--weight-medium) var(--text-sm) / var(--leading-body) var(--font-mono);
+}
+
+.row-state .icon {
+  margin-top: var(--space-1);
+}
+
+.row-state-fix {
+  color: var(--color-alert);
 }
 
 .code {

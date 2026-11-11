@@ -69,6 +69,12 @@
   --textarea-min: 7rem;
   --gauge-height: 1rem;
   --gauge-pitch: 2.5rem;
+  --import-table-min: 54rem; /* the import review table scrolls sideways below this */
+  --field-code: 8rem;
+  --field-min: 10rem;
+
+  /* Motion. Used only inside prefers-reduced-motion: no-preference. */
+  --pulse-duration: 1.4s;
 
   /* Shape. Hairlines are 1px borders and stay literal in rules. */
   --radius: 2px;

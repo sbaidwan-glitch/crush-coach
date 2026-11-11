@@ -5,7 +5,8 @@
 {% macro coach_message(m) -%}
 <article class="msg msg-{{ m.role }}">
   <h3 class="msg-who">{% if m.role == "user" %}{{ m.member }}{% else %}{{ icon("coach") }}<span>Coach</span>{% endif %}</h3>
-  <p class="msg-body">{{ m.content | linkify }}</p>
+  {% if m.role == "user" %}<p class="msg-body">{{ m.content | linkify }}</p>
+  {%- else %}<div class="msg-body msg-md">{{ m.content | markdown }}</div>{% endif %}
   {% for note in m.notes %}{{ notice(note) }}{% endfor %}
   {% if m.sources %}
   <dl class="readout">

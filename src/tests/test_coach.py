@@ -2,7 +2,9 @@
 
 import json
 import logging
+import re
 from datetime import timedelta
+from pathlib import Path
 
 import fake_openai as fake
 import pytest
@@ -10,11 +12,13 @@ from fastapi.testclient import TestClient
 from sqlmodel import select
 
 import auth
+import coach
 import drive
 import llm
 import main
 from models import CoachMessage, LlmCall, Task, utc_now
 
+STATIC = Path(__file__).resolve().parents[1] / "static"
 LINK = "https://docs.google.com/document/d/1AbCdEfGhIjKlMnOp/edit"
 HTMX = {"HX-Request": "true"}
 
@@ -145,9 +149,17 @@ def test_task_page_shows_the_tracker_details(task, client, session):
 
     page = client.get("/tasks/M04").text
 
-    assert "<h2 id=\"details-heading\">Details</h2>" in page
-    for label in ("Description", "Dependencies", "Exploratory questions", "Skills learned",
-                  "Requirements", "People to ask", "Documentation", "Due date"):
+    assert '<h2 id="details-heading">Details</h2>' in page
+    for label in (
+        "Description",
+        "Dependencies",
+        "Exploratory questions",
+        "Skills learned",
+        "Requirements",
+        "People to ask",
+        "Documentation",
+        "Due date",
+    ):
         assert f"<dt>{label}</dt>" in page
     assert "Cut two panels.\nDeburr the edges." in page
     assert "Riley Sample" in page and "Week 3" in page
@@ -195,7 +207,13 @@ def test_coach_is_told_the_tracker_details(monkeypatch, task, client, session):
 def test_coach_context_skips_empty_fields_and_shortens_long_ones(task, session):
     import coach
 
-    assert list(coach.task_context(task)) == ["Code", "Title", "Subsystem", "Type", "Stage"]
+    assert list(coach.task_context(task)) == [
+        "Code",
+        "Title",
+        "Subsystem",
+        "Type",
+        "Stage",
+    ]
 
     task.description = "word " * 1000
     context = coach.task_context(task)
@@ -269,7 +287,8 @@ def test_answer_flow_cites_sources_and_logs_every_call(
 
     assert response.status_code == 200
     html = response.text
-    assert "You" in html and "How should the latch work?" in html
+    # The page already shows the member's message (coach.js adds it on submit).
+    assert "How should the latch work?" not in html
     assert "Which latch style fits?" in html
     assert f'<a href="{LINK}"' in html  # the cited URL is clickable
     assert "Latch design notes" in html and "modified 2026-09-30" in html  # sources
@@ -335,8 +354,11 @@ def test_history_is_per_task(monkeypatch, session, task, client):
 def test_model_output_is_escaped_and_only_google_links_are_clickable(
     monkeypatch, task, client
 ):
+    fake_drive(monkeypatch)
     script(
         monkeypatch,
+        check_decisions_call(),
+        fake.tool_request(("c1", "drive_search", json.dumps({"query": "latch"}))),
         fake.reply(
             "<script>alert(1)</script> see https://evil.example/x and " + LINK + "."
         ),
@@ -348,6 +370,7 @@ def test_model_output_is_escaped_and_only_google_links_are_clickable(
     assert "&lt;script&gt;" in html
     assert 'href="https://evil.example' not in html
     assert f'<a href="{LINK}"' in html
+    assert 'rel="noopener noreferrer"' in html
 
 
 def test_unsourced_machining_numbers_get_a_warning(monkeypatch, session, task, client):
@@ -550,4 +573,217 @@ def test_chat_is_phone_friendly_and_accessible(task, client):
     assert html.count("<h1>") == 1
     assert 'hx-post="/tasks/M04/coach"' in html
     assert 'role="log"' in html
-    assert 'role="status"' in html  # the "Thinking…" indicator
+    assert 'role="status"' in html  # the coach's working slot (see below)
+
+
+# --- loading state ---
+
+
+def test_the_page_has_a_live_working_slot_and_a_form_that_disables_while_waiting(
+    task, client
+):
+    html = client.get("/tasks/M04").text
+
+    # The coach's slot is last in the log, hidden at rest, with a polite live region
+    # that is always in the page (so screen readers announce each change of text).
+    assert re.search(r'<article id="coach-pending"[^>]*\bhidden\b', html)
+    assert 'aria-busy="true"' in html
+    assert re.search(
+        r'<p id="coach-status"[^>]*role="status"[^>]*aria-live="polite"', html
+    )
+    assert html.index('id="coach-log"') < html.index('id="coach-pending"')
+    assert html.index('id="coach-pending"') < html.index('id="coach-form"')
+    # The answer is placed above the slot; the whole form is disabled during the call.
+    assert 'hx-target="#coach-pending"' in html
+    assert 'hx-swap="beforebegin"' in html
+    assert 'hx-disabled-elt="find fieldset"' in html
+    assert '<fieldset class="coach-fields">' in html
+    assert 'data-progress-url="/tasks/M04/coach/progress"' in html
+    # coach.js builds the member's message from this template (textContent, no HTML).
+    assert '<template id="coach-user-template">' in html
+
+
+def test_coach_js_shows_the_message_at_once_and_restores_the_form():
+    js = (STATIC / "coach.js").read_text()
+
+    assert "Searching the team Drive…" in js
+    assert "htmx:beforeRequest" in js and "htmx:afterRequest" in js
+    assert "textContent = text" in js  # the member's text is never parsed as HTML
+    assert "innerHTML" not in js
+    assert "data-progress-url" in js
+    # afterRequest runs on success and on every kind of failure.
+    assert "stopWaiting()" in js
+
+
+def test_htmx_reply_is_just_the_answer_the_page_already_shows_the_question(
+    monkeypatch, task, client
+):
+    script(monkeypatch, fake.reply("Try the **two-point** latch."))
+
+    html = ask(client, "How should the latch work?").text
+
+    assert "<strong>two-point</strong>" in html
+    assert "How should the latch work?" not in html
+
+
+def test_htmx_failure_reply_is_just_the_error(monkeypatch, task, client):
+    script(monkeypatch, fake.timed_out())
+
+    html = ask(client, "How should the latch work?").text
+
+    assert "took too long" in html
+    assert "How should the latch work?" not in html
+    assert 'role="alert"' in html
+
+
+def test_the_message_is_saved_even_though_the_reply_does_not_repeat_it(
+    monkeypatch, session, task, client
+):
+    script(monkeypatch, fake.reply("Hi."))
+
+    ask(client, "How should the latch work?")
+
+    assert [m.content for m in stored(session, CoachMessage)] == [
+        "How should the latch work?",
+        "Hi.",
+    ]
+
+
+def test_motion_only_runs_when_the_member_has_not_asked_for_less():
+    css = (STATIC / "style.css").read_text()
+    keyframes = re.sub(r"@keyframes [^{]+\{(?:[^{}]|\{[^{}]*\})*\}", "", css)
+    outside = re.sub(
+        r"@media \(prefers-reduced-motion: no-preference\) \{(?:[^{}]|\{[^{}]*\})*\}",
+        "",
+        keyframes,
+    )
+
+    assert "prefers-reduced-motion: no-preference" in css
+    assert "animation" in css
+    assert "animation" not in outside
+    assert "transition" not in outside
+
+
+# --- progress ---
+
+
+def test_progress_endpoint_reports_what_the_coach_is_doing(client):
+    coach._progress[("sam@example.edu", "E01")] = "Searching 'enclosure'…"
+    try:
+        response = client.get("/tasks/E01/coach/progress")
+        other_member = client.get("/tasks/M04/coach/progress")
+    finally:
+        coach._progress.clear()
+
+    assert response.json() == {"step": "Searching 'enclosure'…"}
+    assert response.headers["cache-control"] == "no-store"
+    assert other_member.json() == {"step": ""}  # a different task: nothing running
+
+
+def test_progress_is_per_member(client):
+    coach._progress[("alex@example.edu", "M04")] = "Searching 'latch'…"
+    try:
+        mine = client.get("/tasks/M04/coach/progress").json()
+    finally:
+        coach._progress.clear()
+
+    assert mine == {"step": ""}
+
+
+def test_progress_requires_sign_in(task):
+    main.app.dependency_overrides.clear()
+    with TestClient(main.app, follow_redirects=False) as anonymous:
+        response = anonymous.get("/tasks/M04/coach/progress")
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/login")
+
+
+def test_progress_is_recorded_while_answering_and_cleared_after(
+    monkeypatch, task, client
+):
+    fake_drive(monkeypatch)
+    seen_during = []
+
+    def peeking_search(query, limit=10):
+        seen_during.append(dict(coach._progress))
+        return drive_result_for_progress()
+
+    def drive_result_for_progress():
+        return [
+            {
+                "title": "Latch design notes",
+                "link": LINK,
+                "mime_type": "application/vnd.google-apps.document",
+                "modified_time": "2026-09-30T12:00:00Z",
+                "folder_path": "Crush / Enclosure",
+                "locations": [],
+            }
+        ]
+
+    monkeypatch.setattr(drive, "search", peeking_search)
+    script(
+        monkeypatch,
+        check_decisions_call(),
+        fake.tool_request(("c1", "drive_search", json.dumps({"query": "latch"}))),
+        fake.reply("Done."),
+    )
+
+    ask(client)
+
+    assert seen_during == [{("sam@example.edu", "M04"): "Searching 'latch'…"}]
+    assert coach._progress == {}  # nothing left behind after the answer
+
+
+def test_progress_is_cleared_when_the_model_fails(monkeypatch, task, client):
+    script(monkeypatch, fake.timed_out())
+
+    ask(client)
+
+    assert coach._progress == {}
+
+
+# --- Markdown in the thread ---
+
+
+def test_markdown_answers_render_as_lists_and_code_in_the_thread(
+    monkeypatch, task, client
+):
+    script(monkeypatch, fake.reply("Check:\n\n- the **o-ring** groove\n- `M3` screws"))
+
+    ask(client)
+    page = client.get("/tasks/M04").text  # and again on reload, from the saved text
+
+    for html in (page,):
+        assert "<li>the <strong>o-ring</strong> groove</li>" in html
+        assert "<code>M3</code>" in html
+        assert "- the **o-ring**" not in html
+
+
+def test_member_messages_stay_plain_text(monkeypatch, task, client):
+    script(monkeypatch, fake.reply("ok"))
+
+    ask(client, "is **this** <b>bold</b>?")
+    page = client.get("/tasks/M04").text
+
+    assert "is **this** &lt;b&gt;bold&lt;/b&gt;?" in page
+    assert "<strong>this</strong>" not in page
+
+
+def test_an_invented_link_is_removed_and_the_member_is_told(
+    monkeypatch, session, task, client
+):
+    monkeypatch.setattr(drive, "search", lambda query, limit=10, file_type=None: [])
+    invented = "https://docs.google.com/document/d/1MadeUpDocIdThatNoToolReturned/edit"
+    script(
+        monkeypatch,
+        fake.tool_request(("c1", "drive_search", json.dumps({"query": "tray"}))),
+        fake.reply(f"It is in the CAD folder: {invented}"),
+    )
+
+    html = ask(client).text
+
+    assert invented not in html
+    assert "did not come from a search" in html
+    saved = stored(session, CoachMessage)[-1]
+    assert invented not in saved.content

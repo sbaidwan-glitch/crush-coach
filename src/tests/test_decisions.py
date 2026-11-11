@@ -618,7 +618,7 @@ def test_coach_checks_decisions_before_drive_and_links_both_on_a_conflict(
 
     assert response.status_code == 200
     html = response.text
-    assert f'<a href="/decisions/{decision.id}">/decisions/{decision.id}</a>' in html
+    assert f'<a href="/decisions/{decision.id}"' in html  # the decision page is clickable
     assert f'<a href="{DRIVE_LINK}"' in html
     assert f"Decision D{decision.id}: Latch style" in html  # listed under sources
     # Drive was refused the first time, then the decision came back, without the proposal.
