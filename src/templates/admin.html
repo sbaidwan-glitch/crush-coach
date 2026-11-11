@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Admin – Crush Coach{% endblock %}
+{% block main %}
+<h1>Admin</h1>
+
+<section class="admin-section" aria-labelledby="drive-heading">
+  <h2 id="drive-heading">Drive index</h2>
+  <p>The coach searches a copy of the team Drive kept in the database, so answers don’t wait on Google. A scheduled job keeps it fresh; use the button to catch up right now.</p>
+  {% include "_drive_sync_status.html" %}
+</section>
+
+<section class="admin-section" aria-labelledby="tasks-heading">
+  <h2 id="tasks-heading">Tasks</h2>
+  <p><a href="/admin/import">Import tasks from the tracker CSV</a></p>
+</section>
+{% endblock %}

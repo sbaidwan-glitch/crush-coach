@@ -3,8 +3,8 @@
     cd src && ../.venv/bin/python scripts/screenshots.py
 
 Starts the app against a throwaway SQLite database seeded with the made-up sample
-tasks, signs in with a forged session cookie for a made-up member, and saves
-/, /tasks and /tasks/M04 at 375px and 1280px into .context/screenshots/ (gitignored).
+tasks, signs in with a forged session cookie for a made-up lead, and saves
+/, /tasks, /tasks/M04 and /admin at 375px and 1280px into .context/screenshots/ (gitignored).
 It never touches your real database, your .env secrets, the model or Google.
 
 One-time setup: `.venv/bin/pip install -r requirements-dev.txt`
@@ -26,11 +26,17 @@ SRC = Path(__file__).resolve().parents[1]
 ROOT = SRC.parent
 OUT = ROOT / ".context" / "screenshots"
 WIDTHS = (375, 1280)
-PAGES = (("home", "/"), ("tasks", "/tasks"), ("task-M04", "/tasks/M04"))
+PAGES = (
+    ("home", "/"),
+    ("tasks", "/tasks"),
+    ("task-M04", "/tasks/M04"),
+    ("admin", "/admin"),
+)
 
 # Made-up values; nothing here is a real secret, person or team data.
 SESSION_SECRET = "screenshots-only-not-a-secret"
-MEMBER = {"name": "Riley Sample", "email": "member@example.edu", "role": "member"}
+# A lead, so the lead-only /admin page can be shot too.
+MEMBER = {"name": "Riley Sample", "email": "member@example.edu", "role": "lead"}
 
 
 def free_port() -> int:
@@ -54,7 +60,7 @@ def seed() -> None:
 
     import db
     import import_tasks
-    from models import CoachMessage, Task
+    from models import CoachMessage, SyncState, Task, utc_now
 
     assert db.database_url().startswith("sqlite"), (
         "refusing to seed a non-SQLite database"
@@ -94,6 +100,16 @@ def seed() -> None:
                 meta=json.dumps(meta),
             )
         )
+        # A made-up Drive sync state, so /admin shows real-looking numbers.
+        session.add(
+            SyncState(
+                id=1,
+                last_incremental_sync=utc_now(),
+                file_count=412,
+                chunk_count=2380,
+                error_count=3,
+            )
+        )
         session.commit()
 
 
@@ -128,7 +144,7 @@ def main() -> int:
             GOOGLE_OAUTH_CLIENT_SECRET="screenshots-client-secret",
             ALLOWED_EMAILS=MEMBER["email"],
             ALLOWED_DOMAIN="",
-            LEAD_EMAILS="",
+            LEAD_EMAILS=MEMBER["email"],
         )
         seed()
 
