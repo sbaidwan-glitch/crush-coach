@@ -1,85 +1,67 @@
-/* Design tokens for Crush Coach (docs/design.md).
-   The only file allowed to hold raw colors, sizes and radii. Everything else uses var(--...).
+/* Crush Coach design tokens: "Drafting" theme.
+   Every colour, font, size and space in the app comes from here.
+   Light theme only. Square corners everywhere (status dots are the one exception). */
 
-   Direction: "Sounding". One navy hue in five value steps, one signal accent reserved for
-   the coach, one alert used only for errors and blocked states. Ocean identity comes from
-   color and type; there are no decorative water effects. */
+@font-face { font-family: "Manrope"; font-weight: 400; font-display: swap; src: url("../fonts/manrope/manrope-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Manrope"; font-weight: 500; font-display: swap; src: url("../fonts/manrope/manrope-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Manrope"; font-weight: 600; font-display: swap; src: url("../fonts/manrope/manrope-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 400; font-display: swap; src: url("../fonts/jetbrains-mono/jetbrains-mono-latin-400-normal.woff2") format("woff2"); }
 
 :root {
-  color-scheme: dark;
+  /* Surfaces */
+  --color-paper: #eef1f2;        /* page background (with dot grid) */
+  --color-sheet: #fbfcfc;        /* panels */
+  --color-field: #f1f4f6;        /* read-only fields, inset boxes */
+  --color-rule: #cdd6dc;         /* 1px borders and dividers */
+  --color-track: #dde3e7;        /* empty part of progress bars */
+  --color-blueprint: #d7e3ea;    /* Crush panel background, selected nav */
+  --color-grid: rgba(62, 106, 135, 0.16);
+  --color-dot: rgba(29, 47, 61, 0.13);
 
-  /* Color: one navy hue, five steps that differ in value. */
-  --color-bg: #0b1119;
-  --color-raised: #111b27;
-  --color-hairline: #22374f; /* decorative: rules, rings, ticks. Never the only cue. */
-  --color-muted: #97acc4; /* secondary text, labels, control edges (8.1:1 on bg) */
-  --color-ink: #eaeff6; /* primary text (16.4:1 on bg) */
+  /* Ink */
+  --color-ink: #1d2f3d;          /* text, sidebar, primary buttons, panel rule (strong) */
+  --color-muted: #5d6d7a;        /* secondary text (passes 4.5:1 on sheet) */
+  --color-on-ink: #ffffff;
+  --color-on-ink-muted: #8ea4b4;
 
-  /* The coach, and only the coach (12.0:1 on bg). */
-  --color-coach: #5ae0ee;
-  --color-on-coach: var(--color-bg);
+  /* Accent and status. Status is never shown by colour alone: each has a shape. */
+  --color-accent: #3e6a87;       /* links, task codes, panel top rule, in progress */
+  --color-accent-light: #8fb6cf; /* active nav marker on the sidebar */
+  --color-done: #4b6b5a;         /* done: filled circle */
+  --color-review: #c06a45;       /* needs review: filled square */
+  --color-todo: var(--color-muted);  /* to do: open circle */
+  --color-danger: #a33a2a;       /* errors only */
 
-  /* Errors and blocked states only, always with an icon and words (5.6:1 on bg). */
-  --color-alert: #f2545b;
+  /* Subsystem colours (Build progress bar and swatches) */
+  --color-sub-1: #3e6a87;
+  --color-sub-2: #7fa3b8;
+  --color-sub-3: #8c9a83;
+  --color-sub-4: #c9a35e;
+  --color-sub-5: #c06a45;
 
   /* Type */
-  --font-display: "Michroma", system-ui, sans-serif;
-  --font-body: "Hubot Sans", system-ui, sans-serif;
-  --font-mono: "Space Mono", ui-monospace, monospace;
-  --weight-display: 400; /* Michroma has one weight */
+  --font-sans: "Manrope", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;   /* task codes, decision ids, CAD tags only */
+  --text-xs: 12px;   /* meta, status labels */
+  --text-sm: 13px;   /* field labels, counts */
+  --text-md: 15px;   /* body */
+  --text-lg: 21px;   /* panel titles */
+  --text-xl: 36px;   /* page title */
   --weight-regular: 400;
   --weight-medium: 500;
-  --weight-bold: 700;
+  --weight-semibold: 600;
+  --tracking-title: -0.01em;
+  --tracking-label: 0.08em;      /* uppercase field labels only */
 
-  /* Modular scale, ratio 1.25 (major third) from a 16px base. */
-  --text-xs: 0.75rem;
-  --text-sm: 0.875rem;
-  --text-base: 1rem;
-  --step-1: 1.25rem;
-  --step-2: 1.563rem;
-  --step-3: 1.953rem;
-  --step-4: 2.441rem;
-  /* Michroma is very wide, so display sizes sit a step or two below the scale's top. */
-  --h1-size: clamp(var(--step-1), 6.5vw, var(--step-3));
-  --h2-size: var(--step-1);
-  --h3-size: var(--text-base);
-  --wordmark-size: var(--step-1);
+  /* Space (4px base) */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px;
 
-  --leading-tight: 1.15;
-  --leading-body: 1.55;
-  --track-label: 0.12em; /* wide, small-caps style labels */
-  --track-mono: 0.04em;
-  --track-display: 0.01em;
-
-  /* Space */
-  --space-1: 0.25rem;
-  --space-2: 0.5rem;
-  --space-3: 0.75rem;
-  --space-4: 1rem;
-  --space-5: 1.5rem;
-  --space-6: 2rem;
-  --space-7: 3rem;
-
-  /* Size */
-  --target: 2.75rem; /* minimum touch target */
-  --icon: 1.125rem;
-  --page-max: 64rem;
-  --measure: 65ch;
-  --card-min: 22rem;
-  --textarea-min: 7rem;
-  --gauge-height: 1rem;
-  --gauge-pitch: 2.5rem;
-  --import-table-min: 54rem; /* the import review table scrolls sideways below this */
-  --remove-list-max: 20rem; /* the tick list of tasks to remove scrolls past this */
-  --field-code: 8rem;
-  --field-min: 10rem;
-
-  /* Motion. Used only inside prefers-reduced-motion: no-preference. */
-  --pulse-duration: 1.4s;
-
-  /* Shape. Hairlines are 1px borders and stay literal in rules. */
-  --radius: 2px;
-  --radius-round: 50%;
-  --border-thick: 2px;
-  --shadow: none; /* flat: structure comes from hairlines, not shadows */
+  /* Layout */
+  --sidebar-width: 84px;
+  --remove-list-max: 320px;      /* the tick list of tasks to remove scrolls past this */
+  --panel-rule: 3px;             /* coloured top border on panels */
+  --radius: 0;                   /* square corners; don't add radius */
+  --focus-ring: 0 0 0 3px rgba(62, 106, 135, 0.45);
+  --shadow-render: 0 6px 10px rgba(29, 47, 61, 0.25); /* only on the Crush render */
 }

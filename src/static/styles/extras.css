@@ -1,0 +1,115 @@
+/* Crush Coach: the few rules app.css doesn't have.
+   app.css and tokens.css are the designer's and are not edited here. This file only
+   adds what the live app needs that the three concept pages don't show: form controls,
+   notices, the import table, the "hidden" and htmx rules, grids that shrink on phones.
+   Tokens only: tests/test_design_tokens.py fails on raw colours or one-off sizes. */
+
+[hidden] { display: none !important; }
+
+.skip-link { position: absolute; left: var(--space-2); top: var(--space-2); z-index: 20; transform: translateY(-300%); background: var(--color-ink); color: var(--color-on-ink); padding: var(--space-2) var(--space-4); text-decoration: none; font-weight: var(--weight-semibold); }
+.skip-link:focus { transform: none; }
+
+/* htmx adds .htmx-request to the element that is waiting; its indicator shows meanwhile. */
+.htmx-indicator { display: none; }
+.htmx-request .htmx-indicator, .htmx-request.htmx-indicator { display: inline-flex; }
+
+/* ---------- Layout that has to shrink ---------- */
+.grid-2 > *, .grid-tasks > *, .grid-task > *, .stack > *, .panel { min-width: 0; }
+.grid-task { display: grid; grid-template-columns: 3fr 2fr; gap: var(--space-5); align-items: start; }
+.grid-tasks__wide { grid-column: 1 / span 2; }
+.topbar .page-title { flex: 1 1 calc(var(--space-10) * 6); min-width: 0; overflow-wrap: anywhere; }
+.topbar__title { flex: 1 1 calc(var(--space-10) * 6); min-width: 0; }
+.topbar__title .page-title { flex: none; }
+.topbar__title .segmented { margin-top: var(--space-3); flex-wrap: wrap; }
+.page-title__code { font: var(--text-lg) var(--font-mono); margin-right: var(--space-3); }
+.stages { flex-wrap: wrap; }
+.stages li { margin-bottom: -1px; }
+@media (max-width: 1100px) {
+  .grid-tasks { grid-template-columns: 1fr 1fr; }
+  .grid-tasks > .stack:last-child { grid-column: 1 / -1; }
+}
+@media (max-width: 820px) {
+  .grid-task, .grid-tasks { grid-template-columns: 1fr; }
+  .grid-tasks__wide { grid-column: 1; }
+  .counts { margin-top: var(--space-3); }
+}
+
+/* ---------- Text ---------- */
+.prose { margin: var(--space-2) 0 0; white-space: pre-line; overflow-wrap: anywhere; }
+.decision__summary { margin: var(--space-1) 0 0; }
+.field { overflow-wrap: anywhere; }
+.task-row__title { overflow-wrap: anywhere; }
+.actions form { margin: 0; }
+
+/* ---------- Notices, empty states ---------- */
+.notice { margin: var(--space-3) 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--color-rule); border-left: var(--panel-rule) solid var(--color-accent); background: var(--color-field); }
+.notice p, .notice ul { margin: 0; }
+.notice p + p, .notice p + ul { margin-top: var(--space-2); }
+.notice--error { border-color: var(--color-danger); background: var(--color-sheet); }
+.empty { margin: var(--space-3) 0 0; padding: var(--space-3) var(--space-4); border: 1px dashed var(--color-rule); color: var(--color-muted); }
+.empty p { margin: 0; }
+.empty p + p { margin-top: var(--space-2); }
+.decision .notice, .decision .empty { margin: 0; }
+.field-error { display: block; margin: var(--space-1) 0 0; padding: var(--space-1) var(--space-2); font-size: var(--text-xs); }
+
+/* ---------- Form controls ---------- */
+label.field-label { display: block; }
+.field-input { display: block; width: 100%; min-height: var(--space-10); font: inherit; color: var(--color-ink); background: var(--color-sheet); border: 1px solid var(--color-ink); border-radius: 0; padding: var(--space-2) var(--space-3); }
+select.field-input { appearance: auto; }
+textarea.field-input { resize: vertical; }
+.field-input[aria-invalid="true"] { border-color: var(--color-danger); }
+input[type="checkbox"] { accent-color: var(--color-ink); width: var(--space-4); height: var(--space-4); }
+.filter { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); }
+.filter .field-label { margin-top: 0; }
+.filter .field-input { width: auto; min-width: calc(var(--space-10) * 4); }
+.form-group { border: 0; padding: 0; margin: var(--space-4) 0 0; min-width: 0; }
+.form-group legend { padding: 0; }
+.form-row { display: grid; gap: var(--space-1); padding: var(--space-3); margin-top: var(--space-3); border: 1px solid var(--color-rule); background: var(--color-field); }
+.form-row .field-input { margin-bottom: var(--space-2); }
+.review textarea { margin-top: var(--space-1); }
+.ask { margin: 0; }
+.ask__fields { display: flex; gap: var(--space-3); border: 0; padding: 0; margin: 0; min-width: 0; flex: 1; }
+.ask__fields textarea { min-width: 0; }
+.ask__fields .btn { align-self: flex-start; }
+.draft { margin-top: var(--space-4); }
+.draft .panel__title { font-size: var(--text-md); }
+
+/* ---------- Coach thread ---------- */
+.msg, .msg-body { overflow-wrap: anywhere; }
+.msg-md > :first-child { margin-top: 0; }
+.msg-md > :last-child { margin-bottom: 0; }
+.msg-md ul, .msg-md ol { margin: 0 0 var(--space-2); padding-left: var(--space-6); }
+.msg-md code { font: var(--text-sm) var(--font-mono); }
+.next.msg-md p { display: inline; margin: 0; }
+.conflict .btn { margin-top: var(--space-2); }
+.sources a { min-width: 0; overflow-wrap: anywhere; }
+.sources .meta { white-space: nowrap; }
+.msg--error p { margin: 0 0 var(--space-3); }
+.thinking p { margin: 0; }
+.coach > .actions { margin-top: 0; }
+
+/* ---------- Import review table ---------- */
+.review-summary { margin: var(--space-3) 0; }
+.table-wrap { position: relative; overflow-x: auto; border: 1px solid var(--color-rule); margin-top: var(--space-3); }
+.import-table { border-collapse: collapse; width: 100%; font-size: var(--text-sm); }
+.import-table th { text-align: left; padding: var(--space-2) var(--space-3); font-size: var(--text-xs); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--color-muted); border-bottom: 1px solid var(--color-ink); white-space: nowrap; }
+.import-table td { padding: var(--space-2) var(--space-3); border-top: 1px solid var(--color-rule); vertical-align: top; }
+.import-table tr:first-child td { border-top: 0; }
+.import-table .field-input { min-width: calc(var(--space-10) * 3); }
+.import-table .code { font-size: var(--text-sm); }
+.import-code__row { display: flex; gap: var(--space-2); }
+.check { display: flex; align-items: center; gap: var(--space-2); }
+
+/* ---------- Re-import changes and Remove tasks (/admin/import) ---------- */
+.change-list { list-style: none; margin: var(--space-1) 0 0; padding: 0; font-size: var(--text-xs); }
+.change-list li + li { margin-top: var(--space-1); }
+.change-tag { color: var(--color-muted); }
+.change-old { text-decoration: line-through; }
+.change-list details .change-old { text-decoration: none; }
+.change-list details p { margin: 0; white-space: pre-line; }
+.change-list summary { padding: var(--space-2) 0; cursor: pointer; }
+.remove-picker { max-height: var(--remove-list-max); overflow-y: auto; margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-rule); }
+.remove-picker legend { padding: 0 var(--space-1); }
+.remove-list { list-style: none; margin: 0; padding: 0; }
+.remove-list li { padding: var(--space-1) 0; }
+.nowrap { white-space: nowrap; }

@@ -1,30 +1,31 @@
 {# Pieces of the lead's import review table (/admin/import). #}
-{% from "components/icons.html" import icon %}
+{% from "components/status.html" import status_label %}
 
-{# What will happen to one row. Icon and words, never color alone. #}
+{# What will happen to one row. A mark and words, never colour alone. #}
 {% macro row_state(state) -%}
 {%- if state == "add" -%}
-<span class="row-state row-state-add">{{ icon("done") }}<span>Will be added</span></span>
+{{ status_label("done", "Will be added") }}
 {%- elif state == "update" -%}
-<span class="row-state row-state-add">{{ icon("in_progress") }}<span>Will be updated</span></span>
+{{ status_label("in_progress", "Will be updated") }}
 {%- elif state == "fix" -%}
-<span class="row-state row-state-fix">{{ icon("error") }}<span>Needs a fix</span></span>
+{{ status_label("needs_review", "Needs a fix") }}
 {%- elif state == "exists" -%}
-<span class="row-state">{{ icon("note") }}<span>Already in the tracker, no changes. Skipped.</span></span>
+{{ status_label("todo", "Already in the tracker, no changes. Skipped.") }}
 {%- else -%}
-<span class="row-state">{{ icon("empty") }}<span>Left out</span></span>
+{{ status_label("todo", "Left out") }}
 {%- endif -%}
 {%- endmacro %}
 
 {# A short message right under the field it is about. Pair it with aria-describedby. #}
 {% macro field_error(id, text) -%}
-<p class="field-error" id="{{ id }}">{{ icon("error") }}<span>{{ text }}</span></p>
+<p class="notice notice--error field-error" id="{{ id }}">{{ text }}</p>
 {%- endmacro %}
 
 {# A message that asks for the field right below it ("Give this one a new code:"). #}
 {% macro field_prompt(id, for_id, text) -%}
-<label class="field-error" id="{{ id }}" for="{{ for_id }}">{{ icon("error") }}<span>{{ text }}</span></label>
+<label class="notice notice--error field-error" id="{{ id }}" for="{{ for_id }}">{{ text }}</label>
 {%- endmacro %}
+
 
 {# The fields a re-import would change on an existing task. Short values sit inline;
    long ones (a description) open to show the whole before and after. #}
@@ -39,7 +40,7 @@
       <p class="change-new"><span class="change-tag">Will be</span> {{ c.new or "(empty)" }}</p>
     </details>
     {% else %}
-    <span class="change-label">{{ c.label }}:</span> <span class="change-old">{{ c.old or "(empty)" }}</span> → <span class="change-new">{{ c.new or "(empty)" }}</span>
+    <span class="change-tag">{{ c.label }}:</span> <span class="change-old">{{ c.old or "(empty)" }}</span> → <span class="change-new">{{ c.new or "(empty)" }}</span>
     {% endif %}
   </li>
   {% endfor %}

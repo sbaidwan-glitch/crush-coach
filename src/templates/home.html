@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% from "components/button.html" import button_link %}
+{% from "components/feedback.html" import empty_state, error_state %}
+{% from "components/progress_bar.html" import pbar, diamond %}
+{% from "components/status.html" import status_label %}
+{% from "components/task_row.html" import claim_row %}
+{% block title %}Home – Crush Coach{% endblock %}
+{% block page_title %}Crush Build{% endblock %}
+{% block topbar_actions %}{% if task %}<a class="btn btn--primary" href="/tasks/{{ task.code }}#coach-message">Ask the coach</a>{% endif %}{% endblock %}
+{% block main %}
+{% if error %}{{ error_state(error, "/", "Try again") }}{% endif %}
+<div class="grid-2">
+  <section class="panel" aria-labelledby="your-task">
+    <div class="panel__head">
+      <div><h2 class="panel__title" id="your-task">Your task</h2><p class="panel__sub">Pick up where you left off.</p></div>
+      {% if task %}{{ status_label(task.status, status_labels[task.status]) }}{% endif %}
+    </div>
+    {% if task %}
+    <div class="field-label">Task</div>
+    <div class="field field--row"><span><span class="code">{{ task.code }}</span>&nbsp; <a href="/tasks/{{ task.code }}">{{ task.title }}</a></span><span class="meta">{{ task.subsystem }}</span></div>
+    <div class="field-label">Stage</div>
+    <ol class="stages">{% for s in stages %}<li{% if s.state == "past" %} class="is-past"{% elif s.state == "current" %} class="is-current" aria-current="step"{% endif %}>{{ s.label }}</li>{% endfor %}</ol>
+    <div class="field-label">Next step</div>
+    {% if next_step %}
+    <div class="field">{{ next_step.text }}<small>From the coach · {{ next_step.date }}</small></div>
+    {% else %}
+    <div class="field">No next step yet. Ask the coach about this task and it will suggest one.</div>
+    {% endif %}
+    <div class="actions">
+      <a class="btn btn--primary" href="/tasks/{{ task.code }}">Open task</a>
+      {% if task.status == "in_progress" %}
+      <form method="post" action="/tasks/{{ task.code }}/status">
+        <input type="hidden" name="action" value="ready"><input type="hidden" name="next" value="/">
+        <button class="btn" type="submit">Ready for review</button>
+      </form>
+      {% endif %}
+    </div>
+    {% if more_tasks %}<p class="meta">You have {{ more_tasks }} other task{{ "" if more_tasks == 1 else "s" }} in progress. <a href="/tasks?show=mine">See all yours</a>.</p>{% endif %}
+    {% else %}
+    {{ empty_state("You haven’t started a task. Pick one on the right.") }}
+    {% endif %}
+  </section>
+
+  <section class="panel" aria-labelledby="pick-up">
+    <div class="panel__head">
+      <div><h2 class="panel__title" id="pick-up">Pick up a task</h2><p class="panel__sub">Unclaimed tasks you could start today.</p></div>
+      <span class="meta">{{ unclaimed_count }} open</span>
+    </div>
+    {% for t in pick_up %}{{ claim_row(t, "/") }}{% else %}
+    {{ empty_state("Every task has an owner.") }}
+    {% endfor %}
+  </section>
+
+  <section class="panel" aria-labelledby="build-progress">
+    <div class="panel__head"><h2 class="panel__title" id="build-progress">Build progress</h2><a class="btn btn--small" href="/tasks">All tasks</a></div>
+    <div class="total"><span><b>{{ total.done }}</b> / <b>{{ total.total }}</b> <span>tasks done</span></span><span><b>{{ total.percent }}</b> <span>%</span></span></div>
+    <div class="pbars">{% for g in groups if g.total %}{{ pbar(g, flex=True) }}{% endfor %}</div>
+    <div class="legend"><span class="key" style="--k:var(--color-sub-1)">Done</span><span class="key" style="--k:color-mix(in srgb,var(--color-sub-1) 55%,white)">In progress</span><span class="key" style="--k:color-mix(in srgb,var(--color-sub-1) 22%,white)">Not started</span></div>
+    <div class="swatches">
+      {% for g in groups %}
+      <a class="swatch" href="/tasks#{{ g.slug }}">{{ diamond(g) }}<span>{{ g.label }}<span class="task-row__meta">{{ g.open }} open task{{ "" if g.open == 1 else "s" }}</span></span><b>{{ g.done }}<span> / {{ g.total }}</span></b></a>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel panel--strong" aria-labelledby="crush">
+    <div class="panel__head">
+      <div><h2 class="panel__title" id="crush">Crush</h2><p class="panel__sub">Build map by subsystem. Select a label to see its tasks.</p></div>
+      <a class="btn btn--small" href="/decisions">Decisions</a>
+    </div>
+    <div class="blueprint"><div class="render"><img src="/static/img/crush.png" alt="CAD render of Crush">
+      {% for g in groups %}<a class="render__tag" href="/tasks#{{ g.slug }}" style="left:{{ g.tag[0] }}%;top:{{ g.tag[1] }}%"><span class="status status--{{ {'done': 'done', 'in_progress': 'in-progress', 'todo': 'todo'}[g.tag_state] }}"><span class="visually-hidden">{{ {'done': 'Done', 'in_progress': 'Started', 'todo': 'Not started'}[g.tag_state] }}: </span></span>{{ g.label }} {{ g.done }}/{{ g.total }}</a>{% endfor %}
+    </div></div>
+    <div class="legend"><span class="status status--done">Done</span><span class="status status--in-progress">Started</span><span class="status status--todo">Not started</span></div>
+  </section>
+</div>
+{% endblock %}

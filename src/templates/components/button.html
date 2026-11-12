@@ -1,8 +1,9 @@
-{# Buttons. variant: primary (ink), secondary (outline), coach (the coach's action). #}
-{% macro button(label, variant="secondary", type="button") -%}
-<button type="{{ type }}" class="btn btn-{{ variant }}">{{ label }}</button>
+{# Buttons: one primary (filled ink) per panel at most; the rest are secondary (outlined).
+   Pass small=True for the compact size used inside rows. #}
+{% macro button(label, variant="secondary", type="button", small=False) -%}
+<button type="{{ type }}" class="btn{% if variant == 'primary' %} btn--primary{% endif %}{% if small %} btn--small{% endif %}">{{ label }}</button>
 {%- endmacro %}
 
-{% macro button_link(href, label, variant="primary") -%}
-<a class="btn btn-{{ variant }}" href="{{ href }}">{{ label }}</a>
+{% macro button_link(href, label, variant="primary", small=False) -%}
+<a class="btn{% if variant == 'primary' %} btn--primary{% endif %}{% if small %} btn--small{% endif %}" href="{{ href }}">{{ label }}</a>
 {%- endmacro %}

@@ -1,3 +1,3 @@
-{# One message in the coach log. Expects `m` in the including context. #}
+{# One message in the coach log. Expects `m` (and `code`) in the including context. #}
 {% from "components/coach_message.html" import coach_message %}
-{{ coach_message(m) }}
+{{ coach_message(m, code) }}

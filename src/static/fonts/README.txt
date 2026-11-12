@@ -1,8 +1,7 @@
 Fonts served by this app, all under the SIL Open Font License 1.1.
-Each OFL-*.txt file is the license that ships with that family; keep it next to the font files.
+Each family's OFL.txt is the license that ships with it; keep it next to the font files.
 
-michroma-400.woff2      Michroma, The Michroma Project Authors (https://github.com/googlefonts/Michroma-font), OFL-michroma.txt
-hubot-sans-wdth.woff2   Hubot Sans, The Hubot Sans Project Authors (https://github.com/github/hubot-sans), OFL-hubot-sans.txt
-space-mono-*.woff2      Space Mono, The Space Mono Project Authors (https://github.com/googlefonts/spacemono), OFL-space-mono.txt
+manrope/          Manrope (all text), weights 400, 500, 600. Latin subset from Fontsource (https://fontsource.org).
+jetbrains-mono/   JetBrains Mono (task codes, decision ids, CAD tags only), weight 400. Latin subset from Fontsource.
 
-The woff2 files are the Latin subsets from Fontsource (https://fontsource.org), unchanged otherwise.
+The woff2 files are used unchanged. tokens.css holds the @font-face rules.

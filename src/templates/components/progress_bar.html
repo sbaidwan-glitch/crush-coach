@@ -1,0 +1,11 @@
+{# The one progress ruler (.pbar): a tick per task above a bar, solid = done, mid tint = in
+   progress, light tint = not started. `g` is a progress.GroupProgress. Pass flex=True to
+   size it by its task count when several sit side by side (Home). #}
+{% macro pbar(g, flex=False) -%}
+<div class="pbar" role="img" aria-label="{{ g.aria_label }}" style="{% if flex %}flex:{{ g.total }};{% endif %}--c:var(--color-sub-{{ g.colour }});--n:{{ g.total }};--done:{{ '%.2f' | format(g.done_pct) }}%;--started:{{ '%.2f' | format(g.started_pct) }}%"></div>
+{%- endmacro %}
+
+{# The small diamond in a subsystem's colour. #}
+{% macro diamond(g) -%}
+<span class="swatch__mark" style="background:var(--color-sub-{{ g.colour }})" aria-hidden="true"></span>
+{%- endmacro %}

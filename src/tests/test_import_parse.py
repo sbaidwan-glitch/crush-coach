@@ -277,6 +277,20 @@ def test_a_row_whose_code_already_exists_is_skipped_even_with_other_problems():
     assert check.state == "exists"
 
 
+def test_sample_layout_maps_other_words_for_a_status_to_the_flow():
+    text = (
+        "code,title,subsystem,task_type,stage,owner,status\n"
+        "X01,One,Gripper,Design,requirements,,In Review\n"
+        "X02,Two,Gripper,Design,requirements,,Complete\n"
+        "X03,Three,Gripper,Design,requirements,,not started\n"
+        "X04,Four,Gripper,Design,requirements,,blorp\n"
+    )
+
+    statuses = [r.status for r in imp.parse_tracker_csv(text).rows]
+
+    assert statuses == ["needs_review", "done", "todo", "blorp"]  # unknown stays as typed
+
+
 # --- re-import: existing codes are compared, not just skipped ---
 
 

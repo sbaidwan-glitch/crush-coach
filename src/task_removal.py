@@ -3,7 +3,7 @@
 A removal is previewed first (`preview`), then confirmed (`remove`). The preview
 counts what would go with each task:
 
-* its coach messages are deleted,
+* its coach messages and its History (status moves) are deleted,
 * its links to decisions are deleted (the decisions themselves stay),
 * its model calls (`llm_call`) stay for the cost analysis but lose their task.
 
@@ -29,6 +29,7 @@ from models import (
     DecisionTask,
     LlmCall,
     Task,
+    TaskEvent,
     TaskRemoval,
 )
 
@@ -42,6 +43,7 @@ class TaskImpact:
     code: str
     title: str
     coach_messages: int = 0
+    history_entries: int = 0
     decision_links: int = 0
     llm_calls: int = 0
     # (topic, status) of each linked decision. The decisions are not deleted.
@@ -56,6 +58,10 @@ class RemovalPreview:
     @property
     def coach_messages(self) -> int:
         return sum(t.coach_messages for t in self.tasks)
+
+    @property
+    def history_entries(self) -> int:
+        return sum(t.history_entries for t in self.tasks)
 
     @property
     def decision_links(self) -> int:
@@ -76,7 +82,7 @@ class FingerprintMismatch(Exception):
 
 def _fingerprint(tasks: Iterable[TaskImpact]) -> str:
     text = "|".join(
-        f"{t.code}:{t.coach_messages}:{t.decision_links}:{t.llm_calls}"
+        f"{t.code}:{t.coach_messages}:{t.history_entries}:{t.decision_links}:{t.llm_calls}"
         for t in sorted(tasks, key=lambda t: t.code)
     )
     return hashlib.sha256(text.encode()).hexdigest()[:16]
@@ -109,6 +115,7 @@ def preview(session: Session, codes: Sequence[str]) -> RemovalPreview:
     )
     ids = [t.id for t in found if t.id is not None]
     messages = _counts(session, CoachMessage.task_id, ids) if ids else {}
+    events = _counts(session, TaskEvent.task_id, ids) if ids else {}
     links = _counts(session, DecisionTask.task_id, ids) if ids else {}
     calls = _counts(session, LlmCall.task_id, ids) if ids else {}
 
@@ -127,6 +134,7 @@ def preview(session: Session, codes: Sequence[str]) -> RemovalPreview:
             code=t.code,
             title=t.title,
             coach_messages=messages.get(t.id, 0),
+            history_entries=events.get(t.id, 0),
             decision_links=links.get(t.id, 0),
             llm_calls=calls.get(t.id, 0),
             decisions=decisions.get(t.id, []),
@@ -161,12 +169,14 @@ def remove(
                 task_code=impact.code,
                 task_title=impact.title,
                 coach_messages_deleted=impact.coach_messages,
+                history_entries_deleted=impact.history_entries,
                 decision_links_deleted=impact.decision_links,
                 llm_calls_unlinked=impact.llm_calls,
             )
         )
     # Children first. Model calls are kept, just unlinked.
     session.exec(delete(CoachMessage).where(col(CoachMessage.task_id).in_(ids)))
+    session.exec(delete(TaskEvent).where(col(TaskEvent.task_id).in_(ids)))
     session.exec(delete(DecisionTask).where(col(DecisionTask.task_id).in_(ids)))
     session.exec(
         update(LlmCall).where(col(LlmCall.task_id).in_(ids)).values(task_id=None)

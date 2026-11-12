@@ -1,7 +1,7 @@
 """task_removal: a log of who removed which task
 
-Revision ID: 0007
-Revises: 0006
+Revision ID: 0008
+Revises: 0007
 Create Date: 2026-11-11 14:00:00.000000
 
 """
@@ -13,8 +13,8 @@ import sqlmodel
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "0007"
-down_revision: str | Sequence[str] | None = "0006"
+revision: str = "0008"
+down_revision: str | Sequence[str] | None = "0007"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -29,6 +29,7 @@ def upgrade() -> None:
         sa.Column("task_code", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("task_title", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("coach_messages_deleted", sa.Integer(), nullable=False),
+        sa.Column("history_entries_deleted", sa.Integer(), nullable=False),
         sa.Column("decision_links_deleted", sa.Integer(), nullable=False),
         sa.Column("llm_calls_unlinked", sa.Integer(), nullable=False),
         sa.PrimaryKeyConstraint("id"),

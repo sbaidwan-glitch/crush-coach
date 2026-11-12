@@ -4,7 +4,8 @@
 
 Starts the app against a throwaway SQLite database seeded with the made-up sample
 tasks, signs in with a forged session cookie for a made-up member, and saves
-/, /tasks, /tasks/M04, the decision pages, /admin and /admin/import at 375px and 1280px into
+/, /tasks, /tasks/E01 (a member's own task in progress), /tasks/G01 (waiting for a lead),
+the decision pages, /admin and /admin/import at 375px and 1280px into
 .context/screenshots/ (gitignored).
 It never touches your real database, your .env secrets, the model or Google.
 
@@ -21,6 +22,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+from datetime import timedelta
 from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[1]
@@ -30,7 +32,11 @@ WIDTHS = (375, 1280)
 # (file name, path, who is signed in)
 PAGES = (
     ("home", "/", "member"),
-    ("tasks", "/tasks", "member"),
+    ("home-lead", "/", "lead"),
+    ("tasks", "/tasks", "lead"),
+    ("tasks-member", "/tasks", "member"),
+    ("task-E01", "/tasks/E01", "member"),
+    ("task-G01-lead", "/tasks/G01", "lead"),
     ("task-M04", "/tasks/M04", "member"),
     ("decisions", "/decisions", "member"),
     ("decision-confirmed", "/decisions/1", "member"),
@@ -69,7 +75,15 @@ def seed() -> None:
 
     import db
     import import_tasks
-    from models import CoachMessage, Decision, DecisionTask, SyncState, Task, utc_now
+    from models import (
+        CoachMessage,
+        Decision,
+        DecisionTask,
+        SyncState,
+        Task,
+        TaskEvent,
+        utc_now,
+    )
 
     assert db.database_url().startswith("sqlite"), (
         "refusing to seed a non-SQLite database"
@@ -78,6 +92,68 @@ def seed() -> None:
     with Session(db.engine) as session:
         import_tasks.import_tasks(session, SRC / "sample_data" / "tasks.csv")
         task = session.exec(select(Task).where(Task.code == "M04")).one()
+        # The signed-in member's own task, with a coach answer that ends in "Next step:".
+        mine = session.exec(select(Task).where(Task.code == "E01")).one()
+        mine.owner = MEMBER["name"]
+        waiting = session.exec(select(Task).where(Task.code == "G01")).one()
+        waiting.status = "needs_review"
+        now = utc_now()
+        session.add_all(
+            [
+                TaskEvent(
+                    task_id=mine.id,
+                    actor=MEMBER["name"],
+                    from_status="todo",
+                    to_status="in_progress",
+                    created_at=now - timedelta(days=8),
+                ),
+                TaskEvent(
+                    task_id=waiting.id,
+                    actor="Jordan Demo",
+                    from_status="in_progress",
+                    to_status="needs_review",
+                    created_at=now - timedelta(days=2),
+                ),
+                TaskEvent(
+                    task_id=waiting.id,
+                    actor=LEAD["name"],
+                    from_status="needs_review",
+                    to_status="in_progress",
+                    note="Check the jaw spacing against the drawing.",
+                    created_at=now - timedelta(days=4),
+                ),
+                CoachMessage(
+                    task_id=mine.id,
+                    member=MEMBER["email"],
+                    role="user",
+                    content="How do I start the tray layout?",
+                ),
+                CoachMessage(
+                    task_id=mine.id,
+                    member="coach",
+                    role="assistant",
+                    content=(
+                        "Start from the current electronics tray sketch and check each "
+                        "board against the component sheet. The decision below is "
+                        "confirmed, so use it.\n\n"
+                        "Next step: open the tray sub-assembly and check it against "
+                        "the electrical component sheet."
+                    ),
+                    meta=json.dumps(
+                        {
+                            "sources": [
+                                {
+                                    "title": "Electrical component sheet (example)",
+                                    "link": "https://docs.google.com/spreadsheets/d/example",
+                                    "modified": "2026-10-20",
+                                }
+                            ],
+                            "notes": [],
+                        }
+                    ),
+                ),
+            ]
+        )
         meta = {
             "sources": [
                 {

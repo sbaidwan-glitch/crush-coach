@@ -46,6 +46,7 @@ def session():
         LlmCall,
         SyncState,
         Task,
+        TaskEvent,
         TaskRemoval,
     )
 
@@ -54,6 +55,7 @@ def session():
         for table in (
             DecisionTask,
             Decision,
+            TaskEvent,
             CoachMessage,
             LlmCall,
             Task,

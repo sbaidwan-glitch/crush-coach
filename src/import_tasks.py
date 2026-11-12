@@ -36,7 +36,14 @@ from pathlib import Path
 from sqlmodel import Session, select
 
 import db
-from models import STATUSES, SUBSYSTEMS, TASK_DETAIL_LABELS, TASK_TYPES, Task
+from models import (
+    STATUSES,
+    SUBSYSTEMS,
+    TASK_DETAIL_LABELS,
+    TASK_TYPES,
+    Task,
+    normalize_status,
+)
 
 REQUIRED_COLUMNS = ("code", "title", "subsystem", "task_type", "stage")
 COLUMNS = (*REQUIRED_COLUMNS, "owner", "status")
@@ -299,7 +306,11 @@ def _parse_sample(records: list[tuple[int, list[str]]]) -> ParsedFile:
                 task_type=values["task_type"],
                 stage=values["stage"],
                 owner=values["owner"] or None,
-                status=values["status"] or "todo",
+                # "In review" and "Complete" are mapped; a word we don't know stays
+                # as typed so the review page can say it isn't valid.
+                status=normalize_status(values["status"])
+                or values["status"]
+                or "todo",
             )
         )
     return ParsedFile(FORMAT_SAMPLE, rows)
@@ -430,8 +441,8 @@ def _row_problems(row: ParsedRow, fields: Sequence[str] | None = None) -> list[P
         problems.append(
             Problem(
                 "row",
-                f"Status “{row.status}” isn’t valid (use todo, in_progress or "
-                "done). Fix it in the file and upload again, or leave this row out.",
+                f"Status “{row.status}” isn’t valid (use todo, in_progress, "
+                "needs_review or done). Fix it in the file and upload again, or leave this row out.",
             )
         )
     too_long = _too_long_field(row, fields)

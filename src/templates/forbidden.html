@@ -1,10 +1,10 @@
 {% extends "base.html" %}
+{% from "components/feedback.html" import error_state %}
 {% block title %}Leads only – Crush Coach{% endblock %}
+{% block page_title %}Leads only{% endblock %}
 {% block main %}
-<h1>Leads only</h1>
-<p class="notice" role="alert">
-  This page is for team leads. If you should have access, ask a lead to add
-  your address to the lead list.
-</p>
-<p><a href="/tasks">Back to the task board</a></p>
+<section class="panel" aria-labelledby="leads-only">
+  <h2 class="panel__title" id="leads-only">This page is for team leads</h2>
+  {{ error_state("If you should have access, ask a lead to add your address to the lead list.", "/tasks", "Back to all tasks") }}
+</section>
 {% endblock %}

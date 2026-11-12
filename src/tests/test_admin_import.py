@@ -101,10 +101,10 @@ def test_member_gets_403_everywhere(member, session, method, path):
 def test_nav_link_is_only_for_leads(session):
     main.app.dependency_overrides[auth.require_user] = lambda: LEAD
     with make_client(LEAD) as client:
-        assert "/admin/import" in client.get("/tasks").text
+        assert 'href="/admin"' in client.get("/tasks").text
     main.app.dependency_overrides[auth.require_user] = lambda: MEMBER
     with make_client(MEMBER) as client:
-        assert "/admin/import" not in client.get("/tasks").text
+        assert 'href="/admin"' not in client.get("/tasks").text
     main.app.dependency_overrides.clear()
 
 
@@ -224,7 +224,7 @@ def test_other_problems_show_a_short_message_under_their_own_field(lead):
     assert "Add a code for this row." in page
     # The subsystem message sits right after the subsystem select, in the same cell.
     assert re.search(
-        r'name="subsystem_4".*?</select>\s*<p class="field-error" id="subsystem-msg-4"',
+        r'name="subsystem_4".*?</select>\s*<p class="notice notice--error field-error" id="subsystem-msg-4"',
         page,
         re.DOTALL,
     )

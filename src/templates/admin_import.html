@@ -1,22 +1,24 @@
 {% extends "base.html" %}
 {% from "components/feedback.html" import notice, empty_state %}
 {% block title %}Import tasks – Crush Coach{% endblock %}
+{% block page_title %}Import tasks{% endblock %}
+{% block topbar_actions %}<a class="btn" href="/admin">Admin</a>{% endblock %}
 {% block main %}
-<h1>Import tasks</h1>
-<p>Upload a CSV export of the tracker’s “Mechanical Tasks” or “Mission Actuators” tab (Google Sheets: File → Download → Comma-separated values). The simple sample format works too.</p>
-<p class="count">You’ll see every row first. Nothing is saved until you click Import. A task code that is already in the tracker is compared with the file: you’ll see what would change, and tasks with no changes are skipped.</p>
+<div class="stack">
+<section class="panel" aria-labelledby="upload-heading">
+  <h2 class="panel__title" id="upload-heading">Upload the tracker</h2>
+  <p class="panel__sub">Upload a CSV export of the tracker’s “Mechanical Tasks” or “Mission Actuators” tab (Google Sheets: File → Download → Comma-separated values). The simple sample format works too. You’ll see every row first. Nothing is saved until you click Import. A task code that is already in the tracker is compared with the file: you’ll see what would change, and tasks with no changes are skipped.</p>
+  {% if error %}{{ notice(error, "error") }}{% endif %}
+  <form method="post" action="/admin/import/preview" enctype="multipart/form-data">
+    <label class="field-label" for="import-file">Tracker CSV file</label>
+    <input id="import-file" class="field-input" type="file" name="file" accept=".csv,text/csv" required>
+    <div class="actions"><button class="btn btn--primary" type="submit">Preview</button></div>
+  </form>
+</section>
 
-{% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
-
-<form class="import-form" method="post" action="/admin/import/preview" enctype="multipart/form-data">
-  <label for="import-file">Tracker CSV file</label>
-  <input id="import-file" type="file" name="file" accept=".csv,text/csv" required>
-  <button class="btn btn-primary" type="submit">Preview</button>
-</form>
-
-<section id="remove-tasks" class="admin-section" aria-labelledby="remove-heading">
-  <h2 id="remove-heading">Remove tasks</h2>
-  <p>Remove tasks that were imported by mistake, or start over with a fresh export. You’ll see what goes with them before anything is removed.</p>
+<section id="remove-tasks" class="panel panel--strong" aria-labelledby="remove-heading">
+  <h2 class="panel__title" id="remove-heading">Remove tasks</h2>
+  <p class="panel__sub">Remove tasks that were imported by mistake, or start over with a fresh export. You’ll see what goes with them before anything is removed.</p>
   {% if remove_error %}{{ notice(remove_error, "error") }}{% endif %}
 
   {% if removal.unavailable %}
@@ -26,14 +28,14 @@
   {% else %}
   <form method="post" action="/admin/import/remove/preview">
     <fieldset class="remove-picker">
-      <legend>Tasks to remove</legend>
-      <ul class="plain-list remove-list">
+      <legend class="field-label">Tasks to remove</legend>
+      <ul class="remove-list">
         {% for t in removal.tasks %}
         <li><label class="check"><input type="checkbox" name="code" value="{{ t.code }}"><span><span class="code">{{ t.code }}</span> {{ t.title }}</span></label></li>
         {% endfor %}
       </ul>
     </fieldset>
-    <div class="import-actions">
+    <div class="actions">
       <button class="btn" type="submit" name="scope" value="picked">Preview removing the ticked tasks</button>
       <button class="btn" type="submit" name="scope" value="all">Preview removing all imported tasks ({{ removal.tasks | length }})</button>
     </div>
@@ -41,9 +43,9 @@
   {% endif %}
 
   {% if removal.recent %}
-  <h3 id="removal-log-heading">Recently removed</h3>
+  <div class="field-label" id="removal-log-heading">Recently removed</div>
   <div class="table-wrap" tabindex="0" role="region" aria-labelledby="removal-log-heading">
-    <table class="import-table removal-log">
+    <table class="import-table">
       <thead>
         <tr>
           <th scope="col">When</th>
@@ -55,10 +57,10 @@
       <tbody>
         {% for r in removal.recent %}
         <tr>
-          <td>{{ local_time(r.removed_at) }}</td>
+          <td class="nowrap">{{ local_time(r.removed_at) }}</td>
           <td>{{ r.removed_by }}</td>
           <td><span class="code">{{ r.task_code }}</span> {{ r.task_title }}</td>
-          <td>{{ r.coach_messages_deleted }} coach message{{ "" if r.coach_messages_deleted == 1 else "s" }}, {{ r.decision_links_deleted }} decision link{{ "" if r.decision_links_deleted == 1 else "s" }}. {{ r.llm_calls_unlinked }} model call{{ "" if r.llm_calls_unlinked == 1 else "s" }} kept.</td>
+          <td>{{ r.coach_messages_deleted }} coach message{{ "" if r.coach_messages_deleted == 1 else "s" }}, {{ r.history_entries_deleted }} history entr{{ "y" if r.history_entries_deleted == 1 else "ies" }}, {{ r.decision_links_deleted }} decision link{{ "" if r.decision_links_deleted == 1 else "s" }}. {{ r.llm_calls_unlinked }} model call{{ "" if r.llm_calls_unlinked == 1 else "s" }} kept.</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -66,4 +68,5 @@
   </div>
   {% endif %}
 </section>
+</div>
 {% endblock %}

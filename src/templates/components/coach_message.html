@@ -1,19 +1,53 @@
-{# One turn of the coach thread. `m` has role, member, content, notes and sources. #}
-{% from "components/icons.html" import icon %}
+{# One turn of the coach thread. `m` has role, member, content, notes and sources; `code` is the task's code (for the
+   "Propose as a decision" link).
+   The member's message is a filled box offset right; the coach's has a blue left rule,
+   a ruled list of sources, and its "Next step:" in a blueprint box at the end. #}
 {% from "components/feedback.html" import notice %}
-{% from "components/readout.html" import readout %}
-{% macro coach_message(m) -%}
-<article class="msg msg-{{ m.role }}">
-  <h3 class="msg-who">{% if m.role == "user" %}{{ m.member }}{% else %}{{ icon("coach") }}<span>Coach</span>{% endif %}</h3>
-  {% if m.role == "user" %}<p class="msg-body">{{ m.content | linkify }}</p>
-  {%- else %}<div class="msg-body msg-md">{{ m.content | markdown }}</div>{% endif %}
-  {% for note in m.notes %}{{ notice(note) }}{% endfor %}
-  {% if m.sources %}
-  <dl class="readout">
-    {% for s in m.sources %}
-    <div class="wide"><dt>Source</dt><dd>{% if s.link.startswith("/") %}<a href="{{ s.link }}">{{ s.title }}</a>{% if s.modified %}<span class="source-meta">confirmed {{ s.modified }}</span>{% endif %}{% else %}<a href="{{ s.link }}" target="_blank" rel="noopener noreferrer">{{ s.title }}</a>{% if s.modified %}<span class="source-meta">modified {{ s.modified }}</span>{% endif %}{% endif %}</dd></div>
-    {% endfor %}
-  </dl>
-  {% endif %}
+{% macro coach_message(m, code="") -%}
+{%- if m.role == "user" -%}
+<article class="msg msg--member">
+  <div class="msg__who">{{ m.member }}</div>
+  <p class="msg-body">{{ m.content | linkify }}</p>
+</article>
+{%- else -%}
+<article class="msg msg--coach">
+  <div class="msg__who">Coach</div>
+  {%- for part in m.content | message_parts %}
+  {%- if part.kind == "conflict" %}
+  <div class="conflict">
+    <div class="msg-md">{{ part.text | markdown }}</div>
+    {% if code %}<a class="btn btn--small" href="/decisions/new?task={{ code | urlencode }}">Propose as a decision</a>{% endif %}
+  </div>
+  {%- elif part.kind == "next" %}
+  <div class="next msg-md"><b>Next step:</b> {{ part.text | markdown }}</div>
+  {%- else %}
+  <div class="msg-md">{{ part.text | markdown }}</div>
+  {%- endif %}
+  {%- endfor %}
+  {%- for note in m.notes %}{{ notice(note) }}{% endfor %}
+  {%- if m.sources %}
+  <ul class="sources" aria-label="Sources">
+    {%- for s in m.sources %}
+    <li>
+      {%- if s.link.startswith("/") -%}
+      <a href="{{ s.link }}">{{ s.title }}</a><span class="meta">Decision{% if s.modified %} · confirmed {{ s.modified }}{% endif %}</span>
+      {%- else -%}
+      <a href="{{ s.link }}" target="_blank" rel="noopener noreferrer">{{ s.title }}</a>{% if s.modified %}<span class="meta">Modified {{ s.modified }}</span>{% endif %}
+      {%- endif -%}
+    </li>
+    {%- endfor %}
+  </ul>
+  {%- endif %}
+</article>
+{%- endif -%}
+{%- endmacro %}
+
+{# The coach couldn't answer. The member's question stays above it (and in the box), the
+   words say what failed, and Retry sends the box again. #}
+{% macro coach_error(text) -%}
+<article class="msg msg--coach msg--error" role="alert">
+  <div class="msg__who">Couldn’t get an answer</div>
+  <p>{{ text }} Your question is still in the box below.</p>
+  <button class="btn btn--small" type="submit" form="coach-form">Retry</button>
 </article>
 {%- endmacro %}

@@ -1,13 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Tasks removed – Crush Coach{% endblock %}
+{% block page_title %}Tasks removed{% endblock %}
+{% block topbar_actions %}<a class="btn" href="/tasks">All tasks</a>{% endblock %}
 {% block main %}
-<h1>Tasks removed</h1>
-<p role="status">
-  Removed {{ done.tasks | length }} task{{ "" if done.tasks | length == 1 else "s" }},
-  {{ done.coach_messages }} coach message{{ "" if done.coach_messages == 1 else "s" }} and
-  {{ done.decision_links }} decision link{{ "" if done.decision_links == 1 else "s" }}.
-  {{ done.llm_calls }} model call{{ "" if done.llm_calls == 1 else "s" }} kept, with no task.
-</p>
-<p>{% for t in done.tasks %}<span class="code">{{ t.code }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</p>
-<p><a href="/admin/import#remove-tasks">Back to import and remove</a> · <a href="/tasks">Go to the task board</a></p>
+<section class="panel" aria-labelledby="removed-heading">
+  <h2 class="panel__title" id="removed-heading">What happened</h2>
+  <p class="panel__sub" role="status">
+    Removed {{ done.tasks | length }} task{{ "" if done.tasks | length == 1 else "s" }},
+    {{ done.coach_messages }} coach message{{ "" if done.coach_messages == 1 else "s" }},
+    {{ done.history_entries }} history entr{{ "y" if done.history_entries == 1 else "ies" }} and
+    {{ done.decision_links }} decision link{{ "" if done.decision_links == 1 else "s" }}.
+    {{ done.llm_calls }} model call{{ "" if done.llm_calls == 1 else "s" }} kept, with no task.
+  </p>
+  <div class="field">{% for t in done.tasks %}<span class="code">{{ t.code }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</div>
+  <div class="actions"><a class="btn btn--primary" href="/admin/import#remove-tasks">Back to import and remove</a><a class="btn" href="/tasks">Go to all tasks</a></div>
+</section>
 {% endblock %}

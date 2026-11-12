@@ -11,7 +11,15 @@ import auth
 import db
 import main
 import task_removal
-from models import CoachMessage, Decision, DecisionTask, LlmCall, Task, TaskRemoval
+from models import (
+    CoachMessage,
+    Decision,
+    DecisionTask,
+    LlmCall,
+    Task,
+    TaskEvent,
+    TaskRemoval,
+)
 
 LEAD = {"name": "Test Lead", "email": "lead@example.edu", "role": "lead"}
 MEMBER = {"name": "Test Member", "email": "member@example.edu", "role": "member"}
@@ -41,7 +49,11 @@ def add_task(session, code, title="Example task") -> Task:
     return task
 
 
-def add_history(session, task, messages=2, calls=3, decision_topic=None):
+def add_history(session, task, messages=2, calls=3, decision_topic=None, events=0):
+    for i in range(events):
+        session.add(
+            TaskEvent(task_id=task.id, actor="Someone", from_status=None, to_status="todo")
+        )
     for i in range(messages):
         session.add(
             CoachMessage(
@@ -135,7 +147,7 @@ def test_members_cannot_remove_anything(member, session, path, kwargs):
 
 def test_preview_shows_what_goes_with_the_tasks_and_removes_nothing(lead, session):
     one, two = add_task(session, "M01", "First"), add_task(session, "M02", "Second")
-    add_history(session, one, messages=2, calls=3, decision_topic="Latch style")
+    add_history(session, one, messages=2, calls=3, decision_topic="Latch style", events=4)
     add_history(session, two, messages=1, calls=0)
 
     response = lead.post("/admin/import/remove/preview", data={"scope": "picked", "code": ["M01"]})
@@ -144,7 +156,9 @@ def test_preview_shows_what_goes_with_the_tasks_and_removes_nothing(lead, sessio
     assert response.status_code == 200
     assert "Nothing has been removed yet" in page
     assert "Remove 1 task?" in page
-    assert "deletes 2 coach messages and 1 link to decisions" in " ".join(page.split())
+    assert "deletes 2 coach messages, 4 history entries and 1 link to decisions" in " ".join(
+        page.split()
+    )
     assert "3 model calls stay for the cost analysis" in " ".join(page.split())
     assert "Latch style (confirmed)" in page
     assert "Second" not in page
@@ -186,20 +200,21 @@ def test_confirm_removes_the_tasks_with_their_messages_and_links_and_keeps_model
     lead, session
 ):
     gone, kept = add_task(session, "M01", "Going"), add_task(session, "M02", "Staying")
-    add_history(session, gone, messages=2, calls=3, decision_topic="Latch style")
-    add_history(session, kept, messages=1, calls=1)
+    add_history(session, gone, messages=2, calls=3, decision_topic="Latch style", events=2)
+    add_history(session, kept, messages=1, calls=1, events=1)
     gone_id = gone.id
     preview = lead.post("/admin/import/remove/preview", data={"code": ["M01"]}).text
 
     response = confirm(lead, ["M01"], fingerprint(preview))
 
     assert response.status_code == 200
-    assert "Removed 1 task, 2 coach messages and 1 decision link." in " ".join(
+    assert "Removed 1 task, 2 coach messages, 2 history entries and 1 decision link." in " ".join(
         response.text.split()
     )
     session.expire_all()
     assert [t.code for t in session.exec(select(Task)).all()] == ["M02"]
     assert count(session, CoachMessage) == 1
+    assert count(session, TaskEvent) == 1  # only the other task's History is left
     assert count(session, DecisionTask) == 0
     assert count(session, Decision) == 1  # the decision itself stays
     calls = session.exec(select(LlmCall)).all()
@@ -211,7 +226,7 @@ def test_confirm_removes_the_tasks_with_their_messages_and_links_and_keeps_model
 def test_confirm_logs_who_removed_what(lead, session):
     one = add_task(session, "M01", "First")
     add_task(session, "M02", "Second")
-    add_history(session, one, messages=2, calls=3, decision_topic="Latch style")
+    add_history(session, one, messages=2, calls=3, decision_topic="Latch style", events=3)
     preview = lead.post("/admin/import/remove/preview", data={"scope": "all"}).text
 
     confirm(lead, ["M01", "M02"], fingerprint(preview))
@@ -223,9 +238,10 @@ def test_confirm_logs_who_removed_what(lead, session):
     assert log["M01"].task_title == "First"
     assert (
         log["M01"].coach_messages_deleted,
+        log["M01"].history_entries_deleted,
         log["M01"].decision_links_deleted,
         log["M01"].llm_calls_unlinked,
-    ) == (2, 1, 3)
+    ) == (2, 3, 1, 3)
     assert log["M01"].batch == log["M02"].batch  # one confirmation, one batch
     assert log["M01"].removed_at is not None
 
@@ -306,7 +322,7 @@ class FailsAtTheEnd:
 
 def test_a_database_failure_removes_nothing_and_says_so(lead, session):
     task = add_task(session, "M01")
-    add_history(session, task, messages=2, calls=1, decision_topic="Latch style")
+    add_history(session, task, messages=2, calls=1, decision_topic="Latch style", events=2)
     preview = lead.post("/admin/import/remove/preview", data={"code": ["M01"]}).text
     failing = FailsAtTheEnd(session)
     main.app.dependency_overrides[db.get_session] = lambda: failing
@@ -322,6 +338,7 @@ def test_a_database_failure_removes_nothing_and_says_so(lead, session):
     assert count(session, Task) == 1
     assert count(session, CoachMessage) == 2
     assert count(session, DecisionTask) == 1
+    assert count(session, TaskEvent) == 2
     assert count(session, TaskRemoval) == 0
 
 

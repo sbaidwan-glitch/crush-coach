@@ -1,57 +1,63 @@
 {% extends "base.html" %}
 {% from "components/feedback.html" import notice %}
 {% block title %}Remove tasks – Crush Coach{% endblock %}
+{% block page_title %}Remove tasks{% endblock %}
+{% block topbar_actions %}<a class="btn" href="/admin/import#remove-tasks">Cancel</a>{% endblock %}
 {% block main %}
-<h1>Remove {{ plan.tasks | length }} task{{ "" if plan.tasks | length == 1 else "s" }}?</h1>
-<p class="fine"><strong>Nothing has been removed yet.</strong></p>
-{% if banner %}{{ notice(banner, "error") }}{% endif %}
+<section class="panel panel--strong" aria-labelledby="remove-heading">
+  <h2 class="panel__title" id="remove-heading">Remove {{ plan.tasks | length }} task{{ "" if plan.tasks | length == 1 else "s" }}?</h2>
+  <p class="panel__sub"><strong>Nothing has been removed yet.</strong></p>
+  {% if banner %}{{ notice(banner, "error") }}{% endif %}
 
-<p role="status">
-  This deletes {{ plan.coach_messages }} coach message{{ "" if plan.coach_messages == 1 else "s" }} and {{ plan.decision_links }} link{{ "" if plan.decision_links == 1 else "s" }} to decisions.
-  The decisions themselves stay.
-  {{ plan.llm_calls }} model call{{ "" if plan.llm_calls == 1 else "s" }} stay for the cost analysis, with no task attached.
-</p>
+  <p role="status">
+    This deletes {{ plan.coach_messages }} coach message{{ "" if plan.coach_messages == 1 else "s" }}, {{ plan.history_entries }} history entr{{ "y" if plan.history_entries == 1 else "ies" }} and {{ plan.decision_links }} link{{ "" if plan.decision_links == 1 else "s" }} to decisions.
+    The decisions themselves stay.
+    {{ plan.llm_calls }} model call{{ "" if plan.llm_calls == 1 else "s" }} stay for the cost analysis, with no task attached.
+  </p>
 
-<div class="table-wrap" tabindex="0" role="region" aria-label="Tasks to remove (scrolls sideways on small screens)">
-  <table class="import-table">
-    <caption class="sr-only">Tasks to remove and what goes with each</caption>
-    <thead>
-      <tr>
-        <th scope="col">Task</th>
-        <th scope="col">Coach messages deleted</th>
-        <th scope="col">Decision links deleted</th>
-        <th scope="col">Model calls kept</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for t in plan.tasks %}
-      <tr>
-        <td><span class="code">{{ t.code }}</span> {{ t.title }}</td>
-        <td>{{ t.coach_messages }}</td>
-        <td>
-          {{ t.decision_links }}
-          {% if t.decisions %}
-          <ul class="cell-note plain-list">
-            {% for topic, status in t.decisions %}<li>{{ topic }} ({{ status }})</li>{% endfor %}
-          </ul>
-          {% endif %}
-        </td>
-        <td>{{ t.llm_calls }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-<p class="fine">Importing the tracker again brings the tasks back, but not their coach conversations. Your name goes in the removal log.</p>
-
-<form method="post" action="/admin/import/remove/confirm">
-  {% for t in plan.tasks %}<input type="hidden" name="code" value="{{ t.code }}">{% endfor %}
-  <input type="hidden" name="fingerprint" value="{{ plan.fingerprint }}">
-  <label class="check"><input type="checkbox" name="understood" value="yes" required> <span>I understand this can’t be undone.</span></label>
-  <div class="import-actions">
-    <button class="btn btn-primary" type="submit">Remove {{ plan.tasks | length }} task{{ "" if plan.tasks | length == 1 else "s" }}</button>
-    <a href="/admin/import#remove-tasks">Cancel</a>
+  <div class="table-wrap" tabindex="0" role="region" aria-label="Tasks to remove (scrolls sideways on small screens)">
+    <table class="import-table">
+      <caption class="visually-hidden">Tasks to remove and what goes with each</caption>
+      <thead>
+        <tr>
+          <th scope="col">Task</th>
+          <th scope="col">Coach messages deleted</th>
+          <th scope="col">History entries deleted</th>
+          <th scope="col">Decision links deleted</th>
+          <th scope="col">Model calls kept</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in plan.tasks %}
+        <tr>
+          <td><span class="code">{{ t.code }}</span> {{ t.title }}</td>
+          <td>{{ t.coach_messages }}</td>
+          <td>{{ t.history_entries }}</td>
+          <td>
+            {{ t.decision_links }}
+            {% if t.decisions %}
+            <ul class="remove-list task-row__meta">
+              {% for topic, status in t.decisions %}<li>{{ topic }} ({{ status }})</li>{% endfor %}
+            </ul>
+            {% endif %}
+          </td>
+          <td>{{ t.llm_calls }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
-</form>
+
+  <p class="meta">Importing the tracker again brings the tasks back, but not their coach conversations or history. Your name goes in the removal log.</p>
+
+  <form method="post" action="/admin/import/remove/confirm">
+    {% for t in plan.tasks %}<input type="hidden" name="code" value="{{ t.code }}">{% endfor %}
+    <input type="hidden" name="fingerprint" value="{{ plan.fingerprint }}">
+    <label class="check"><input type="checkbox" name="understood" value="yes" required> <span>I understand this can’t be undone.</span></label>
+    <div class="actions">
+      <button class="btn btn--primary" type="submit">Remove {{ plan.tasks | length }} task{{ "" if plan.tasks | length == 1 else "s" }}</button>
+      <a class="btn" href="/admin/import#remove-tasks">Cancel</a>
+    </div>
+  </form>
+</section>
 {% endblock %}
