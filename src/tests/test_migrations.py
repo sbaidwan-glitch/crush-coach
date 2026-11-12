@@ -175,11 +175,11 @@ def test_upgrade_creates_drive_index_tables(fresh_engine):
     assert "ix_drive_file_search_vector" in file_indexes
 
 
-def test_downgrade_one_step_keeps_the_drive_tables_but_drops_their_new_columns(
+def test_downgrade_to_0005_keeps_the_drive_tables_but_drops_their_new_columns(
     fresh_engine,
 ):
     db.run_migrations(fresh_engine)
-    command.downgrade(db.alembic_config(fresh_engine), "-1")
+    command.downgrade(db.alembic_config(fresh_engine), "0005")
     inspector = inspect(fresh_engine)
     assert "search_vector" not in {
         c["name"] for c in inspector.get_columns("drive_file")
@@ -188,6 +188,35 @@ def test_downgrade_one_step_keeps_the_drive_tables_but_drops_their_new_columns(
         c["name"] for c in inspector.get_columns("sync_state")
     }
     assert "drive_chunk" in inspector.get_table_names()
+
+
+def test_upgrade_creates_the_task_removal_log(fresh_engine):
+    db.run_migrations(fresh_engine)
+
+    inspector = inspect(fresh_engine)
+    columns = {c["name"]: c for c in inspector.get_columns("task_removal")}
+    assert set(columns) == {
+        "id",
+        "batch",
+        "removed_at",
+        "removed_by",
+        "task_code",
+        "task_title",
+        "coach_messages_deleted",
+        "decision_links_deleted",
+        "llm_calls_unlinked",
+    }
+    # The log names tasks as text: the task row is gone, so there is nothing to link to.
+    assert inspector.get_foreign_keys("task_removal") == []
+
+
+def test_downgrade_to_0006_removes_only_the_removal_log(fresh_engine):
+    db.run_migrations(fresh_engine)
+    command.downgrade(db.alembic_config(fresh_engine), "0006")
+
+    tables = inspect(fresh_engine).get_table_names()
+    assert "task_removal" not in tables
+    assert {"task", "llm_call", "drive_file"} <= set(tables)
 
 
 def test_downgrade_to_0004_removes_only_the_drive_index(fresh_engine):

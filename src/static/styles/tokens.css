@@ -70,6 +70,7 @@
   --gauge-height: 1rem;
   --gauge-pitch: 2.5rem;
   --import-table-min: 54rem; /* the import review table scrolls sideways below this */
+  --remove-list-max: 20rem; /* the tick list of tasks to remove scrolls past this */
   --field-code: 8rem;
   --field-min: 10rem;
 

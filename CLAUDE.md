@@ -37,7 +37,7 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
   - `cd src && ../.venv/bin/alembic revision --autogenerate -m "describe change"`: create a migration from model changes (needs `DATABASE_URL` pointing at a database already at head; review the generated file before committing)
   - `cd src && ../.venv/bin/alembic downgrade -1`: undo the last migration
   - `cd src && ../.venv/bin/alembic stamp head`: mark a database created before Alembic (by the old `create_all`) as up to date
-- `cd src && ../.venv/bin/python -m import_tasks sample_data/tasks.csv`: one-time import of tasks from a CSV into the `Task` table. Safe to re-run: existing task codes are skipped, never overwritten. Bad rows are reported and skipped. The sample file is made-up data; never commit a real tracker export.
+- `cd src && ../.venv/bin/python -m import_tasks sample_data/tasks.csv`: one-time import of tasks from a CSV into the `Task` table. Safe to re-run: existing task codes are skipped, never overwritten (the `/admin/import` page, not the CLI, can update them). Bad rows are reported and skipped. The sample file is made-up data; never commit a real tracker export.
 
 ## Layout
 - `src/main.py`: FastAPI app (`uvicorn main:app`)
@@ -55,7 +55,8 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - `evals/coach_questions.yaml`, `src/coach_eval.py`, `src/scripts/run_evals.py`: the coach's test questions, the scoring and report code (pure, unit-tested), and the `make eval` runner
 - `src/decisions.py`, `src/templates/decision*.html`, `src/templates/_decision_*.html`: decision records (`/decisions`, a decision's page, the propose form, lead-only accept/supersede) and the `search_confirmed` lookup the coach's `find_decisions` tool uses. `src/prompts/draft_decision.md` is the prompt for "draft a decision from this conversation" (`coach.py`, `llm.draft_decision`)
 - `src/import_tasks.py`, `src/sample_data/`: CSV parsing, subsystem/type guesses and saving (real tracker export or the made-up sample); also the CLI import
-- `src/admin.py`, `src/templates/admin_import*.html`, `src/static/import.js`: lead-only `/admin/import` (upload, review and fix rows in place, then Import); leads are `LEAD_EMAILS`, everyone else gets 403. The review page is stateless: every edit re-posts the form and the server re-checks all rows
+- `src/admin.py`, `src/templates/admin_import*.html`, `src/static/import.js`: lead-only `/admin/import` (upload, review and fix rows in place, then Import); leads are `LEAD_EMAILS`, everyone else gets 403. The review page is stateless: every edit re-posts the form and the server re-checks all rows. A row whose code already exists is compared with the task and shown as an update with its changed fields; a re-import updates title, owner and details (tracker layout) or title, subsystem, type and owner (sample layout), never stage or status (`import_tasks.update_fields_for`)
+- `src/task_removal.py`, `src/templates/admin_remove_*.html`: the "Remove tasks" section of `/admin/import`: pick tasks or all, preview what goes with them, confirm. Deletes the tasks' coach messages and decision links, keeps `llm_call` rows with `task_id` unset, and logs who/what in `task_removal`. A fingerprint of the previewed counts stops a confirm if they changed meanwhile
 - `src/migrations/`: Alembic migrations (`versions/`); `src/alembic.ini` is the config
 - `PROCESS.md`: design process log (written with the /reflect skill; don't edit it otherwise)
 - `process/`: sketches and screenshots linked from PROCESS.md

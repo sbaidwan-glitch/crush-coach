@@ -3,7 +3,7 @@
 {% block main %}
 <h1>Import finished</h1>
 <p role="status">
-  {{ result.added }} added, {{ result.skipped_existing }} skipped (already existed), {{ result.errors | length }} with errors.
+  {{ result.added }} added, {{ result.updated }} updated, {{ result.skipped_existing }} skipped (already existed), {{ result.errors | length }} with errors.
 </p>
 
 {% if result.added_codes %}
@@ -13,9 +13,18 @@
 </section>
 {% endif %}
 
+{% if result.updated_fields %}
+<section aria-labelledby="updated-heading">
+  <h2 id="updated-heading">Updated</h2>
+  <ul class="plain-list">
+    {% for code, labels in result.updated_fields.items() %}<li><span class="code">{{ code }}</span>: {{ labels | join(", ") }}</li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+
 {% if result.skipped_codes %}
 <section aria-labelledby="skipped-heading">
-  <h2 id="skipped-heading">Skipped: already in the tracker</h2>
+  <h2 id="skipped-heading">Skipped: already in the tracker, no changes</h2>
   <p>{% for code in result.skipped_codes %}<span class="code">{{ code }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</p>
 </section>
 {% endif %}

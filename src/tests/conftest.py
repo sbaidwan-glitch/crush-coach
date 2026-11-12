@@ -46,6 +46,7 @@ def session():
         LlmCall,
         SyncState,
         Task,
+        TaskRemoval,
     )
 
     def clear(s):
@@ -56,6 +57,7 @@ def session():
             CoachMessage,
             LlmCall,
             Task,
+            TaskRemoval,
             DriveChunk,
             DriveFile,
             SyncState,

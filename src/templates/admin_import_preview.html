@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "components/import_review.html" import row_state, field_error, field_prompt %}
+{% from "components/import_review.html" import row_state, field_error, field_prompt, change_list %}
 {% from "components/feedback.html" import notice %}
 {% block title %}Review import – Crush Coach{% endblock %}
 {% block head_extra %}<script src="/static/import.js" defer></script>{% endblock %}
@@ -20,15 +20,18 @@
 
   <div id="review">
     <p id="review-summary" class="review-summary" role="status" tabindex="-1">
-      <span>{{ ready_count }} ready</span> ·
+      <span>{{ ready_count }} ready</span>
+      {%- if update_count %} · <span>{{ update_count }} to update</span>{% endif %} ·
       <span class="{{ 'needs-fix' if fix_count }}">{{ fix_count }} {{ "needs" if fix_count == 1 else "need" }} a fix</span>
-      {%- if exists_count %} · <span>{{ exists_count }} already in the tracker</span>{% endif %}
+      {%- if exists_count %} · <span>{{ exists_count }} already in the tracker, no changes</span>{% endif %}
       {%- if left_out_count %} · <span>{{ left_out_count }} left out</span>{% endif %}
     </p>
     {% if is_tracker %}
     <p class="fine">The tracker has no subsystem or type column, so these are guesses from the title. Correct any that are wrong. Untick Include to leave a row out.</p>
+    <p class="fine">A code that is already in the tracker is compared with the task: the changed title, owner and details are listed and updated on Import. Subsystem, type, stage and status are never changed.</p>
     {% else %}
     <p class="fine">Untick Include to leave a row out.</p>
+    <p class="fine">A code that is already in the tracker is compared with the task: the changed title, subsystem, type and owner are listed and updated on Import. Stage and status are never changed.</p>
     {% endif %}
 
     <div class="table-wrap" tabindex="0" role="region" aria-label="Rows to import (scrolls sideways on small screens)">
@@ -86,12 +89,14 @@
               {% else %}
               {{ r.row.title }}
               {% endif %}
-              {% if r.row.owner %}<p class="cell-note">Owner: {{ r.row.owner }}</p>{% endif %}
+              {% if state == "update" %}
+              {{ change_list(r.check.changes) }}
+              {% elif r.row.owner %}<p class="cell-note">Owner: {{ r.row.owner }}</p>{% endif %}
             </td>
 
-            {% if state == "exists" %}
-            <td>{{ r.row.subsystem or "" }}</td>
-            <td>{{ r.row.task_type or "" }}</td>
+            {% if state in ("exists", "update") %}
+            <td>{{ r.current.subsystem if r.current else "" }}</td>
+            <td>{{ r.current.task_type if r.current else "" }}</td>
             {% else %}
             <td>
               {% set p = r.check.problem("subsystem") %}
@@ -122,12 +127,16 @@
     </div>
 
     <div class="import-actions">
-      <button class="btn btn-primary" type="submit" formaction="/admin/import/confirm"{% if fix_count or not ready_count %} disabled aria-describedby="import-hint"{% endif %}>Import {{ ready_count }} task{{ "" if ready_count == 1 else "s" }}</button>
+      <button class="btn btn-primary" type="submit" formaction="/admin/import/confirm"{% if fix_count or not (ready_count or update_count) %} disabled aria-describedby="import-hint"{% endif %}>
+        {%- if update_count and ready_count %}Import {{ ready_count }} new, update {{ update_count }}
+        {%- elif update_count %}Update {{ update_count }} task{{ "" if update_count == 1 else "s" }}
+        {%- else %}Import {{ ready_count }} task{{ "" if ready_count == 1 else "s" }}{% endif -%}
+      </button>
       <a href="/admin/import">Choose another file</a>
     </div>
     {% if fix_count %}
     <p id="import-hint" class="fine">Import is off until {{ fix_count }} row{{ "" if fix_count == 1 else "s" }} {{ "is" if fix_count == 1 else "are" }} fixed or left out.</p>
-    {% elif not ready_count %}
+    {% elif not (ready_count or update_count) %}
     <p id="import-hint" class="fine">There are no rows to import yet.</p>
     {% endif %}
   </div>

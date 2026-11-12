@@ -5,10 +5,12 @@
 {% macro row_state(state) -%}
 {%- if state == "add" -%}
 <span class="row-state row-state-add">{{ icon("done") }}<span>Will be added</span></span>
+{%- elif state == "update" -%}
+<span class="row-state row-state-add">{{ icon("in_progress") }}<span>Will be updated</span></span>
 {%- elif state == "fix" -%}
 <span class="row-state row-state-fix">{{ icon("error") }}<span>Needs a fix</span></span>
 {%- elif state == "exists" -%}
-<span class="row-state">{{ icon("note") }}<span>Already in the tracker. Skipped.</span></span>
+<span class="row-state">{{ icon("note") }}<span>Already in the tracker, no changes. Skipped.</span></span>
 {%- else -%}
 <span class="row-state">{{ icon("empty") }}<span>Left out</span></span>
 {%- endif -%}
@@ -22,4 +24,24 @@
 {# A message that asks for the field right below it ("Give this one a new code:"). #}
 {% macro field_prompt(id, for_id, text) -%}
 <label class="field-error" id="{{ id }}" for="{{ for_id }}">{{ icon("error") }}<span>{{ text }}</span></label>
+{%- endmacro %}
+
+{# The fields a re-import would change on an existing task. Short values sit inline;
+   long ones (a description) open to show the whole before and after. #}
+{% macro change_list(changes) -%}
+<ul class="change-list">
+  {% for c in changes %}
+  <li>
+    {% if (c.old | length) > 60 or (c.new | length) > 60 or "\n" in c.old or "\n" in c.new %}
+    <details>
+      <summary>{{ c.label }} changed</summary>
+      <p class="change-old"><span class="change-tag">Now</span> {{ c.old or "(empty)" }}</p>
+      <p class="change-new"><span class="change-tag">Will be</span> {{ c.new or "(empty)" }}</p>
+    </details>
+    {% else %}
+    <span class="change-label">{{ c.label }}:</span> <span class="change-old">{{ c.old or "(empty)" }}</span> → <span class="change-new">{{ c.new or "(empty)" }}</span>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
 {%- endmacro %}

@@ -85,6 +85,8 @@ def test_anonymous_is_sent_to_sign_in(anonymous):
         ("get", "/admin/import"),
         ("post", "/admin/import/preview"),
         ("post", "/admin/import/confirm"),
+        ("post", "/admin/import/remove/preview"),
+        ("post", "/admin/import/remove/confirm"),
     ],
 )
 def test_member_gets_403_everywhere(member, session, method, path):
@@ -175,6 +177,7 @@ def test_lead_sees_the_upload_form(lead):
     assert response.status_code == 200
     assert 'enctype="multipart/form-data"' in response.text
     assert "Nothing is saved until you click Import" in response.text
+    assert "Remove tasks" in response.text
 
 
 def test_review_shows_a_summary_and_saves_nothing(lead, session):
@@ -227,16 +230,25 @@ def test_other_problems_show_a_short_message_under_their_own_field(lead):
     )
 
 
-def test_existing_codes_are_shown_as_skipped_with_no_controls(lead, session):
+def test_existing_codes_with_nothing_to_change_are_shown_as_skipped_with_no_controls(
+    lead, session
+):
     session.add(
-        Task(code="M01", title="Kept", subsystem="Enclosure", task_type="Fabricate", stage="drawing")
+        Task(
+            code="E01",
+            title="Print example tray",
+            subsystem="Electronics Mounts",
+            task_type="Fabricate",
+            stage="CAD",
+            due_date="TBD",
+        )
     )
     session.commit()
 
     page = upload(lead).text
 
-    assert "Already in the tracker. Skipped." in page
-    assert 'name="subsystem_0"' not in page
+    assert "Already in the tracker, no changes. Skipped." in page
+    assert f'name="subsystem_{E01}"' not in page
     assert "1 already in the tracker" in summary(page)
 
 
@@ -438,7 +450,7 @@ def test_confirm_saves_the_fixed_rows_with_the_leads_corrections(lead, session):
     )
 
     assert response.status_code == 200
-    assert "10 added, 0 skipped (already existed), 0 with errors" in response.text
+    assert "10 added, 0 updated, 0 skipped (already existed), 0 with errors" in response.text
     saved = tasks(session)
     assert set(saved) == {
         "M01", "M02", "M03", "M04", "M05", "M22(2)", "M25", "M26", "M07", "E01"
@@ -480,31 +492,149 @@ def test_rows_left_out_are_not_saved(lead, session):
     assert set(tasks(session)) == {"M01", "M02", "M03", "M04", "M22(2)", "E01"}
 
 
-def test_existing_tasks_are_skipped_and_never_overwritten(lead, session):
-    session.add(
-        Task(
-            code="M01",
-            title="Edited by a lead",
-            subsystem="Gripper",
-            task_type="Design",
-            stage="CAD",
-            owner="Jordan Demo",
-            status="in_progress",
-        )
+def existing_m01(**kw):
+    return Task(
+        **{
+            "code": "M01",
+            "title": "Edited by a lead",
+            "subsystem": "Gripper",
+            "task_type": "Design",
+            "stage": "CAD",
+            "owner": "Jordan Demo",
+            "status": "in_progress",
+            **kw,
+        }
     )
+
+
+def test_a_reimport_lists_what_changed_on_an_existing_task(lead, session):
+    session.add(existing_m01())
+    session.commit()
+
+    page = upload(lead).text
+
+    assert "1 to update" in summary(page)
+    assert "Will be updated" in page
+    assert "Title:" in page and "Edited by a lead" in page
+    assert "Cut example wall panels" in page
+    assert "Owner:" in page and "Jordan Demo" in page and "Sam Example" in page
+    # A long, multi-line field opens to show the whole before and after.
+    assert "Description changed" in page
+    assert tasks(session)["M01"].title == "Edited by a lead"  # a preview saves nothing
+
+
+def test_confirm_updates_the_changed_fields_and_leaves_progress_and_guesses_alone(
+    lead, session
+):
+    session.add(existing_m01())
     session.commit()
 
     response = confirm(lead, upload(lead).text, **includes(), **fix_everything())
 
-    assert "9 added, 1 skipped (already existed), 0 with errors" in response.text
+    assert "9 added, 1 updated, 0 skipped (already existed), 0 with errors" in response.text
+    assert "Title, Owner, Description" in response.text
     kept = tasks(session)["M01"]
-    assert (kept.title, kept.owner, kept.status, kept.stage) == (
-        "Edited by a lead",
-        "Jordan Demo",
-        "in_progress",
-        "CAD",
+    assert (kept.title, kept.owner) == ("Cut example wall panels", "Sam Example")
+    assert kept.description == "Cut two example panels.\nDeburr the edges."
+    assert kept.due_date == "Week 3"
+    # Progress is the app's, and subsystem/type in a tracker export are only guesses.
+    assert (kept.status, kept.stage) == ("in_progress", "CAD")
+    assert (kept.subsystem, kept.task_type) == ("Gripper", "Design")
+
+
+def test_leaving_an_update_out_keeps_the_task_as_it_is(lead, session):
+    session.add(existing_m01())
+    session.commit()
+    rows = includes()
+    del rows[f"include_{M01}"]
+
+    response = confirm(lead, upload(lead).text, **rows, **fix_everything())
+
+    assert "9 added, 0 updated" in response.text
+    assert tasks(session)["M01"].title == "Edited by a lead"
+
+
+def test_a_cell_cleared_in_the_sheet_clears_the_field_but_not_the_title(lead, session):
+    session.add(existing_m01(code="M02", title="Design example lid latch", owner="Old Owner"))
+    session.commit()
+
+    preview = upload(lead).text
+    assert "(empty)" in preview
+    response = confirm(lead, preview, **includes(), **fix_everything())
+
+    assert "1 updated" in response.text
+    assert tasks(session)["M02"].owner is None
+
+
+def test_an_update_that_would_blank_the_title_needs_a_fix(lead, session):
+    session.add(existing_m01(code="M07", title="Kept title", owner=None))
+    session.commit()
+
+    preview = upload(lead).text
+
+    assert "Add a title." in preview
+    response = confirm(lead, preview, **includes(), **fix_everything(**{f"title_{NO_TITLE}": ""}))
+    assert response.status_code == 400
+    assert tasks(session)["M07"].title == "Kept title"
+
+
+def test_a_sample_reimport_updates_subsystem_type_and_owner_but_not_stage_or_status(
+    lead, session
+):
+    session.add(
+        Task(
+            code="X01",
+            title="Example",
+            subsystem="Gripper",
+            task_type="Design",
+            stage="CAD",
+            status="done",
+            owner="Old",
+            description="Kept: the sample has no such column",
+        )
     )
-    assert kept.description is None
+    session.commit()
+    data = (
+        b"code,title,subsystem,task_type,stage,owner,status\n"
+        b"X01,Example,Torpedo,Validate,test plan,New,todo\n"
+    )
+
+    preview = upload(lead, data).text
+    assert "Subsystem:" in preview and "Type:" in preview and "Owner:" in preview
+    assert "Stage:" not in preview and "Status:" not in preview
+    confirm(lead, preview, include_0="1", is_tracker="0")
+
+    task = tasks(session)["X01"]
+    assert (task.subsystem, task.task_type, task.owner) == ("Torpedo", "Validate", "New")
+    assert (task.stage, task.status) == ("CAD", "done")
+    assert task.description == "Kept: the sample has no such column"
+
+
+def test_a_form_without_the_layout_flag_updates_only_the_tracker_fields(lead, session):
+    """A missing is_tracker must not make a tracker export overwrite subsystem or type."""
+    session.add(existing_m01(code="X01", title="Example"))
+    session.commit()
+    data = (
+        b"code,title,subsystem,task_type,stage,owner,status\n"
+        b"X01,Example,Torpedo,Validate,,New,\n"
+    )
+
+    confirm(lead, upload(lead, data).text, include_0="1")  # no is_tracker field
+
+    task = tasks(session)["X01"]
+    assert task.owner == "New"
+    assert (task.subsystem, task.task_type) == ("Gripper", "Design")
+
+
+def test_update_text_from_the_file_is_escaped(lead, session):
+    session.add(existing_m01(code="M01", title="<i>old</i>"))
+    session.commit()
+    data = b"#,Task\nM01,<script>alert(1)</script>\n"
+
+    page = upload(lead, data).text
+
+    assert "<script>alert(1)" not in page
+    assert "&lt;script&gt;" in page and "&lt;i&gt;old" in page
 
 
 def test_importing_the_same_file_twice_adds_nothing_the_second_time(lead, session):
