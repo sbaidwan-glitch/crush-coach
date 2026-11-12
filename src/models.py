@@ -154,6 +154,27 @@ class LlmCall(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class TaskRemoval(SQLModel, table=True):
+    """Who removed which task, when, and what went with it (see task_removal.py).
+
+    One row per removed task. It keeps the code and title as text, not a link, since
+    the task row is gone. Rows removed in one confirmation share a `batch`.
+    """
+
+    __tablename__ = "task_removal"
+
+    id: int | None = Field(default=None, primary_key=True)
+    batch: str = Field(index=True)
+    removed_at: datetime = Field(default_factory=utc_now, index=True)
+    removed_by: str  # the lead's email
+    task_code: str = Field(index=True)
+    task_title: str
+    coach_messages_deleted: int = 0
+    history_entries_deleted: int = 0  # status moves on the task's History
+    decision_links_deleted: int = 0
+    llm_calls_unlinked: int = 0  # the calls stay in llm_call, with no task
+
+
 class TeamFact(SQLModel, table=True):
     """A short fact every coach answer is told, e.g. "Current season is 2026-27".
 

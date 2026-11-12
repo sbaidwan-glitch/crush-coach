@@ -15,8 +15,13 @@ sample layout:
     ../.venv/bin/python -m import_tasks sample_data/tasks.csv
 
 Bad rows are reported by line number and skipped; good rows still import.
-A task code that is already in the database is skipped, never overwritten, so
-running the import twice is safe and a lead's edits are not clobbered.
+On the command line, a task code that is already in the database is skipped, never
+overwritten, so running the import twice is safe.
+
+On the web page, a lead can re-import a newer export: a row whose code already exists
+is compared with the task, and the fields that differ are shown in the review and
+updated on Import (see `update_fields_for`). Stage and status are never touched: they
+move as people work.
 """
 
 import csv
@@ -24,7 +29,7 @@ import io
 import re
 import sys
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -92,10 +97,13 @@ class ParsedFile:
 @dataclass
 class ImportResult:
     added: int = 0
+    updated: int = 0
     skipped_existing: int = 0
     errors: list[str] = field(default_factory=list)
     added_codes: list[str] = field(default_factory=list)
     skipped_codes: list[str] = field(default_factory=list)
+    # code -> labels of the fields that were changed
+    updated_fields: dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -108,9 +116,20 @@ class Problem:
 
 
 @dataclass
+class Change:
+    """One field of an existing task that the file would change."""
+
+    name: str  # the Task attribute, e.g. "owner"
+    label: str  # as shown to the lead, e.g. "Owner"
+    old: str  # "" when empty
+    new: str
+
+
+@dataclass
 class RowCheck:
-    state: str  # add, exists, fix, or left_out
+    state: str  # add, update, exists (nothing to change), fix, or left_out
     problems: list[Problem] = field(default_factory=list)
+    changes: list[Change] = field(default_factory=list)  # only for "update"
 
     def problem(self, name: str) -> Problem | None:
         return next((p for p in self.problems if p.field == name), None)
@@ -229,15 +248,18 @@ def _clean(value: str) -> str:
     return value.strip()
 
 
-def _too_long_field(row: ParsedRow) -> str | None:
-    """Label of the first free-text field over the length limit, if any."""
+def _too_long_field(row: ParsedRow, fields: Sequence[str] | None = None) -> str | None:
+    """Label of the first free-text field over the length limit, if any.
+
+    `fields` limits the check to those a re-import would write (None: all of them).
+    """
     values = {
-        "Owner": row.owner,
-        "Stage": row.stage,
-        **{TASK_DETAIL_LABELS[name]: row.details.get(name) for name in DETAIL_FIELDS},
+        "owner": ("Owner", row.owner),
+        "stage": ("Stage", row.stage),
+        **{name: (TASK_DETAIL_LABELS[name], row.details.get(name)) for name in DETAIL_FIELDS},
     }
-    for label, value in values.items():
-        if value and len(value) > MAX_FIELD_CHARS:
+    for name, (label, value) in values.items():
+        if (fields is None or name in fields) and value and len(value) > MAX_FIELD_CHARS:
             return label
     return None
 
@@ -350,17 +372,107 @@ def next_free_code(code: str, taken: set[str]) -> str | None:
     return f"{prefix}{max(numbers, default=0) + 1:0{width}d}"
 
 
+FIELD_LABELS = {
+    "title": "Title",
+    "owner": "Owner",
+    "subsystem": "Subsystem",
+    "task_type": "Type",
+    **TASK_DETAIL_LABELS,
+}
+
+
+def update_fields_for(is_tracker: bool) -> tuple[str, ...]:
+    """The fields a re-import may change on an existing task, by file layout.
+
+    Only what the file really says. The tracker has no subsystem or type column
+    (they are guesses a lead corrected), and the sample layout has no detail columns,
+    so those would otherwise be wiped. Stage and status are never updated: they move
+    as people work, and an old export must not set a task back.
+    """
+    if is_tracker:
+        return ("title", "owner", *DETAIL_FIELDS)
+    return ("title", "subsystem", "task_type", "owner")
+
+
+def _field_value(source: ParsedRow | Task, name: str) -> str:
+    if isinstance(source, ParsedRow) and name in DETAIL_FIELDS:
+        value = source.details.get(name)
+    else:
+        value = getattr(source, name, None)
+    return (value or "").strip()
+
+
+def changes_for(task: Task, row: ParsedRow, fields: Sequence[str]) -> list[Change]:
+    """The fields in `fields` where the row differs from the stored task.
+
+    Empty and missing are the same thing; a cell cleared in the sheet is a change.
+    """
+    changes = []
+    for name in fields:
+        old, new = _field_value(task, name), _field_value(row, name)
+        if old != new:
+            changes.append(Change(name, FIELD_LABELS[name], old, new))
+    return changes
+
+
+def _row_problems(row: ParsedRow, fields: Sequence[str] | None = None) -> list[Problem]:
+    """What is wrong with the row's values. `fields` limits this to those a re-import
+    would write (None: a new task, everything is checked)."""
+
+    def applies(name: str) -> bool:
+        return fields is None or name in fields
+
+    problems: list[Problem] = []
+    if applies("title"):
+        if not row.title:
+            problems.append(Problem("title", "Add a title."))
+        elif len(row.title) > MAX_FIELD_CHARS:
+            problems.append(Problem("title", "Shorten this title."))
+    if applies("subsystem"):
+        if not row.subsystem:
+            problems.append(Problem("subsystem", "Choose a subsystem."))
+        elif row.subsystem not in SUBSYSTEMS:
+            problems.append(
+                Problem("subsystem", f"“{row.subsystem}” isn’t a subsystem. Choose one.")
+            )
+    if applies("task_type") and row.task_type not in TASK_TYPES:
+        problems.append(Problem("task_type", "Choose a type."))
+    if fields is None and row.status not in STATUSES:
+        problems.append(
+            Problem(
+                "row",
+                f"Status “{row.status}” isn’t valid (use todo, in_progress, "
+                "needs_review or done). Fix it in the file and upload again, or leave this row out.",
+            )
+        )
+    too_long = _too_long_field(row, fields)
+    if too_long:
+        problems.append(
+            Problem(
+                "row",
+                f"{too_long} is over {MAX_FIELD_CHARS:,} characters. Shorten it "
+                "in the sheet and upload again, or leave this row out.",
+            )
+        )
+    return problems
+
+
 def check_rows(
     rows: list[ParsedRow],
-    existing: set[str],
+    existing: Mapping[str, Task] | set[str],
     included: list[bool] | None = None,
     original_codes: list[str] | None = None,
+    update_fields: Sequence[str] | None = None,
 ) -> list[RowCheck]:
     """What would happen to each row, and what is wrong with it.
 
     `included` marks rows the lead left in (default all). `original_codes` are the
     codes as parsed from the file, so a code the lead typed that collides with an
-    existing task is a problem, while an unedited existing code is just skipped.
+    existing task is a problem, while an unedited existing code is not.
+
+    An unedited existing code is skipped ("exists"), unless `existing` maps codes to
+    their tasks and `update_fields` is given: then the row is compared with the task
+    and is an "update" (with the `changes`) if any of those fields differ.
     """
     included = included if included is not None else [True] * len(rows)
     originals = original_codes if original_codes is not None else [r.code for r in rows]
@@ -406,40 +518,22 @@ def check_rows(
             seen.add(code)
 
         if not problems and code in existing:
-            # Skipped whatever else is wrong with it: nothing will be written.
-            checks.append(RowCheck("exists"))
+            task = existing.get(code) if isinstance(existing, Mapping) else None
+            if task is None or update_fields is None:
+                # Skipped whatever else is wrong with it: nothing will be written.
+                checks.append(RowCheck("exists"))
+                continue
+            changes = changes_for(task, row, update_fields)
+            if not changes:
+                checks.append(RowCheck("exists"))
+                continue
+            problems = _row_problems(row, [c.name for c in changes])
+            checks.append(
+                RowCheck("fix", problems) if problems else RowCheck("update", changes=changes)
+            )
             continue
 
-        if not row.title:
-            problems.append(Problem("title", "Add a title."))
-        elif len(row.title) > MAX_FIELD_CHARS:
-            problems.append(Problem("title", "Shorten this title."))
-        if not row.subsystem:
-            problems.append(Problem("subsystem", "Choose a subsystem."))
-        elif row.subsystem not in SUBSYSTEMS:
-            problems.append(
-                Problem("subsystem", f"“{row.subsystem}” isn’t a subsystem. Choose one.")
-            )
-        if row.task_type not in TASK_TYPES:
-            problems.append(Problem("task_type", "Choose a type."))
-        if row.status not in STATUSES:
-            problems.append(
-                Problem(
-                    "row",
-                    f"Status “{row.status}” isn’t valid (use todo, in_progress, "
-                    "needs_review or done). Fix it in the file and upload again, or leave this row out.",
-                )
-            )
-        too_long = _too_long_field(row)
-        if too_long:
-            problems.append(
-                Problem(
-                    "row",
-                    f"{too_long} is over {MAX_FIELD_CHARS:,} characters. Shorten it "
-                    "in the sheet and upload again, or leave this row out.",
-                )
-            )
-
+        problems += _row_problems(row)
         checks.append(RowCheck("fix", problems) if problems else RowCheck("add"))
     return checks
 
@@ -448,20 +542,32 @@ def save_rows(
     session: Session,
     rows: list[ParsedRow],
     original_codes: list[str] | None = None,
+    update_fields: Sequence[str] | None = None,
 ) -> ImportResult:
-    """Add new tasks. Existing codes are skipped, never overwritten.
+    """Add new tasks.
 
+    An existing code is skipped, never overwritten, unless `update_fields` is given:
+    then those fields of the existing task are brought in line with the row.
     Rows that fail `check_rows` are reported in `errors` and not saved.
     """
     result = ImportResult()
-    existing = set(session.exec(select(Task.code)).all())
-    for row, check in zip(rows, check_rows(rows, existing, None, original_codes), strict=True):
+    existing = {t.code: t for t in session.exec(select(Task)).all()}
+    checks = check_rows(rows, existing, None, original_codes, update_fields)
+    for row, check in zip(rows, checks, strict=True):
         if check.state == "fix":
             messages = " ".join(p.message.rstrip(":") for p in check.problems)
             result.errors.append(f"line {row.line}: {messages}")
         elif check.state == "exists":
             result.skipped_existing += 1
             result.skipped_codes.append(row.code)
+        elif check.state == "update":
+            task = existing[row.code]
+            for change in check.changes:
+                # An emptied cell clears the field; the title can't be empty (checked).
+                setattr(task, change.name, change.new or None)
+            session.add(task)
+            result.updated += 1
+            result.updated_fields[row.code] = [c.label for c in check.changes]
         else:
             assert row.subsystem and row.task_type  # checked by check_rows
             session.add(

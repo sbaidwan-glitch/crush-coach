@@ -59,6 +59,7 @@
 
   /* Layout */
   --sidebar-width: 84px;
+  --remove-list-max: 320px;      /* the tick list of tasks to remove scrolls past this */
   --panel-rule: 3px;             /* coloured top border on panels */
   --radius: 0;                   /* square corners; don't add radius */
   --focus-ring: 0 0 0 3px rgba(62, 106, 135, 0.45);

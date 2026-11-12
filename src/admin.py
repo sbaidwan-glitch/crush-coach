@@ -1,4 +1,4 @@
-"""Lead-only pages. `/admin` runs the Drive sync; `/admin/import` loads tasks.
+"""Lead-only pages. `/admin` runs the Drive sync; `/admin/import` loads and removes tasks.
 
 The Drive block shows when the index was last synced and how big it is. "Sync
 Drive now" takes the sync lock, starts an incremental sync in the background and
@@ -11,11 +11,17 @@ the rows exactly as parsed travel in a hidden field, and the lead's edits (codes
 titles, subsystems, types, which rows to include) travel as form fields. Every
 change re-checks all rows on the server, and Import re-checks once more, so the
 browser is never trusted and nothing is stored between steps.
+
+A row whose code is already in the tracker is compared with that task: if the file
+differs, the row is an update and the review lists the changed fields. Tasks only ever
+arrive by import, so the same page also removes them (see task_removal.py): pick tasks,
+see what goes with them, confirm.
 """
 
 import json
 import logging
 import os
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -31,6 +37,7 @@ from starlette.datastructures import FormData, UploadFile
 import db
 import drive_index
 import import_tasks as importer
+import task_removal as removal
 from auth import LeadUser
 from models import SUBSYSTEMS, TASK_TYPES, SyncState, Task, utc_now
 
@@ -45,11 +52,50 @@ STALE_PREVIEW = (
     "The preview data was missing or damaged, so nothing was saved. "
     "Upload the file again."
 )
+REMOVE_DB_ERROR = (
+    "Couldn't reach the database right now. Nothing was removed. Try again in a moment."
+)
+REMOVE_LIST_ERROR = (
+    "Couldn't load the task list from the database. Reload this page to try again."
+)
 
 
-def _upload_page(request: Request, user, *, error: str | None = None, status=200):
+def _remove_section(session: Session | None) -> dict[str, Any]:
+    """What the "Remove tasks" section shows. It never raises: a failure here must not
+    hide the import form above it."""
+    if session is None:
+        return {"tasks": [], "recent": [], "unavailable": REMOVE_LIST_ERROR}
+    try:
+        return {
+            "tasks": removal.all_tasks(session),
+            "recent": removal.recent(session),
+            "unavailable": None,
+        }
+    except Exception as exc:  # noqa: BLE001  (a DB failure must not break the page)
+        session.rollback()
+        log.error("Remove tasks could not read the task list (%s)", type(exc).__name__)
+        return {"tasks": [], "recent": [], "unavailable": REMOVE_LIST_ERROR}
+
+
+def _upload_page(
+    request: Request,
+    user,
+    *,
+    session: Session | None = None,
+    error: str | None = None,
+    remove_error: str | None = None,
+    status=200,
+):
+    """The upload form, plus the Remove tasks section when the database answers."""
+    context = {
+        "user": user,
+        "error": error,
+        "remove_error": remove_error,
+        "removal": _remove_section(session),
+        "local_time": _local_time,
+    }
     return templates.TemplateResponse(
-        request, "admin_import.html", {"user": user, "error": error}, status_code=status
+        request, "admin_import.html", context, status_code=status
     )
 
 
@@ -87,6 +133,7 @@ class Review:
     original: importer.ParsedRow
     check: importer.RowCheck
     included: bool
+    current: Task | None = None  # the stored task, when the code already exists
 
     @property
     def code_editable(self) -> bool:
@@ -145,6 +192,13 @@ def _apply_edits(
     return rows, included
 
 
+def _is_tracker(form: FormData) -> bool:
+    """Which layout the file had. Anything but an explicit "0" counts as the tracker,
+    which updates fewer fields of an existing task, so a damaged form can't widen
+    what a re-import overwrites."""
+    return form.get("is_tracker") != "0"
+
+
 def _load_originals(form: FormData) -> list[importer.ParsedRow]:
     raw = json.loads(str(form.get("rows_json") or ""))
     if not isinstance(raw, list):
@@ -158,16 +212,22 @@ def _review_page(
     originals: list[importer.ParsedRow],
     rows: list[importer.ParsedRow],
     included: list[bool],
-    existing: set[str],
+    existing: Mapping[str, Task],
     *,
     filename: str,
     is_tracker: bool,
     banner: str | None = None,
     status: int = 200,
 ) -> Response:
-    checks = importer.check_rows(rows, existing, included, [o.code for o in originals])
+    checks = importer.check_rows(
+        rows,
+        existing,
+        included,
+        [o.code for o in originals],
+        importer.update_fields_for(is_tracker),
+    )
     reviews = [
-        Review(i, row, originals[i], check, included[i])
+        Review(i, row, originals[i], check, included[i], existing.get(row.code))
         for i, (row, check) in enumerate(zip(rows, checks, strict=True))
     ]
 
@@ -180,6 +240,7 @@ def _review_page(
         "is_tracker": is_tracker,
         "reviews": reviews,
         "ready_count": count("add"),
+        "update_count": count("update"),
         "fix_count": count("fix"),
         "exists_count": count("exists"),
         "left_out_count": count("left_out"),
@@ -193,13 +254,17 @@ def _review_page(
     )
 
 
-def _existing_codes(session: Session) -> set[str]:
-    return set(session.exec(select(Task.code)).all())
+def _existing_tasks(session: Session) -> dict[str, Task]:
+    return {task.code: task for task in session.exec(select(Task)).all()}
 
 
 @router.get("/import", response_class=HTMLResponse)
-def import_form(request: Request, user: LeadUser):
-    return _upload_page(request, user)
+def import_form(
+    request: Request,
+    session: Annotated[Session, Depends(db.get_session)],
+    user: LeadUser,
+):
+    return _upload_page(request, user, session=session)
 
 
 @router.post("/import/preview", response_class=HTMLResponse)
@@ -210,16 +275,18 @@ async def import_preview(
 ) -> Response:
     file = (await request.form()).get("file")
     if not isinstance(file, UploadFile) or not file.filename:
-        return _upload_page(request, user, error="Choose a CSV file first.", status=400)
+        return _upload_page(
+            request, user, session=session, error="Choose a CSV file first.", status=400
+        )
 
     try:
         data = await file.read(importer.MAX_BYTES + 1)
         parsed = importer.parse_tracker_csv(importer.decode_csv_bytes(data))
     except importer.ImportFileError as exc:
-        return _upload_page(request, user, error=str(exc), status=400)
+        return _upload_page(request, user, session=session, error=str(exc), status=400)
 
     try:
-        existing = _existing_codes(session)
+        existing = _existing_tasks(session)
     except Exception as exc:  # noqa: BLE001  (a DB failure must not break the page)
         log.error("Import preview could not read tasks (%s)", type(exc).__name__)
         return _upload_page(request, user, error=DB_ERROR, status=503)
@@ -248,9 +315,11 @@ async def import_check(
     try:
         originals = _load_originals(form)
     except (ValueError, TypeError):  # ValueError includes json.JSONDecodeError
-        return _upload_page(request, user, error=STALE_PREVIEW, status=400)
+        return _upload_page(
+            request, user, session=session, error=STALE_PREVIEW, status=400
+        )
     try:
-        existing = _existing_codes(session)
+        existing = _existing_tasks(session)
     except Exception as exc:  # noqa: BLE001  (a DB failure must not break the page)
         log.error("Import check could not read tasks (%s)", type(exc).__name__)
         return _upload_page(request, user, error=DB_ERROR, status=503)
@@ -264,7 +333,7 @@ async def import_check(
         included,
         existing,
         filename=str(form.get("filename") or "your file"),
-        is_tracker=form.get("is_tracker") == "1",
+        is_tracker=_is_tracker(form),
     )
 
 
@@ -278,13 +347,17 @@ async def import_confirm(
     try:
         originals = _load_originals(form)
     except (ValueError, TypeError):  # ValueError includes json.JSONDecodeError
-        return _upload_page(request, user, error=STALE_PREVIEW, status=400)
+        return _upload_page(
+            request, user, session=session, error=STALE_PREVIEW, status=400
+        )
 
     rows, included = _apply_edits(originals, form)
     try:
-        existing = _existing_codes(session)
+        existing = _existing_tasks(session)
+        is_tracker = _is_tracker(form)
+        update_fields = importer.update_fields_for(is_tracker)
         checks = importer.check_rows(
-            rows, existing, included, [o.code for o in originals]
+            rows, existing, included, [o.code for o in originals], update_fields
         )
         if any(c.state == "fix" for c in checks):
             return _review_page(
@@ -295,13 +368,16 @@ async def import_confirm(
                 included,
                 existing,
                 filename=str(form.get("filename") or "your file"),
-                is_tracker=form.get("is_tracker") == "1",
+                is_tracker=is_tracker,
                 banner="Nothing was saved. Fix the rows marked below, or leave them out.",
                 status=400,
             )
         keep = [i for i, inc in enumerate(included) if inc]
         result = importer.save_rows(
-            session, [rows[i] for i in keep], [originals[i].code for i in keep]
+            session,
+            [rows[i] for i in keep],
+            [originals[i].code for i in keep],
+            update_fields,
         )
     except Exception as exc:  # noqa: BLE001  (a DB failure must not break the page)
         session.rollback()
@@ -310,6 +386,109 @@ async def import_confirm(
 
     return templates.TemplateResponse(
         request, "admin_import_result.html", {"user": user, "result": result}
+    )
+
+
+# --- Remove tasks ---
+
+
+def _remove_preview_page(
+    request: Request,
+    user,
+    plan: removal.RemovalPreview,
+    *,
+    banner: str | None = None,
+    status: int = 200,
+) -> Response:
+    return templates.TemplateResponse(
+        request,
+        "admin_remove_preview.html",
+        {"user": user, "plan": plan, "banner": banner},
+        status_code=status,
+    )
+
+
+def _codes_from(form: FormData) -> list[str]:
+    return [code for code in form.getlist("code") if isinstance(code, str) and code]
+
+
+@router.post("/import/remove/preview", response_class=HTMLResponse)
+async def remove_preview(
+    request: Request,
+    session: Annotated[Session, Depends(db.get_session)],
+    user: LeadUser,
+) -> Response:
+    """Show what removing the chosen tasks takes with it. Removes nothing."""
+    form = await request.form()
+    try:
+        if form.get("scope") == "all":
+            codes = [task.code for task in removal.all_tasks(session)]
+        else:
+            codes = _codes_from(form)
+        plan = removal.preview(session, codes)
+    except Exception as exc:  # noqa: BLE001  (a DB failure must not break the page)
+        session.rollback()
+        log.error("Remove tasks could not build the preview (%s)", type(exc).__name__)
+        return _upload_page(request, user, remove_error=REMOVE_DB_ERROR, status=503)
+
+    if not plan.tasks:
+        message = (
+            "There are no tasks to remove."
+            if form.get("scope") == "all"
+            else "Tick at least one task to remove, or choose all imported tasks."
+        )
+        return _upload_page(
+            request, user, session=session, remove_error=message, status=400
+        )
+    return _remove_preview_page(request, user, plan)
+
+
+@router.post("/import/remove/confirm", response_class=HTMLResponse)
+async def remove_confirm(
+    request: Request,
+    session: Annotated[Session, Depends(db.get_session)],
+    user: LeadUser,
+) -> Response:
+    """Remove the tasks the lead was shown, if nothing has changed since."""
+    form = await request.form()
+    codes = _codes_from(form)
+    fingerprint = str(form.get("fingerprint") or "")
+    try:
+        if form.get("understood") != "yes":
+            return _remove_preview_page(
+                request,
+                user,
+                removal.preview(session, codes),
+                banner="Nothing was removed. Tick the box to confirm.",
+                status=400,
+            )
+        done = removal.remove(session, codes, user["email"], fingerprint)
+    except removal.FingerprintMismatch as exc:
+        if not exc.preview.tasks:
+            return _upload_page(
+                request,
+                user,
+                session=session,
+                remove_error="Those tasks are no longer in the tracker. "
+                "Nothing was removed.",
+                status=409,
+            )
+        return _remove_preview_page(
+            request,
+            user,
+            exc.preview,
+            banner="Nothing was removed: these tasks changed since the preview "
+            "(for example a new coach message). Check the numbers, then confirm.",
+            status=409,
+        )
+    except Exception as exc:  # noqa: BLE001  (a DB failure must not break the page)
+        session.rollback()
+        log.error("Remove tasks could not finish (%s)", type(exc).__name__)
+        return _upload_page(request, user, remove_error=REMOVE_DB_ERROR, status=503)
+
+    log.info("Removed %d task(s): %s", len(done.tasks), ", ".join(t.code for t in done.tasks))
+    return templates.TemplateResponse(
+        request, "admin_remove_result.html", {"user": user, "done": done}
     )
 
 
