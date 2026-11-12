@@ -73,7 +73,7 @@ def test_bad_rows_are_reported_and_skipped_but_good_rows_import(session, tmp_pat
         ",No code,Gripper,Design,requirements,,todo\n"
         "X03,Bad subsystem,Cockpit,Design,requirements,,todo\n"
         "X04,Bad type,Gripper,Welding,requirements,,todo\n"
-        "X05,Bad status,Gripper,Design,requirements,,finished\n"
+        "X05,Bad status,Gripper,Design,requirements,,blorp\n"
         "X01,Duplicate code,Gripper,Design,requirements,,todo\n"
         "X07,Good two,Torpedo,Validate,test plan,,done\n",
     )
@@ -85,7 +85,7 @@ def test_bad_rows_are_reported_and_skipped_but_good_rows_import(session, tmp_pat
     assert result.errors[0] == "line 3: Add a code for this row."
     assert "“Cockpit” isn’t a subsystem" in result.errors[1]
     assert result.errors[2].startswith("line 5: Choose a type.")
-    assert "Status “finished” isn’t valid" in result.errors[3]
+    assert "Status “blorp” isn’t valid" in result.errors[3]
     assert result.errors[4] == "line 7: Two rows use X01. Give this one a new code"
     codes = {t.code for t in session.exec(select(Task)).all()}
     assert codes == {"X01", "X07"}

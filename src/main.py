@@ -5,7 +5,6 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exception_handlers import http_exception_handler
-from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -17,6 +16,8 @@ import board
 import coach
 import db
 import decisions
+import home
+import workflow
 
 STATIC_DIR = Path(__file__).parent / "static"
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
@@ -49,7 +50,9 @@ app.add_middleware(
 )
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(auth.router)
+app.include_router(home.router)
 app.include_router(board.router)
+app.include_router(workflow.router)
 app.include_router(coach.router)
 app.include_router(decisions.router)
 app.include_router(admin.router)
@@ -71,10 +74,3 @@ async def html_for_forbidden(request: Request, exc: StarletteHTTPException):
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
-
-
-@app.get("/", response_class=HTMLResponse)
-def index(request: Request):
-    return templates.TemplateResponse(
-        request, "index.html", {"user": auth.session_user(request)}
-    )

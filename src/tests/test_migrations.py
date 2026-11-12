@@ -4,7 +4,7 @@ import pytest
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 from sqlmodel import SQLModel
 
 import db
@@ -175,11 +175,11 @@ def test_upgrade_creates_drive_index_tables(fresh_engine):
     assert "ix_drive_file_search_vector" in file_indexes
 
 
-def test_downgrade_one_step_keeps_the_drive_tables_but_drops_their_new_columns(
+def test_downgrade_to_0005_keeps_the_drive_tables_but_drops_their_new_columns(
     fresh_engine,
 ):
     db.run_migrations(fresh_engine)
-    command.downgrade(db.alembic_config(fresh_engine), "-1")
+    command.downgrade(db.alembic_config(fresh_engine), "0005")
     inspector = inspect(fresh_engine)
     assert "search_vector" not in {
         c["name"] for c in inspector.get_columns("drive_file")
@@ -188,6 +188,86 @@ def test_downgrade_one_step_keeps_the_drive_tables_but_drops_their_new_columns(
         c["name"] for c in inspector.get_columns("sync_state")
     }
     assert "drive_chunk" in inspector.get_table_names()
+
+
+def test_upgrade_creates_the_task_event_table(fresh_engine):
+    db.run_migrations(fresh_engine)
+
+    inspector = inspect(fresh_engine)
+    columns = {c["name"]: c for c in inspector.get_columns("task_event")}
+    assert set(columns) == {
+        "id",
+        "task_id",
+        "actor",
+        "from_status",
+        "to_status",
+        "note",
+        "created_at",
+    }
+    assert columns["from_status"]["nullable"] is True
+    assert columns["note"]["nullable"] is True
+    assert columns["actor"]["nullable"] is False
+    assert [fk["referred_table"] for fk in inspector.get_foreign_keys("task_event")] == [
+        "task"
+    ]
+
+
+def test_0007_maps_older_status_words_to_the_new_flow(fresh_engine):
+    config = db.alembic_config(fresh_engine)
+    command.upgrade(config, "0006")
+    words = {
+        "A": "todo",
+        "B": "in_progress",
+        "C": "done",
+        "D": "In Review",
+        "E": "complete",
+        "F": " Not Started ",
+        "G": "blocked",
+        "H": "something odd",
+    }
+    with fresh_engine.begin() as conn:
+        for code, status in words.items():
+            conn.execute(
+                text(
+                    "INSERT INTO task (code, title, subsystem, task_type, stage, status)"
+                    " VALUES (:code, 't', 'Enclosure', 'Design', 'x', :status)"
+                ),
+                {"code": code, "status": status},
+            )
+
+    command.upgrade(config, "0007")
+
+    with fresh_engine.connect() as conn:
+        mapped = dict(conn.execute(text("SELECT code, status FROM task")).all())
+    assert mapped == {
+        "A": "todo",
+        "B": "in_progress",
+        "C": "done",
+        "D": "needs_review",
+        "E": "done",
+        "F": "todo",
+        "G": "in_progress",
+        "H": "todo",  # a word the flow doesn't know starts over
+    }
+
+
+def test_downgrade_from_0007_drops_the_events_and_puts_review_tasks_back_in_progress(
+    fresh_engine,
+):
+    db.run_migrations(fresh_engine)
+    with fresh_engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO task (code, title, subsystem, task_type, stage, status)"
+                " VALUES ('R', 't', 'Enclosure', 'Design', 'x', 'needs_review')"
+            )
+        )
+
+    command.downgrade(db.alembic_config(fresh_engine), "0006")
+
+    assert "task_event" not in inspect(fresh_engine).get_table_names()
+    with fresh_engine.connect() as conn:
+        assert conn.execute(text("SELECT status FROM task")).scalar() == "in_progress"
 
 
 def test_downgrade_to_0004_removes_only_the_drive_index(fresh_engine):

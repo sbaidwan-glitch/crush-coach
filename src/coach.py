@@ -26,6 +26,7 @@ from sqlmodel import Session, func, select
 import db
 import decisions
 import llm
+import taskpage
 from auth import CurrentUser, User
 from markup import render_markdown
 from models import (
@@ -78,6 +79,7 @@ def linkify(text: str) -> Markup:
 
 templates.env.filters["linkify"] = linkify
 templates.env.filters["markdown"] = render_markdown
+templates.env.filters["message_parts"] = taskpage.message_parts  # presentation only
 
 # What each member's in-flight coach answer is doing right now, for the progress poll.
 # One entry per (member, task) while a question is being answered. It lives in this
@@ -227,6 +229,8 @@ def _render_page(
         "draft": draft,
         "user": user,
     }
+    if task is not None and page_error is None:
+        context.update(taskpage.page_context(session, task, user))  # presentation only
     return templates.TemplateResponse(
         request, "task.html", context, status_code=status_code
     )
