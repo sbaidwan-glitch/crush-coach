@@ -5,7 +5,7 @@
 Starts the app against a throwaway SQLite database seeded with the made-up sample
 tasks, signs in with a forged session cookie for a made-up member, and saves
 /, /tasks, /tasks/E01 (a member's own task in progress), /tasks/G01 (waiting for a lead),
-the decision pages and /admin at 375px and 1280px into
+the decision pages, /admin and /admin/import at 375px and 1280px into
 .context/screenshots/ (gitignored).
 It never touches your real database, your .env secrets, the model or Google.
 
@@ -45,6 +45,7 @@ PAGES = (
     ("decision-proposed-lead", "/decisions/2", "lead"),
     ("decision-confirmed-lead", "/decisions/1", "lead"),
     ("admin", "/admin", "lead"),
+    ("admin-import", "/admin/import", "lead"),
 )
 
 # Made-up values; nothing here is a real secret, person or team data.

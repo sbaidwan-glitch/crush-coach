@@ -3,8 +3,10 @@
 from pathlib import Path
 
 import pytest
+from sqlmodel import select
 
 import import_tasks as imp
+from models import Task
 
 FIXTURES = Path(__file__).parent / "fixtures"
 REAL = (FIXTURES / "tracker_real_layout.csv").read_text(encoding="utf-8")
@@ -287,3 +289,118 @@ def test_sample_layout_maps_other_words_for_a_status_to_the_flow():
     statuses = [r.status for r in imp.parse_tracker_csv(text).rows]
 
     assert statuses == ["needs_review", "done", "todo", "blorp"]  # unknown stays as typed
+
+
+# --- re-import: existing codes are compared, not just skipped ---
+
+
+def stored(**kw):
+    return Task(
+        **{
+            "code": "M05",
+            "title": "Example",
+            "subsystem": "Gripper",
+            "task_type": "Design",
+            "stage": "CAD",
+            "owner": None,
+            **kw,
+        }
+    )
+
+
+TRACKER_FIELDS = imp.update_fields_for(True)
+
+
+def test_an_identical_existing_task_is_unchanged():
+    (check,) = imp.check_rows(
+        [row("M05")], {"M05": stored()}, update_fields=TRACKER_FIELDS
+    )
+
+    assert check.state == "exists"
+
+
+def test_a_difference_makes_an_update_that_names_each_changed_field():
+    changed = row("M05", title="New title", owner="Sam", details={**imp.ParsedRow(1, "", "").details, "due_date": "Week 3"})
+
+    (check,) = imp.check_rows([changed], {"M05": stored()}, update_fields=TRACKER_FIELDS)
+
+    assert check.state == "update"
+    assert [(c.label, c.old, c.new) for c in check.changes] == [
+        ("Title", "Example", "New title"),
+        ("Owner", "", "Sam"),
+        ("Due date", "", "Week 3"),
+    ]
+
+
+def test_empty_and_missing_are_the_same_so_they_are_not_a_change():
+    task = stored(description="")  # "" and None both mean nothing there
+
+    (check,) = imp.check_rows([row("M05")], {"M05": task}, update_fields=TRACKER_FIELDS)
+
+    assert check.state == "exists"
+
+
+def test_a_cleared_cell_is_a_change_to_empty():
+    task = stored(owner="Old Owner")
+
+    (check,) = imp.check_rows([row("M05")], {"M05": task}, update_fields=TRACKER_FIELDS)
+
+    assert [(c.name, c.new) for c in check.changes] == [("owner", "")]
+
+
+def test_a_tracker_reimport_never_compares_subsystem_type_stage_or_status():
+    different = row("M05", subsystem="Torpedo", task_type="Validate", stage="run", status="done")
+
+    (check,) = imp.check_rows([different], {"M05": stored()}, update_fields=TRACKER_FIELDS)
+
+    assert check.state == "exists"
+
+
+def test_a_sample_reimport_compares_subsystem_and_type_but_not_details_stage_or_status():
+    different = row(
+        "M05", subsystem="Torpedo", task_type="Validate", stage="run", status="done"
+    )
+    task = stored(description="not in the sample layout")
+
+    (check,) = imp.check_rows(
+        [different], {"M05": task}, update_fields=imp.update_fields_for(False)
+    )
+
+    assert [c.name for c in check.changes] == ["subsystem", "task_type"]
+
+
+def test_an_update_to_an_invalid_value_needs_a_fix_but_unchanged_bad_values_do_not():
+    emptied = row("M05", title="")
+    bad_type_left_alone = row("M06", task_type="Welding")  # not applied: not a change
+
+    first, second = imp.check_rows(
+        [emptied, bad_type_left_alone],
+        {"M05": stored(), "M06": stored(code="M06")},
+        update_fields=TRACKER_FIELDS,
+    )
+
+    assert first.state == "fix" and first.problem("title").message == "Add a title."
+    assert second.state == "exists"
+
+
+def test_without_update_fields_existing_codes_are_still_just_skipped():
+    changed = row("M05", title="New title")
+
+    (check,) = imp.check_rows([changed], {"M05": stored()})
+
+    assert check.state == "exists"
+
+
+def test_save_rows_updates_only_when_asked(session):
+    session.add(stored(owner="Old"))
+    session.commit()
+    changed = row("M05", title="New title", owner=None)
+
+    skipped = imp.save_rows(session, [changed])
+    assert (skipped.updated, skipped.skipped_existing) == (0, 1)
+
+    updated = imp.save_rows(session, [changed], update_fields=TRACKER_FIELDS)
+    session.expire_all()
+    task = session.exec(select(Task)).one()
+    assert (updated.updated, updated.updated_fields) == (1, {"M05": ["Title", "Owner"]})
+    assert (task.title, task.owner, task.stage) == ("New title", None, "CAD")

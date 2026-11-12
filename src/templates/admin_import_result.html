@@ -5,15 +5,22 @@
 {% block main %}
 <section class="panel" aria-labelledby="result-heading">
   <h2 class="panel__title" id="result-heading">What happened</h2>
-  <p class="panel__sub" role="status">{{ result.added }} added, {{ result.skipped_existing }} skipped (already existed), {{ result.errors | length }} with errors.</p>
+  <p class="panel__sub" role="status">{{ result.added }} added, {{ result.updated }} updated, {{ result.skipped_existing }} skipped (already existed), {{ result.errors | length }} with errors.</p>
 
   {% if result.added_codes %}
   <div class="field-label">Added</div>
   <div class="field">{% for code in result.added_codes %}<span class="code">{{ code }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</div>
   {% endif %}
 
+  {% if result.updated_fields %}
+  <div class="field-label">Updated</div>
+  <ul class="history">
+    {% for code, labels in result.updated_fields.items() %}<li><span><span class="code">{{ code }}</span>: {{ labels | join(", ") }}</span></li>{% endfor %}
+  </ul>
+  {% endif %}
+
   {% if result.skipped_codes %}
-  <div class="field-label">Skipped: already in the tracker</div>
+  <div class="field-label">Skipped: already in the tracker, no changes</div>
   <div class="field">{% for code in result.skipped_codes %}<span class="code">{{ code }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</div>
   {% endif %}
 

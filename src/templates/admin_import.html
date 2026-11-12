@@ -1,12 +1,13 @@
 {% extends "base.html" %}
-{% from "components/feedback.html" import notice %}
+{% from "components/feedback.html" import notice, empty_state %}
 {% block title %}Import tasks – Crush Coach{% endblock %}
 {% block page_title %}Import tasks{% endblock %}
 {% block topbar_actions %}<a class="btn" href="/admin">Admin</a>{% endblock %}
 {% block main %}
+<div class="stack">
 <section class="panel" aria-labelledby="upload-heading">
   <h2 class="panel__title" id="upload-heading">Upload the tracker</h2>
-  <p class="panel__sub">Upload a CSV export of the tracker’s “Mechanical Tasks” or “Mission Actuators” tab (Google Sheets: File → Download → Comma-separated values). The simple sample format works too. You’ll see every row first. Nothing is saved until you click Import, and tasks that already exist are skipped, never changed.</p>
+  <p class="panel__sub">Upload a CSV export of the tracker’s “Mechanical Tasks” or “Mission Actuators” tab (Google Sheets: File → Download → Comma-separated values). The simple sample format works too. You’ll see every row first. Nothing is saved until you click Import. A task code that is already in the tracker is compared with the file: you’ll see what would change, and tasks with no changes are skipped.</p>
   {% if error %}{{ notice(error, "error") }}{% endif %}
   <form method="post" action="/admin/import/preview" enctype="multipart/form-data">
     <label class="field-label" for="import-file">Tracker CSV file</label>
@@ -14,4 +15,58 @@
     <div class="actions"><button class="btn btn--primary" type="submit">Preview</button></div>
   </form>
 </section>
+
+<section id="remove-tasks" class="panel panel--strong" aria-labelledby="remove-heading">
+  <h2 class="panel__title" id="remove-heading">Remove tasks</h2>
+  <p class="panel__sub">Remove tasks that were imported by mistake, or start over with a fresh export. You’ll see what goes with them before anything is removed.</p>
+  {% if remove_error %}{{ notice(remove_error, "error") }}{% endif %}
+
+  {% if removal.unavailable %}
+  {{ notice(removal.unavailable, "error") }}
+  {% elif not removal.tasks %}
+  {{ empty_state("There are no tasks in the tracker.") }}
+  {% else %}
+  <form method="post" action="/admin/import/remove/preview">
+    <fieldset class="remove-picker">
+      <legend class="field-label">Tasks to remove</legend>
+      <ul class="remove-list">
+        {% for t in removal.tasks %}
+        <li><label class="check"><input type="checkbox" name="code" value="{{ t.code }}"><span><span class="code">{{ t.code }}</span> {{ t.title }}</span></label></li>
+        {% endfor %}
+      </ul>
+    </fieldset>
+    <div class="actions">
+      <button class="btn" type="submit" name="scope" value="picked">Preview removing the ticked tasks</button>
+      <button class="btn" type="submit" name="scope" value="all">Preview removing all imported tasks ({{ removal.tasks | length }})</button>
+    </div>
+  </form>
+  {% endif %}
+
+  {% if removal.recent %}
+  <div class="field-label" id="removal-log-heading">Recently removed</div>
+  <div class="table-wrap" tabindex="0" role="region" aria-labelledby="removal-log-heading">
+    <table class="import-table">
+      <thead>
+        <tr>
+          <th scope="col">When</th>
+          <th scope="col">Removed by</th>
+          <th scope="col">Task</th>
+          <th scope="col">Deleted with it</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in removal.recent %}
+        <tr>
+          <td class="nowrap">{{ local_time(r.removed_at) }}</td>
+          <td>{{ r.removed_by }}</td>
+          <td><span class="code">{{ r.task_code }}</span> {{ r.task_title }}</td>
+          <td>{{ r.coach_messages_deleted }} coach message{{ "" if r.coach_messages_deleted == 1 else "s" }}, {{ r.history_entries_deleted }} history entr{{ "y" if r.history_entries_deleted == 1 else "ies" }}, {{ r.decision_links_deleted }} decision link{{ "" if r.decision_links_deleted == 1 else "s" }}. {{ r.llm_calls_unlinked }} model call{{ "" if r.llm_calls_unlinked == 1 else "s" }} kept.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+</div>
 {% endblock %}

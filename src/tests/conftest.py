@@ -47,6 +47,7 @@ def session():
         SyncState,
         Task,
         TaskEvent,
+        TaskRemoval,
         TeamFact,
     )
 
@@ -59,6 +60,7 @@ def session():
             CoachMessage,
             LlmCall,
             Task,
+            TaskRemoval,
             DriveChunk,
             DriveFile,
             SyncState,

@@ -270,6 +270,36 @@ def test_downgrade_from_0007_drops_the_events_and_puts_review_tasks_back_in_prog
         assert conn.execute(text("SELECT status FROM task")).scalar() == "in_progress"
 
 
+def test_upgrade_creates_the_task_removal_log(fresh_engine):
+    db.run_migrations(fresh_engine)
+
+    inspector = inspect(fresh_engine)
+    columns = {c["name"]: c for c in inspector.get_columns("task_removal")}
+    assert set(columns) == {
+        "id",
+        "batch",
+        "removed_at",
+        "removed_by",
+        "task_code",
+        "task_title",
+        "coach_messages_deleted",
+        "history_entries_deleted",
+        "decision_links_deleted",
+        "llm_calls_unlinked",
+    }
+    # The log names tasks as text: the task row is gone, so there is nothing to link to.
+    assert inspector.get_foreign_keys("task_removal") == []
+
+
+def test_downgrade_to_0008_removes_only_the_removal_log(fresh_engine):
+    db.run_migrations(fresh_engine)
+    command.downgrade(db.alembic_config(fresh_engine), "0008")
+
+    tables = inspect(fresh_engine).get_table_names()
+    assert "task_removal" not in tables
+    assert {"task", "llm_call", "drive_file", "team_fact"} <= set(tables)
+
+
 def test_downgrade_to_0004_removes_only_the_drive_index(fresh_engine):
     db.run_migrations(fresh_engine)
     command.downgrade(db.alembic_config(fresh_engine), "0004")
