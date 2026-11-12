@@ -66,7 +66,6 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - The Google credential variable names are listed in `.env.example`; values stay in the local environment or Railway. Drive access is limited to files and folders shared with the service account.
 - This repo is public. Never commit people's names, contact info, or exports of the tracker or Drive. Drive file names, catalog part numbers, and individual design values in eval questions are OK. Tests and seed data use made-up tasks and people.
 - One task, one branch, one PR. Small commits. Never push to `main`; everything reaches `main` through a PR Samara reviews.
-- Run /ship before opening any PR.
 - Every model change needs a new Alembic migration. Never edit a migration that has been merged; add a new one. `tests/test_migrations.py` fails if the models and migrations disagree.
 - Every LLM or Google call handles failure: the page says plainly what failed, and the rest of the page still works.
 - Log every model call (model, input and output tokens, cost, task, member) to the database; this feeds the cost-benefit analysis.
