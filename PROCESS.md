@@ -37,17 +37,6 @@ Newest entries at the bottom. Entries from here on are drafted with the /reflect
 ## 6 Nov 2026: Repo setup
 **What I did:** Created the repo from the course template, removed lab-only files, and set up CLAUDE.md, permission rules that block the agent from reading secret files, and this log. Stored the Glassroom key in macOS Keychain and loaded it into the shell environment, so it is never in a file. Chose to work locally with Conductor instead of Codespaces.
 
-**What I learned:** _(add)_
-
-**What I changed:** _(add)_
-
-## 9 Nov 2026: Prototype presentation
-**What I did:** Presented the problem, interviews, and prototypes. Asked my pod what progress signal would make them open a club tracker weekly, and where they'd look for a saved decision a year later.
-
-**What I learned:** _(add pod and instructor feedback here)_
-
-**What I changed:** _(add)_
-
 ## 2026-11-07 — Deploying to Railway, and moving to Alembic first
 
 **Stage:** Building
@@ -105,3 +94,50 @@ Testing the coach for real took a lot of iterations. First it said "the AI model
 **Evidence.** PRs #14, #15, #16, #17. Commits 582d698 (fix shared Drive search scope and sorting), a764fae (improve Drive search ranking), 15a2688 (trust Railway proxy headers), 93d8a04 (list coach env vars in `.env.example`, narrow the `.env` read rule).
 
 **Next.** The coach still says "we use" based on a file name, but a CAD file shows what's in the design, not what the team confirmed. That's why the decision record (#11) is next. It tests whether confirmed decisions can outrank Drive search results. I'm also going to build a `/ship` skill so the pre-PR checks I kept doing by hand happen automatically. Those checks are the right issue number, up to date with main, and a real call for anything touching Drive, sign-in, or the model.
+
+## 2026-11-09 — Prototype presentation: the value is organizing the legacy mess
+
+**Stage:** Test, Define
+
+### What I did
+
+I presented the problem, the interviews and the prototypes to my class. I asked what progress signal would make them open a club tracker weekly, and where they'd look for a saved decision a year later.
+
+**What I learned.**
+- The most valuable thing isn't answering one question. It's organizing the legacy mess: what was decided, why, what we rejected ("why didn't we go down this route?"), and which docs are current vs. stale.
+- When docs disagree, people don't want the AI to just list both. They want it to suggest the most likely answer (or say "either could work, here's what to consider") and let a lead confirm.
+- Someone asked why I use the Drive API instead of a Drive MCP server. An MCP server lets an AI client like Claude Desktop browse the Drive. My app needs the Drive inside my own database so search is fast and repeatable, so I use the API directly. Wrapping my index as an MCP server is a possible extension.
+- After the presentations, what I liked was the idea of a dashboard with Crush in the center and panels around it, more like a mission console than a scrollable website.
+
+**What changed because of it.** Organizing legacy knowledge is now the priority: decision records with reasoning and rejected alternatives, and discrepancies flagged with a recommended answer for a lead to confirm. I added a dashboard with a 2D Crush view to the plan. 3D CAD stays a stretch goal.
+
+**Evidence.** The decision records landed in #28. The Drive/MCP and dashboard decisions are plan changes with no commits yet.
+
+**Next.** Flag discrepancies with a recommended answer, and build the dashboard. This tests whether people prefer a suggested answer to a list of both.
+
+## 2026-11-11 — The coach was a slow chatbot, so I changed how it works
+
+**Stage:** Test, Building
+
+### What I did
+
+I tested the coach on real tasks (M02, M03.5, E01). It took 20–50 seconds, asked me "which season?", timed out, and when it did answer it just pointed at one file instead of putting things together. Instead of patching prompts again, I stepped back and changed the architecture: read the whole Drive once into our own database, then answer from that. Before rebuilding anything, I built `make eval`: 15 real questions members ask, each with the facts a good answer must contain, the source it should cite, and things it must not say.
+
+**What I learned.**
+- Baseline on the old coach: **pass 3 / partial 2 / fail 11, median 21.5 s, max 57 s, $0.30 for 16 questions**. That's about $0.02 each, so the $1/5 h cap is only about 50 questions for the whole team.
+- When I read the actual answers, 5 of the 11 fails weren't the coach. 4 were provider errors from firing questions back to back, and 1 was my test wording ("not decided" vs. "isn't recorded"). The test needed testing too.
+- The real failures had one root cause. The coach searched Drive live, one tool call at a time, and couldn't open spreadsheets, so values like the gasket clearance were out of reach.
+- Indexing the Drive took about 1.5 hours for 47,831 files, with zero read errors. Searches now come back in under a second. "Gasket clearance" found the Seal Calculations sheet, the dated 0.050" change in Crush Documentation, and the tracker note that the clearance is still unresolved. The old coach never reached any of these.
+- The index still missed the 6082A12 latch drawing (CAD/PDF files have no text, so wordy docs outrank them). It ranked a "Copy of" doc as a separate hit. It also read one spreadsheet tab with the wrong header row, which would have given wrong owners. Fast search isn't trustworthy search until I check what it returns.
+
+**What changed because of it.**
+- The coach will do one model call over results from our own index instead of many live Drive calls, streamed so text appears right away.
+- I'm adding team facts (current season, current vehicle) so it stops asking basic questions.
+- I set targets before rebuilding so I can't move the goalposts: **at least 11/15 pass, median under 6 s, under $0.01 per question.**
+- I dropped /ship. It added time without catching anything that tests and the eval don't.
+
+**Working with AI.** `make eval` is now the rule for any coach change: run it before and after and paste both summary lines in the PR (in CLAUDE.md). I dropped the /ship skill I wrote on 8 Nov.
+
+**Evidence.** `make eval` in #27 (7d29dfa questions, 2544342 scoring, 15d8e73 runner, 51350d1 question cleanup). Earlier coach fixes in #26. The indexing run and baseline numbers aren't in git yet.
+
+**Next.** Rebuild the coach on the index and run `make eval` against the three targets. This tests whether answering from our own index fixes the root cause, or whether retrieval quality (CAD/PDF files, duplicates, spreadsheet headers) is the real limit.
