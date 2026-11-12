@@ -1,0 +1,22 @@
+{# One task as a row: code, title with owner (or Unclaimed) under it, then its status.
+   Pass `claim_next` to show a Claim button instead (Home's "Pick up a task"). #}
+{% from "components/status.html" import status_label %}
+{% macro task_row(task, status_labels) -%}
+<div class="task-row">
+  <span class="code">{{ task.code }}</span>
+  <span><a class="task-row__title" href="/tasks/{{ task.code }}">{{ task.title }}</a><span class="task-row__meta{% if not task.owner %} unclaimed{% endif %}"><span class="visually-hidden">Owner: </span>{{ task.owner or "Unclaimed" }}</span></span>
+  {{ status_label(task.status, status_labels.get(task.status, task.status)) }}
+</div>
+{%- endmacro %}
+
+{% macro claim_row(task, next) -%}
+<div class="task-row task-row--claim">
+  <span class="code">{{ task.code }}</span>
+  <span><a class="task-row__title" href="/tasks/{{ task.code }}">{{ task.title }}</a><span class="task-row__meta">{{ task.subsystem }} · {{ task.task_type }}</span></span>
+  <form method="post" action="/tasks/{{ task.code }}/status">
+    <input type="hidden" name="action" value="start">
+    <input type="hidden" name="next" value="{{ next }}">
+    <button class="btn btn--small" type="submit"><span>Claim</span><span class="visually-hidden"> {{ task.code }}</span></button>
+  </form>
+</div>
+{%- endmacro %}

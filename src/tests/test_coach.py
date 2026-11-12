@@ -120,8 +120,9 @@ def test_task_page_shows_the_task_and_never_calls_the_model(task, client):
     html = response.text
     assert "M04" in html and "Finish enclosure wall panels" in html
     assert "Enclosure" in html and "Fabricate" in html
-    assert '<label for="coach-message">' in html
+    assert 'for="coach-message"' in html
     assert 'aria-live="polite"' in html
+    assert "Progress" in html and "About this task" in html and "History" in html
     # (a real model/Drive call would have raised in the autouse fixture)
 
 
@@ -149,9 +150,8 @@ def test_task_page_shows_the_tracker_details(task, client, session):
 
     page = client.get("/tasks/M04").text
 
-    assert '<h2 id="details-heading">Details</h2>' in page
+    assert 'id="about-heading">About this task</h2>' in page
     for label in (
-        "Description",
         "Dependencies",
         "Exploratory questions",
         "Skills learned",
@@ -160,8 +160,8 @@ def test_task_page_shows_the_tracker_details(task, client, session):
         "Documentation",
         "Due date",
     ):
-        assert f"<dt>{label}</dt>" in page
-    assert "Cut two panels.\nDeburr the edges." in page
+        assert f'<div class="field-label">{label}</div>' in page
+    assert "Cut two panels.\nDeburr the edges." in page  # the description leads
     assert "Riley Sample" in page and "Week 3" in page
     # Google links are clickable; any other markup in a cell is escaped.
     assert f'<a href="{LINK}"' in page
@@ -176,13 +176,16 @@ def test_task_page_omits_details_that_are_empty(task, client, session):
 
     page = client.get("/tasks/M04").text
 
-    assert "<dt>Skills learned</dt>" in page
-    assert "<dt>Description</dt>" not in page
-    assert "<dt>Due date</dt>" not in page
+    assert '<div class="field-label">Skills learned</div>' in page
+    assert '<div class="field-label">Due date</div>' not in page
+    assert '<div class="field-label">Dependencies</div>' not in page
 
 
-def test_task_page_has_no_details_section_without_tracker_text(task, client):
-    assert "details-heading" not in client.get("/tasks/M04").text
+def test_task_page_says_so_when_the_tracker_has_no_description(task, client):
+    page = client.get("/tasks/M04").text
+
+    assert "The tracker has no description for this task." in page
+    assert '<div class="field-label">Requirements</div>' not in page
 
 
 def test_coach_is_told_the_tracker_details(monkeypatch, task, client, session):
@@ -227,7 +230,7 @@ def test_unknown_task_is_a_plain_404(client, session):
 
     assert response.status_code == 404
     assert "Task not found" in response.text
-    assert '<nav aria-label="Main">' in response.text
+    assert '<nav class="sidebar" aria-label="Main">' in response.text
 
 
 def test_task_page_survives_a_database_failure(monkeypatch, task, client):
@@ -242,7 +245,7 @@ def test_task_page_survives_a_database_failure(monkeypatch, task, client):
 
     assert response.status_code == 503
     assert "secret" not in response.text
-    assert '<nav aria-label="Main">' in response.text
+    assert '<nav class="sidebar" aria-label="Main">' in response.text
 
 
 # --- access: signed-in members only ---
@@ -264,8 +267,8 @@ def test_coach_requires_sign_in(monkeypatch, task):
 def test_task_page_shows_who_is_signed_in(task, client):
     html = client.get("/tasks/M04").text
 
-    assert "Sam Example" in html  # in the header and "Asking as"
-    assert "Log out" in html
+    assert "Sam Example" in html  # signed in as, and the label of the message box
+    assert 'href="/logout">Sign out</a>' in html
 
 
 # --- the answer ---
@@ -291,7 +294,7 @@ def test_answer_flow_cites_sources_and_logs_every_call(
     assert "How should the latch work?" not in html
     assert "Which latch style fits?" in html
     assert f'<a href="{LINK}"' in html  # the cited URL is clickable
-    assert "Latch design notes" in html and "modified 2026-09-30" in html  # sources
+    assert "Latch design notes" in html and "Modified 2026-09-30" in html  # sources
     assert response.headers["HX-Trigger"] == "coachSent"
 
     calls = stored(session, LlmCall)
@@ -570,10 +573,70 @@ def test_chat_is_phone_friendly_and_accessible(task, client):
     html = client.get("/tasks/M04").text
 
     assert 'name="viewport" content="width=device-width, initial-scale=1"' in html
-    assert html.count("<h1>") == 1
+    assert html.count("<h1 ") == 1
     assert 'hx-post="/tasks/M04/coach"' in html
     assert 'role="log"' in html
     assert 'role="status"' in html  # the coach's working slot (see below)
+
+
+def test_the_members_message_is_a_filled_box_and_the_coachs_has_a_blue_rule(
+    session, task, client
+):
+    session.add(CoachMessage(task_id=task.id, member="sam@example.edu", role="user", content="Hi?"))
+    session.add(CoachMessage(task_id=task.id, member="Coach", role="assistant", content="Hello."))
+    session.commit()
+
+    html = client.get("/tasks/M04").text
+
+    assert '<article class="msg msg--member">' in html
+    assert '<article class="msg msg--coach">' in html
+
+
+def test_next_step_and_conflicts_get_their_own_boxes(session, task, client):
+    session.add(
+        CoachMessage(
+            task_id=task.id,
+            member="Coach",
+            role="assistant",
+            content=(
+                "The sources disagree.\n\n"
+                "**Likely current: 0.050 in** (Crush Documentation, Mar 2026). "
+                "Older: 0.030 in. A lead should confirm.\n\n"
+                "Next step: ask Lee to confirm the clearance."
+            ),
+            meta=json.dumps(
+                {
+                    "sources": [
+                        {"title": "Crush Documentation", "link": LINK, "modified": "2026-03-30"},
+                        {"title": "D1 latch", "link": "/decisions/1", "modified": "2026-10-01"},
+                    ],
+                    "notes": [],
+                }
+            ),
+        )
+    )
+    session.commit()
+
+    html = client.get("/tasks/M04").text
+
+    assert '<div class="conflict">' in html and "Likely current: 0.050 in" in html
+    assert 'href="/decisions/new?task=M04">Propose as a decision</a>' in html
+    assert '<div class="next msg-md"><b>Next step:</b>' in html
+    assert "ask Lee to confirm the clearance." in html
+    # Sources are a ruled list with their type or date.
+    assert '<ul class="sources" aria-label="Sources">' in html
+    assert "Modified 2026-03-30" in html and "Decision · confirmed 2026-10-01" in html
+
+
+def test_a_failed_answer_keeps_the_question_and_offers_retry(monkeypatch, task, client):
+    script(monkeypatch, fake.timed_out())
+
+    html = ask(client).text
+
+    assert "took too long" in html
+    assert "Your question is still in the box below." in html
+    assert '<button class="btn btn--small" type="submit" form="coach-form">Retry</button>' in html
+    assert 'role="alert"' in html
 
 
 # --- loading state ---
@@ -586,7 +649,7 @@ def test_the_page_has_a_live_working_slot_and_a_form_that_disables_while_waiting
 
     # The coach's slot is last in the log, hidden at rest, with a polite live region
     # that is always in the page (so screen readers announce each change of text).
-    assert re.search(r'<article id="coach-pending"[^>]*\bhidden\b', html)
+    assert re.search(r'<div id="coach-pending"[^>]*\bhidden\b', html)
     assert 'aria-busy="true"' in html
     assert re.search(
         r'<p id="coach-status"[^>]*role="status"[^>]*aria-live="polite"', html
@@ -597,7 +660,7 @@ def test_the_page_has_a_live_working_slot_and_a_form_that_disables_while_waiting
     assert 'hx-target="#coach-pending"' in html
     assert 'hx-swap="beforebegin"' in html
     assert 'hx-disabled-elt="find fieldset"' in html
-    assert '<fieldset class="coach-fields">' in html
+    assert '<fieldset class="ask__fields">' in html
     assert 'data-progress-url="/tasks/M04/coach/progress"' in html
     # coach.js builds the member's message from this template (textContent, no HTML).
     assert '<template id="coach-user-template">' in html
@@ -650,18 +713,14 @@ def test_the_message_is_saved_even_though_the_reply_does_not_repeat_it(
 
 
 def test_motion_only_runs_when_the_member_has_not_asked_for_less():
-    css = (STATIC / "style.css").read_text()
-    keyframes = re.sub(r"@keyframes [^{]+\{(?:[^{}]|\{[^{}]*\})*\}", "", css)
-    outside = re.sub(
-        r"@media \(prefers-reduced-motion: no-preference\) \{(?:[^{}]|\{[^{}]*\})*\}",
-        "",
-        keyframes,
+    css = (STATIC / "styles" / "app.css").read_text()
+    reduced = re.search(
+        r"@media \(prefers-reduced-motion: reduce\) \{[^{}]*\{[^{}]*animation: none[^{}]*\}\s*\}",
+        css,
     )
 
-    assert "prefers-reduced-motion: no-preference" in css
-    assert "animation" in css
-    assert "animation" not in outside
-    assert "transition" not in outside
+    assert reduced, "the scanning bar must stop when reduced motion is asked for"
+    assert "transition" not in css
 
 
 # --- progress ---

@@ -90,7 +90,7 @@ def test_explicitly_allowed_member_can_sign_in(client, monkeypatch):
     page = client.get("/tasks")
     assert page.status_code == 200
     assert "Made Up Member" in page.text
-    assert 'href="/logout">Log out</a>' in page.text
+    assert 'href="/logout">Sign out</a>' in page.text
 
 
 def test_allowed_domain_member_can_sign_in(client, monkeypatch):

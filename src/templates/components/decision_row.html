@@ -1,0 +1,13 @@
+{# One decision as a row: id, topic, then its status and subsystem. A proposed one is marked
+   "needs a lead". `status_labels` is DECISION_STATUS_LABELS. #}
+{% from "components/status.html" import status_label %}
+{% macro decision_row(d, status_labels, summary=False) -%}
+<div class="decision">
+  <span class="code">D{{ d.id }}</span><a href="/decisions/{{ d.id }}">{{ d.topic }}</a>
+  <div class="task-row__meta">
+    {%- if d.status == "proposed" %}{{ status_label(d.status, "Proposed · needs a lead") }}
+    {%- else %}{{ status_label(d.status, status_labels.get(d.status, d.status)) }} · {{ d.subsystem }}{% endif %}
+  </div>
+  {% if summary %}<p class="decision__summary">{{ d.decision }}</p>{% endif %}
+</div>
+{%- endmacro %}

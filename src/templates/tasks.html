@@ -1,48 +1,63 @@
 {% extends "base.html" %}
-{% from "components/button.html" import button %}
 {% from "components/feedback.html" import notice as notice_box, empty_state, error_state %}
-{% from "components/gauge.html" import gauge %}
-{% from "components/task_card.html" import task_card %}
-{% block title %}Tasks – Crush Coach{% endblock %}
+{% from "components/progress_bar.html" import pbar, diamond %}
+{% from "components/task_row.html" import task_row %}
+{% from "components/decision_row.html" import decision_row %}
+{% block title %}All tasks – Crush Coach{% endblock %}
+{% block heading %}
+<div class="topbar__title">
+  <h1 class="page-title">All tasks</h1>
+  <nav class="segmented" aria-label="Filter tasks">
+    {% for key, label in filters.items() %}<a href="/tasks{% if key != 'all' %}?show={{ key }}{% endif %}"{% if key == show %} aria-current="true"{% endif %}>{{ label }}</a>{% endfor %}
+  </nav>
+</div>
+<div class="counts" role="group" aria-label="Task counts">
+  <div><small>Done</small><b style="color:var(--color-done)">{{ counts.done }}/{{ counts.total }}</b></div>
+  <div><small>In progress</small><b>{{ counts.in_progress }}</b></div>
+  <div><small>Review</small><b style="color:var(--color-review)">{{ counts.review }}</b></div>
+  <div><small>Unclaimed</small><b>{{ counts.unclaimed }}</b></div>
+</div>
+{% endblock %}
+{% macro panel(g, tasks) %}
+<section class="panel panel--flush" id="{{ g.slug }}" aria-labelledby="h-{{ g.slug }}">
+  <div class="panel__head"><h2 class="panel__title" id="h-{{ g.slug }}">{{ diamond(g) }}{{ g.label }}</h2><span class="meta">{{ g.done }} of {{ g.total }} done</span></div>
+  {{ pbar(g) }}
+  {% for t in tasks %}{{ task_row(t, status_labels) }}{% endfor %}
+</section>
+{% endmacro %}
 {% block main %}
-<h1>Tasks</h1>
+{% if notice %}{{ notice_box(notice) }}{% endif %}
+<div class="grid-tasks">
+  {% if error %}
+  <div class="stack grid-tasks__wide">{{ error_state(error, "/tasks", "Try again") }}</div>
+  {% elif total_count == 0 %}
+  <div class="stack grid-tasks__wide">{{ empty_state("No tasks yet. A team lead can import the tracker from the Admin page.") }}</div>
+  {% elif not panels %}
+  <div class="stack grid-tasks__wide">{{ empty_state("No tasks match this filter.", "/tasks", "Show all tasks") }}</div>
+  {% else %}
+  <div class="stack">{% for g, tasks in left %}{{ panel(g, tasks) }}{% endfor %}</div>
+  <div class="stack">{% for g, tasks in right %}{{ panel(g, tasks) }}{% endfor %}</div>
+  {% endif %}
 
-<form class="filter" method="get" action="/tasks">
-  <label for="status">Status</label>
-  <select id="status" name="status">
-    <option value=""{% if not status %} selected{% endif %}>All</option>
-    {% for value, label in status_labels.items() %}
-    <option value="{{ value }}"{% if status == value %} selected{% endif %}>{{ label }}</option>
-    {% endfor %}
-  </select>
-  {{ button("Filter", "secondary", "submit") }}
-  {% if status %}<a href="/tasks">Clear filter</a>{% endif %}
-</form>
-
-{% if error %}
-{{ error_state(error, "/tasks", "Try again") }}
-{% elif total_count == 0 %}
-{{ empty_state("No tasks yet. A team lead can import the tracker with the task import command.") }}
-{% else %}
-  {% if notice %}{{ notice_box(notice) }}{% endif %}
-  <p class="count">
-    Showing {{ shown_count }} of {{ total_count }} task{{ "" if total_count == 1 else "s" }}{% if status %} with status “{{ status_labels[status] }}”{% endif %}.
-  </p>
-
-  {% for subsystem, tasks in groups %}
-  <section class="subsystem" aria-labelledby="sub-{{ loop.index }}">
-    <h2 id="sub-{{ loop.index }}">{{ subsystem }} <span class="count">({{ tasks | length }})</span></h2>
-    {% set done = progress.get(subsystem, {}).get("done", 0) %}
-    {% set total = progress.get(subsystem, {}).get("total", 0) %}
-    {% if total %}{{ gauge(done, total) }}{% endif %}
-    {% if tasks %}
-    <ul class="cards">
-      {% for task in tasks %}{{ task_card(task, status_labels) }}{% endfor %}
-    </ul>
-    {% else %}
-    {{ empty_state("No tasks" ~ (" with this status" if status else "") ~ ".") }}
+  <div class="stack">
+    <section class="panel panel--flush panel--strong" aria-labelledby="recent-decisions">
+      <div class="panel__head"><h2 class="panel__title" id="recent-decisions">Recent decisions</h2><a class="meta" href="/decisions">All</a></div>
+      {% if decisions_error %}<div class="decision">{{ error_state(decisions_error) }}</div>
+      {% else %}{% for d in recent_decisions %}{{ decision_row(d, decision_status_labels) }}{% else %}<div class="decision">{{ empty_state("No decisions yet.", "/decisions/new", "Propose one") }}</div>{% endfor %}{% endif %}
+    </section>
+    {% if user.role == "lead" %}
+    <section class="panel panel--flush" aria-labelledby="waiting">
+      <div class="panel__head"><h2 class="panel__title" id="waiting">Waiting for review</h2><span class="meta">Leads</span></div>
+      {% if review_error %}<div class="decision">{{ error_state(review_error) }}</div>
+      {% else %}{% for r in review %}
+      <div class="task-row task-row--claim">
+        <span class="code">{{ r.task.code }}</span>
+        <span><a class="task-row__title" href="/tasks/{{ r.task.code }}">{{ r.task.title }}</a><span class="task-row__meta">{{ r.task.owner or "Unclaimed" }}{% if r.age %} · {{ r.age }}{% endif %}</span></span>
+        <a class="btn btn--small" href="/tasks/{{ r.task.code }}"><span>Review</span><span class="visually-hidden"> {{ r.task.code }}</span></a>
+      </div>
+      {% else %}<div class="decision">{{ empty_state("Nothing is waiting for review.") }}</div>{% endfor %}{% endif %}
+    </section>
     {% endif %}
-  </section>
-  {% endfor %}
-{% endif %}
+  </div>
+</div>
 {% endblock %}

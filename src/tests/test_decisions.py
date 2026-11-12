@@ -491,7 +491,7 @@ def test_decision_failure_only_breaks_the_decisions_section(
     assert "Couldn&#39;t load this task&#39;s decisions" in response.text
     assert "secret" not in response.text
     assert "Finish enclosure wall panels" in response.text
-    assert '<label for="coach-message">' in response.text  # the coach still works
+    assert 'for="coach-message"' in response.text  # the coach still works
 
 
 def test_list_puts_confirmed_decisions_first(client, session):
@@ -785,7 +785,7 @@ def test_draft_without_javascript_shows_the_form_on_its_own_page(
     response = client.post("/tasks/M04/decision-draft")  # no HX-Request header
 
     assert response.status_code == 200
-    assert "<h1>Propose a decision</h1>" in response.text
+    assert '<h1 class="page-title">Propose a decision</h1>' in response.text
     assert 'value="Latch style"' in response.text
 
 

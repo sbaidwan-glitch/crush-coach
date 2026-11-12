@@ -1,5 +1,10 @@
-{# Status label: an icon and words, never color alone. `value` is todo, in_progress or done. #}
-{% from "components/icons.html" import icon %}
+{# A status mark: the shape comes from CSS (open circle, half circle, filled square, filled
+   circle) and the words are always there, so it is never colour alone.
+   Tasks: todo, in_progress, needs_review, done. Decisions: proposed, confirmed, superseded. #}
+{% set MARKS = {
+  "todo": "todo", "in_progress": "in-progress", "needs_review": "review", "done": "done",
+  "proposed": "review", "confirmed": "done", "superseded": "todo",
+} %}
 {% macro status_label(value, label) -%}
-<span class="status status-{{ value }}">{{ icon(value) }}<span>{{ label }}</span></span>
+<span class="status status--{{ MARKS.get(value, 'todo') }}">{{ label }}</span>
 {%- endmacro %}
