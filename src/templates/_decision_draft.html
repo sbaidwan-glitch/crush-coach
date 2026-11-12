@@ -4,7 +4,7 @@
 {{ notice(error, "error") }}
 {% else %}
 <div class="draft">
-  <h3>Draft decision</h3>
+  <h3 class="panel__title">Draft decision</h3>
   {{ notice("The coach wrote this draft from your conversation. It is not saved yet. Check every field, fix what's wrong, then propose it. A lead has to accept it before it counts.") }}
   {% include "_decision_form.html" %}
 </div>

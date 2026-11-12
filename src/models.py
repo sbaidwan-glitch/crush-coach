@@ -30,8 +30,41 @@ SUBSYSTEMS = (
     "Torpedo",
 )
 TASK_TYPES = ("Fabricate", "Design", "Validate")
-STATUS_LABELS = {"todo": "To do", "in_progress": "In progress", "done": "Done"}
+# The task flow: todo -> in_progress -> needs_review -> done (a lead sends it back
+# to in_progress). See workflow.py for who may make each move.
+STATUS_LABELS = {
+    "todo": "To do",
+    "in_progress": "In progress",
+    "needs_review": "Needs review",
+    "done": "Done",
+}
 STATUSES = tuple(STATUS_LABELS)
+# Other words for a status (an imported CSV, an older row) and the status they mean.
+STATUS_ALIASES = {
+    "not started": "todo",
+    "not_started": "todo",
+    "open": "todo",
+    "blocked": "in_progress",
+    "doing": "in_progress",
+    "started": "in_progress",
+    "in progress": "in_progress",
+    "review": "needs_review",
+    "in_review": "needs_review",
+    "in review": "needs_review",
+    "needs review": "needs_review",
+    "complete": "done",
+    "completed": "done",
+    "finished": "done",
+}
+
+
+def normalize_status(value: str | None) -> str | None:
+    """The status a word means (todo, in_progress, needs_review, done), or None."""
+    word = " ".join((value or "").split()).casefold()
+    if word in STATUSES:
+        return word
+    return STATUS_ALIASES.get(word)
+
 DECISION_STATUS_LABELS = {
     "proposed": "Proposed",
     "confirmed": "Confirmed",
@@ -71,6 +104,20 @@ class Task(SQLModel, table=True):
     people_to_ask: str | None = None
     documentation: str | None = None
     due_date: str | None = None  # text on purpose: the tracker has "Week 3", "TBD", ...
+
+
+class TaskEvent(SQLModel, table=True):
+    """One move in a task's life (started, sent for review, approved...): the History."""
+
+    __tablename__ = "task_event"
+
+    id: int | None = Field(default=None, primary_key=True)
+    task_id: int = Field(foreign_key="task.id", index=True)
+    actor: str  # display name of whoever made the move
+    from_status: str | None = None  # None for the first event on a task
+    to_status: str
+    note: str | None = None  # a lead's reason when sending a task back
+    created_at: datetime = Field(default_factory=utc_now, index=True)
 
 
 class CoachMessage(SQLModel, table=True):

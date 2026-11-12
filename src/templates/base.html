@@ -1,3 +1,9 @@
+{#- The shell every page shares: sidebar (a bottom tab bar on phones), then the main
+    column with the page title and who is signed in. Pages fill `heading` (or just
+    `page_title`) and `main`. -#}
+{% from "components/icons.html" import nav_icon, logo %}
+{% set path = request.url.path %}
+{% set is_lead = user and user.role == "lead" %}
 <!doctype html>
 <html lang="en">
   <head>
@@ -5,46 +11,41 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}Crush Coach{% endblock %}</title>
     <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/styles/tokens.css">
+    <link rel="stylesheet" href="/static/styles/app.css">
+    <link rel="stylesheet" href="/static/styles/extras.css">
     <script src="/static/htmx.min.js" defer></script>
     <script src="/static/coach.js" defer></script>
     {% block head_extra %}{% endblock %}
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to main content</a>
-    <header class="masthead">
-      {# Decorative range rings: faint hairlines, no meaning. #}
-      <svg class="rings" viewBox="0 0 400 140" preserveAspectRatio="xMaxYMin slice" aria-hidden="true" focusable="false">
-        {% for r in (30, 60, 90, 120, 150, 180) %}<circle cx="340" cy="20" r="{{ r }}"/>{% endfor %}
-        <path d="M340 0V140M100 20H400"/>
-      </svg>
-      <div class="masthead-inner">
-        <p class="team">MuddSub mechanical team</p>
-        <p class="wordmark"><a href="/">Crush Coach</a></p>
-        <nav aria-label="Main">
-          <a href="/"{% if request.url.path == "/" %} aria-current="page"{% endif %}>Home</a>
-          <a href="/tasks"{% if request.url.path.startswith("/tasks") %} aria-current="page"{% endif %}>Tasks</a>
-          <a href="/decisions"{% if request.url.path.startswith("/decisions") %} aria-current="page"{% endif %}>Decisions</a>
-          {% if user and user.role == "lead" %}
-          <a href="/admin"{% if request.url.path == "/admin" %} aria-current="page"{% endif %}>Admin</a>
-          <a href="/admin/import"{% if request.url.path.startswith("/admin/import") %} aria-current="page"{% endif %}>Import tasks</a>
-          {% endif %}
+    <div class="shell">
+      <nav class="sidebar" aria-label="Main">
+        <a class="sidebar__logo" href="/" aria-label="Crush Coach home">{{ logo() }}</a>
+        <a class="sidebar__link" href="/"{% if path == "/" %} aria-current="page"{% endif %}>{{ nav_icon("home") }}<span>Home</span></a>
+        <a class="sidebar__link" href="/tasks"{% if path.startswith("/tasks") %} aria-current="page"{% endif %}>{{ nav_icon("tasks") }}<span>Tasks</span></a>
+        <a class="sidebar__link" href="/decisions"{% if path.startswith("/decisions") %} aria-current="page"{% endif %}>{{ nav_icon("decisions") }}<span>Decisions</span></a>
+        {% if is_lead %}
+        <span class="sidebar__spacer"></span>
+        <span class="sidebar__label">LEAD</span>
+        <a class="sidebar__link" href="/admin"{% if path.startswith("/admin") %} aria-current="page"{% endif %}>{{ nav_icon("admin") }}<span>Admin</span></a>
+        {% endif %}
+      </nav>
+      <main class="main" id="main">
+        <div class="topbar">
+          {% block heading %}<h1 class="page-title">{% block page_title %}Crush Coach{% endblock %}</h1>{% endblock %}
+          {% block topbar_actions %}{% endblock %}
           {% if user %}
-          <span class="nav-user">
-            <span class="signed-in">{{ user.name }}{% if user.role == "lead" %} (lead){% endif %}</span>
-            <a href="/logout">Log out</a>
-          </span>
+          <span class="avatar" title="{{ user.name }}{% if is_lead %} (lead){% endif %}" aria-hidden="true">{{ user.name.split() | map("first") | map("upper") | join("") | truncate(2, True, "") }}</span>
+          <span class="visually-hidden">Signed in as {{ user.name }}{% if is_lead %} (lead){% endif %}.</span>
+          <a class="btn btn--small" href="/logout">Sign out</a>
           {% else %}
-          <span class="nav-user"><a href="/login">Sign in with Google</a></span>
+          <a class="btn btn--primary" href="/login">Sign in with Google</a>
           {% endif %}
-        </nav>
-      </div>
-    </header>
-    <main id="main">
-      {% block main %}{% endblock %}
-    </main>
-    <footer class="site-footer">
-      <p class="site-footer-inner">Task tracker for Crush, the MuddSub AUV.</p>
-    </footer>
+        </div>
+        {% block main %}{% endblock %}
+      </main>
+    </div>
   </body>
 </html>

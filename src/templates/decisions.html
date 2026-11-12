@@ -1,47 +1,46 @@
 {% extends "base.html" %}
 {% from "components/button.html" import button, button_link %}
 {% from "components/feedback.html" import notice as notice_box, empty_state, error_state %}
-{% from "components/decision_card.html" import decision_card %}
+{% from "components/decision_row.html" import decision_row %}
 {% block title %}Decisions – Crush Coach{% endblock %}
+{% block page_title %}Decisions{% endblock %}
+{% block topbar_actions %}<a class="btn btn--primary" href="/decisions/new">Propose a decision</a>{% endblock %}
 {% block main %}
-<h1>Decisions</h1>
-<p class="fine">What the team decided about Crush, and why. A confirmed decision outranks old Drive documents; a lead confirms each one.</p>
-<p>{{ button_link("/decisions/new", "Propose a decision") }}</p>
-
-<form class="filter" method="get" action="/decisions">
-  <label for="subsystem">Subsystem</label>
-  <select id="subsystem" name="subsystem">
-    <option value=""{% if not subsystem %} selected{% endif %}>All</option>
-    {% for name in subsystems %}
-    <option value="{{ name }}"{% if subsystem == name %} selected{% endif %}>{{ name }}</option>
-    {% endfor %}
-  </select>
-  <label for="status">Status</label>
-  <select id="status" name="status">
-    <option value=""{% if not status %} selected{% endif %}>All</option>
-    {% for value, label in status_labels.items() %}
-    <option value="{{ value }}"{% if status == value %} selected{% endif %}>{{ label }}</option>
-    {% endfor %}
-  </select>
-  {{ button("Filter", "secondary", "submit") }}
-  {% if subsystem or status %}<a href="/decisions">Clear filters</a>{% endif %}
-</form>
-
-{% if error %}
-{{ error_state(error, "/decisions", "Try again") }}
-{% else %}
-  {% for text in notices %}{{ notice_box(text) }}{% endfor %}
-  {% if total_count == 0 %}
-  {{ empty_state("No decisions yet. Propose the first one.", "/decisions/new", "Propose a decision") }}
-  {% elif not decisions %}
-  {{ empty_state("No decisions match these filters.", "/decisions", "Clear filters") }}
+<section class="panel panel--flush panel--strong" aria-labelledby="decisions-heading">
+  <div class="panel__head">
+    <div><h2 class="panel__title" id="decisions-heading">What the team decided about Crush</h2>
+    <p class="panel__sub">A confirmed decision outranks old Drive documents; a lead confirms each one.</p></div>
+    {% if not error and total_count %}<span class="meta">{{ decisions | length }} of {{ total_count }}</span>{% endif %}
+  </div>
+  <form class="decision filter" method="get" action="/decisions">
+    <div>
+      <label class="field-label" for="subsystem">Subsystem</label>
+      <select id="subsystem" name="subsystem" class="field-input">
+        <option value=""{% if not subsystem %} selected{% endif %}>All</option>
+        {% for name in subsystems %}<option value="{{ name }}"{% if subsystem == name %} selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="field-label" for="status">Status</label>
+      <select id="status" name="status" class="field-input">
+        <option value=""{% if not status %} selected{% endif %}>All</option>
+        {% for value, label in status_labels.items() %}<option value="{{ value }}"{% if status == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    {{ button("Filter", "secondary", "submit", small=True) }}
+    {% if subsystem or status %}<a href="/decisions">Clear filters</a>{% endif %}
+  </form>
+  {% if error %}
+  <div class="decision">{{ error_state(error, "/decisions", "Try again") }}</div>
   {% else %}
-  <p class="count">
-    Showing {{ decisions | length }} of {{ total_count }} decision{{ "" if total_count == 1 else "s" }}.
-  </p>
-  <ul class="cards decision-cards">
-    {% for d in decisions %}{{ decision_card(d, status_labels) }}{% endfor %}
-  </ul>
+    {% for text in notices %}<div class="decision">{{ notice_box(text) }}</div>{% endfor %}
+    {% if total_count == 0 %}
+    <div class="decision">{{ empty_state("No decisions yet. Propose the first one.", "/decisions/new", "Propose a decision") }}</div>
+    {% elif not decisions %}
+    <div class="decision">{{ empty_state("No decisions match these filters.", "/decisions", "Clear filters") }}</div>
+    {% else %}
+    {% for d in decisions %}{{ decision_row(d, status_labels, summary=True) }}{% endfor %}
+    {% endif %}
   {% endif %}
-{% endif %}
+</section>
 {% endblock %}

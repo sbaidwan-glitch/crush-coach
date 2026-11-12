@@ -1,28 +1,14 @@
-{# Inline icons. Always paired with words: status is never color alone. #}
-{% macro icon(name) -%}
-  {%- if name == "todo" -%}
-  <svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/></svg>
-  {%- elif name == "in_progress" -%}
-  <svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M10 3.5a6.5 6.5 0 0 1 0 13z" fill="currentColor" stroke="none"/></svg>
-  {%- elif name == "done" -%}
-  <svg class="icon" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="7.5" fill="currentColor"/><path d="m6.6 10.2 2.3 2.3 4.5-4.8" stroke="var(--color-bg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-  {%- elif name == "blocked" -%}
-  <svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="m5.4 14.6 9.2-9.2" stroke-linecap="round"/></svg>
-  {%- elif name == "proposed" -%}
-  <svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-dasharray="3 2.5" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M10 7v6M7 10h6" stroke-dasharray="none" stroke-linecap="round"/></svg>
-  {%- elif name == "confirmed" -%}
-  <svg class="icon" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="7.5" fill="currentColor"/><path d="m6.6 10.2 2.3 2.3 4.5-4.8" stroke="var(--color-bg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-  {%- elif name == "superseded" -%}
-  <svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M6.5 10h7" stroke-linecap="round"/></svg>
-  {%- elif name == "error" -%}
-  <svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" aria-hidden="true"><path d="M10 3 17.5 16.5h-15z"/><path d="M10 8.5v3.5M10 14.3v.1" stroke-linecap="round"/></svg>
-  {%- elif name == "note" -%}
-  <svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><path d="M10 9v4.5M10 6.6v.1" stroke-linecap="round"/></svg>
-  {%- elif name == "empty" -%}
-  <svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2.5 2.5" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/></svg>
-  {%- elif name == "person" -%}
-  <svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="7" r="3"/><path d="M4 16.5c.8-3 3.2-4.5 6-4.5s5.2 1.5 6 4.5"/></svg>
-  {%- elif name == "coach" -%}
-  <svg class="icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="2.5" fill="currentColor" stroke="none"/></svg>
+{# Sidebar icons. Each is decorative (aria-hidden): the link always carries a visible label. #}
+{% macro nav_icon(name) -%}
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false">
+  {%- if name == "home" -%}<path d="M3 11l9-7 9 7v9h-6v-6H9v6H3z"/>
+  {%- elif name == "tasks" -%}<path d="M9 6h12M9 12h12M9 18h12"/><path d="M3 6h2M3 12h2M3 18h2"/>
+  {%- elif name == "decisions" -%}<rect x="3" y="3" width="18" height="18"/><path d="M8 12l3 3 5-6"/>
+  {%- elif name == "admin" -%}<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/>
   {%- endif -%}
+</svg>
+{%- endmacro %}
+
+{% macro logo() -%}
+<svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><circle cx="13" cy="13" r="9"/><path d="M13 1v8M13 17v8M1 13h8M17 13h8"/></svg>
 {%- endmacro %}

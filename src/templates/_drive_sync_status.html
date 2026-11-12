@@ -22,10 +22,10 @@
       {"label": "Files whose text couldn’t be read", "value": drive.error_count}
     ]) }}
     {% if not drive.ever_synced and not drive.running %}
-      <p class="count">Nothing has been synced yet. The first sync reads the whole Drive and can take several minutes.</p>
+      <p class="meta">Nothing has been synced yet. The first sync reads the whole Drive and can take several minutes.</p>
     {% endif %}
   {% endif %}
-  <form class="drive-sync-form" method="post" action="/admin/drive/sync">
-    <button type="submit" class="btn btn-primary"{% if drive.running %} disabled aria-disabled="true"{% endif %}>{{ "Syncing…" if drive.running else "Sync Drive now" }}</button>
+  <form class="actions" method="post" action="/admin/drive/sync">
+    <button type="submit" class="btn btn--primary"{% if drive.running %} disabled aria-disabled="true"{% endif %}>{{ "Syncing…" if drive.running else "Sync Drive now" }}</button>
   </form>
 </div>

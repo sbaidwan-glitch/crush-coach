@@ -3,9 +3,12 @@
 {% from "components/feedback.html" import notice %}
 {% block title %}Review import – Crush Coach{% endblock %}
 {% block head_extra %}<script src="/static/import.js" defer></script>{% endblock %}
+{% block page_title %}Review import{% endblock %}
+{% block topbar_actions %}<a class="btn" href="/admin/import">Choose another file</a>{% endblock %}
 {% block main %}
-<h1>Review import</h1>
-<p class="fine">File: {{ filename }}. <strong>Nothing has been saved yet.</strong></p>
+<section class="panel" aria-labelledby="review-heading">
+<div class="panel__head"><div><h2 class="panel__title" id="review-heading">Rows to import</h2>
+<p class="panel__sub">File: {{ filename }}. <strong>Nothing has been saved yet.</strong></p></div></div>
 {% if banner %}{{ notice(banner, "error") }}{% endif %}
 
 <form id="review-form" method="post" action="/admin/import/check"
@@ -16,24 +19,24 @@
   <input type="hidden" name="is_tracker" value="{{ 1 if is_tracker else 0 }}">
 
   {# Enter in a field must re-check, never Import. The first submit button is the form's default. #}
-  <button type="submit" class="sr-only" tabindex="-1" aria-hidden="true">Check changes</button>
+  <button type="submit" class="visually-hidden" tabindex="-1" aria-hidden="true">Check changes</button>
 
   <div id="review">
     <p id="review-summary" class="review-summary" role="status" tabindex="-1">
       <span>{{ ready_count }} ready</span> ·
-      <span class="{{ 'needs-fix' if fix_count }}">{{ fix_count }} {{ "needs" if fix_count == 1 else "need" }} a fix</span>
+      <span>{% if fix_count %}<strong>{% endif %}{{ fix_count }} {{ "needs" if fix_count == 1 else "need" }} a fix{% if fix_count %}</strong>{% endif %}</span>
       {%- if exists_count %} · <span>{{ exists_count }} already in the tracker</span>{% endif %}
       {%- if left_out_count %} · <span>{{ left_out_count }} left out</span>{% endif %}
     </p>
     {% if is_tracker %}
-    <p class="fine">The tracker has no subsystem or type column, so these are guesses from the title. Correct any that are wrong. Untick Include to leave a row out.</p>
+    <p class="meta">The tracker has no subsystem or type column, so these are guesses from the title. Correct any that are wrong. Untick Include to leave a row out.</p>
     {% else %}
-    <p class="fine">Untick Include to leave a row out.</p>
+    <p class="meta">Untick Include to leave a row out.</p>
     {% endif %}
 
     <div class="table-wrap" tabindex="0" role="region" aria-label="Rows to import (scrolls sideways on small screens)">
       <table class="import-table">
-        <caption class="sr-only">Rows found in {{ filename }}</caption>
+        <caption class="visually-hidden">Rows found in {{ filename }}</caption>
         <thead>
           <tr>
             <th scope="col">Row</th>
@@ -47,13 +50,13 @@
           {% for r in reviews %}
           {% set i = r.index %}
           {% set state = r.check.state %}
-          <tr class="row-{{ state }}">
-            <td class="cell-row">
+          <tr>
+            <td>
               {% if state == "exists" %}
               <input type="hidden" name="include_{{ i }}" value="1">
-              <span class="row-line">Line {{ r.row.line }}</span>
+              <span class="meta">Line {{ r.row.line }}</span>
               {% else %}
-              <label class="check"><input type="checkbox" name="include_{{ i }}" value="1"{% if r.included %} checked{% endif %} aria-label="Include line {{ r.row.line }}"><span class="row-line">Line {{ r.row.line }}</span></label>
+              <label class="check"><input type="checkbox" name="include_{{ i }}" value="1"{% if r.included %} checked{% endif %} aria-label="Include line {{ r.row.line }}"><span class="meta">Line {{ r.row.line }}</span></label>
               {% endif %}
               {{ row_state(state) }}
               {% set p = r.check.problem("row") %}
@@ -63,11 +66,11 @@
             <td>
               {% if r.code_editable %}
               {% set p = r.check.problem("code") %}
-              <div class="field">
+              <div class="import-code">
                 {% if p %}{{ field_prompt("code-msg-" ~ i, "code-" ~ i, p.message) }}
-                {% else %}<label class="sr-only" for="code-{{ i }}">Code for line {{ r.row.line }}</label>{% endif %}
-                <div class="field-row">
-                  <input id="code-{{ i }}" class="field-input field-code" name="code_{{ i }}" value="{{ r.code_value }}" autocomplete="off" spellcheck="false"{% if p %} aria-invalid="true" aria-describedby="code-msg-{{ i }}"{% endif %}>
+                {% else %}<label class="visually-hidden" for="code-{{ i }}">Code for line {{ r.row.line }}</label>{% endif %}
+                <div class="import-code__row">
+                  <input id="code-{{ i }}" class="field-input" name="code_{{ i }}" value="{{ r.code_value }}" autocomplete="off" spellcheck="false"{% if p %} aria-invalid="true" aria-describedby="code-msg-{{ i }}"{% endif %}>
                   {% if p and p.suggestion and r.code_value == p.suggestion %}<input type="hidden" name="suggested_{{ i }}" value="{{ p.suggestion }}">{% endif %}
                   {% if p %}<button class="btn" type="submit" name="accept" value="{{ i }}" hx-post="/admin/import/check">Use this code</button>{% endif %}
                 </div>
@@ -80,13 +83,13 @@
             <td>
               {% if r.title_editable %}
               {% set p = r.check.problem("title") %}
-              <label class="sr-only" for="title-{{ i }}">Title for line {{ r.row.line }}</label>
+              <label class="visually-hidden" for="title-{{ i }}">Title for line {{ r.row.line }}</label>
               <input id="title-{{ i }}" class="field-input" name="title_{{ i }}" value="{{ r.row.title }}" autocomplete="off"{% if p %} aria-invalid="true" aria-describedby="title-msg-{{ i }}"{% endif %}>
               {% if p %}{{ field_error("title-msg-" ~ i, p.message) }}{% endif %}
               {% else %}
               {{ r.row.title }}
               {% endif %}
-              {% if r.row.owner %}<p class="cell-note">Owner: {{ r.row.owner }}</p>{% endif %}
+              {% if r.row.owner %}<p class="task-row__meta">Owner: {{ r.row.owner }}</p>{% endif %}
             </td>
 
             {% if state == "exists" %}
@@ -121,15 +124,15 @@
       </table>
     </div>
 
-    <div class="import-actions">
-      <button class="btn btn-primary" type="submit" formaction="/admin/import/confirm"{% if fix_count or not ready_count %} disabled aria-describedby="import-hint"{% endif %}>Import {{ ready_count }} task{{ "" if ready_count == 1 else "s" }}</button>
-      <a href="/admin/import">Choose another file</a>
+    <div class="actions">
+      <button class="btn btn--primary" type="submit" formaction="/admin/import/confirm"{% if fix_count or not ready_count %} disabled aria-describedby="import-hint"{% endif %}>Import {{ ready_count }} task{{ "" if ready_count == 1 else "s" }}</button>
     </div>
     {% if fix_count %}
-    <p id="import-hint" class="fine">Import is off until {{ fix_count }} row{{ "" if fix_count == 1 else "s" }} {{ "is" if fix_count == 1 else "are" }} fixed or left out.</p>
+    <p id="import-hint" class="meta">Import is off until {{ fix_count }} row{{ "" if fix_count == 1 else "s" }} {{ "is" if fix_count == 1 else "are" }} fixed or left out.</p>
     {% elif not ready_count %}
-    <p id="import-hint" class="fine">There are no rows to import yet.</p>
+    <p id="import-hint" class="meta">There are no rows to import yet.</p>
     {% endif %}
   </div>
 </form>
+</section>
 {% endblock %}

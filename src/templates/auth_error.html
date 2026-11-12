@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% from "components/feedback.html" import error_state %}
 {% block title %}Sign-in unavailable – Crush Coach{% endblock %}
+{% block page_title %}Sign-in unavailable{% endblock %}
 {% block main %}
-<h1>Sign-in unavailable</h1>
-{{ error_state(message, "/", "Return home") }}
+<section class="panel" aria-labelledby="signin-problem">
+  <h2 class="panel__title" id="signin-problem">Couldn’t sign you in</h2>
+  {{ error_state(message, "/", "Return home") }}
+</section>
 {% endblock %}

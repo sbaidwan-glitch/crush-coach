@@ -1,102 +1,124 @@
 {% extends "base.html" %}
-{% from "components/button.html" import button, button_link %}
+{% from "components/button.html" import button %}
 {% from "components/coach_message.html" import coach_message %}
-{% from "components/decision_card.html" import decision_card %}
 {% from "components/feedback.html" import notice as notice_box, empty_state, error_state, loading_indicator %}
-{% from "components/icons.html" import icon %}
-{% from "components/readout.html" import readout %}
 {% from "components/status.html" import status_label %}
 {% block title %}{% if task %}{{ task.code }} {{ task.title }}{% else %}Task{% endif %} – Crush Coach{% endblock %}
+{% block heading %}
+{% if task %}<h1 class="page-title"><span class="code page-title__code">{{ task.code }}</span>{{ task.title }}</h1>
+{% elif not_found %}<h1 class="page-title">Task not found</h1>
+{% else %}<h1 class="page-title">Task</h1>{% endif %}
+{% endblock %}
+{% block topbar_actions %}{% if task %}<a class="btn btn--primary" href="#coach-message">Ask the coach</a>{% endif %}{% endblock %}
 {% block main %}
-<p class="back"><a href="/tasks">All tasks</a></p>
-
 {% if page_error %}
-<h1>Task</h1>
 {{ error_state(page_error, "/tasks/" ~ code, "Try again") }}
 {% elif not_found %}
-<h1>Task not found</h1>
-{{ error_state("There is no task with code “" ~ code ~ "”.", "/tasks", "Back to the task board") }}
+{{ error_state("There is no task with code “" ~ code ~ "”.", "/tasks", "Back to all tasks") }}
 {% else %}
-<h1><span class="task-code">{{ task.code }}</span> {{ task.title }}</h1>
-<div class="facts">
-  {{ readout([
-    {"label": "Subsystem", "value": task.subsystem, "wide": True},
-    {"label": "Type", "value": task.task_type},
-    {"label": "Stage", "value": task.stage},
-    {"label": "Status", "value": status_label(task.status, status_labels.get(task.status, task.status))},
-    {"label": "Owner", "value": task.owner or "Unclaimed", "muted": not task.owner},
-  ]) }}
-</div>
-
-{% if details %}
-<section aria-labelledby="details-heading">
-  <h2 id="details-heading">Details</h2>
-  <dl class="task-details">
-    {% for label, value in details %}
-    <dt>{{ label }}</dt>
-    <dd>{% if label == "Documentation" %}{{ value | linkify }}{% else %}{{ value }}{% endif %}</dd>
-    {% endfor %}
-  </dl>
-</section>
-{% endif %}
-
-<section aria-labelledby="decisions-heading" class="task-decisions">
-  <h2 id="decisions-heading">Decisions</h2>
-  {% if decisions_error %}
-  {{ error_state(decisions_error, "/tasks/" ~ task.code, "Try again") }}
-  {% elif task_decisions %}
-  <ul class="cards decision-cards">
-    {% for d in task_decisions %}{{ decision_card(d, decision_status_labels) }}{% endfor %}
-  </ul>
-  {% else %}
-  {{ empty_state("No decisions are linked to this task yet.") }}
-  {% endif %}
-  <p>{{ button_link("/decisions/new?task=" ~ task.code, "Propose a decision for " ~ task.code, "secondary") }}</p>
-</section>
-
-<section aria-labelledby="coach-heading" class="coach">
-  <h2 id="coach-heading">Coach</h2>
-  <p class="fine">The coach advises and asks questions; your lead approves. It answers from the team Drive and links its sources. Limit: {{ daily_limit }} messages per person per day.</p>
-
-  <div id="coach-log" role="log" aria-live="polite" aria-label="Conversation with the coach">
-    {% if not messages %}{{ empty_state("No messages yet. Ask about this task and the coach answers from the team Drive.") }}{% endif %}
-    {% for m in messages %}{% include "_coach_message.html" %}{% endfor %}
-    {# Shown by coach.js while the coach works; the answer lands just above it. The
-       live region is always in the page and only its text changes, so screen readers
-       announce each step. #}
-    <article id="coach-pending" class="pending" aria-busy="true" hidden>
-      <h3 class="msg-who">{{ icon("coach") }}<span>Coach</span></h3>
-      <p id="coach-status" class="msg-body" role="status" aria-live="polite"></p>
-    </article>
-  </div>
-  <template id="coach-user-template">{{ coach_message({"role": "user", "member": "You", "content": "", "notes": [], "sources": []}) }}</template>
-  <div id="coach-error" class="notice notice-error" role="alert" hidden>{{ icon("error") }}<span id="coach-error-text"></span></div>
-  {% if error %}{{ notice_box(error, "error") }}{% endif %}
-
-  <form id="draft-form" class="coach-form" method="post" action="/tasks/{{ task.code }}/decision-draft"
-        hx-post="/tasks/{{ task.code }}/decision-draft" hx-target="#decision-draft" hx-swap="innerHTML"
-        hx-disabled-elt="find button" hx-indicator="#draft-thinking">
-    <p class="fine">Reached a decision with the coach? It can draft a record for you to review. Nothing is saved until you propose it, and a lead accepts it. Uses one of your daily messages.</p>
-    <div class="coach-actions">
-      {{ button("Draft a decision from this conversation", "secondary", "submit") }}
-      {{ loading_indicator("draft-thinking", "Drafting…") }}
-    </div>
-  </form>
-  <div id="decision-draft" aria-live="polite"></div>
-
-  <form id="coach-form" class="coach-form" method="post" action="/tasks/{{ task.code }}/coach"
-        hx-post="/tasks/{{ task.code }}/coach" hx-target="#coach-pending" hx-swap="beforebegin"
-        hx-disabled-elt="find fieldset" data-progress-url="/tasks/{{ task.code }}/coach/progress">
-    <fieldset class="coach-fields">
-      <legend class="sr-only">Message to the coach</legend>
-      <p class="fine">Asking as {{ user.name }}.</p>
-      <label for="coach-message">Ask the coach about this task</label>
-      <textarea id="coach-message" name="message" required maxlength="2000" rows="4">{{ draft }}</textarea>
-      <div class="coach-actions">
-        {{ button("Ask the coach", "coach", "submit") }}
+{% if error %}{{ notice_box(error, "error") }}{% endif %}
+<div class="grid-task">
+  <section class="panel" aria-labelledby="coach-heading">
+    <div class="panel__head"><div>
+      <h2 class="panel__title" id="coach-heading">Coach</h2>
+      <p class="panel__sub">Answers from the team Drive and confirmed decisions. It advises; leads decide. Limit: {{ daily_limit }} messages per person per day.</p>
+    </div></div>
+    <div class="coach">
+      <div id="coach-log" role="log" aria-live="polite" aria-label="Conversation with the coach" class="coach">
+        {% if not messages %}{{ empty_state("No messages yet. Ask about this task and the coach answers from the team Drive.") }}{% endif %}
+        {% for m in messages %}{% include "_coach_message.html" %}{% endfor %}
+        {# Shown by coach.js while the coach works; the answer lands just above it. The
+           live region is always in the page and only its text changes, so screen readers
+           announce each step. #}
+        <div id="coach-pending" class="thinking" aria-busy="true" hidden><i></i><p id="coach-status" class="msg-body" role="status" aria-live="polite"></p></div>
       </div>
-    </fieldset>
-  </form>
-</section>
+      <template id="coach-user-template">{{ coach_message({"role": "user", "member": "You", "content": "", "notes": [], "sources": []}, task.code) }}</template>
+      <div id="coach-error" class="notice notice--error" role="alert" hidden><span id="coach-error-text"></span></div>
+
+      <form id="coach-form" class="ask" method="post" action="/tasks/{{ task.code }}/coach"
+            hx-post="/tasks/{{ task.code }}/coach" hx-target="#coach-pending" hx-swap="beforebegin"
+            hx-disabled-elt="find fieldset" data-progress-url="/tasks/{{ task.code }}/coach/progress">
+        <fieldset class="ask__fields">
+          <legend class="visually-hidden">Message to the coach</legend>
+          <label class="visually-hidden" for="coach-message">Ask the coach about this task (asking as {{ user.name }})</label>
+          <textarea id="coach-message" name="message" required maxlength="2000" rows="2" placeholder="Ask about this task">{{ draft }}</textarea>
+          {{ button("Ask", "primary", "submit") }}
+        </fieldset>
+      </form>
+
+      <form id="draft-form" method="post" action="/tasks/{{ task.code }}/decision-draft"
+            hx-post="/tasks/{{ task.code }}/decision-draft" hx-target="#decision-draft" hx-swap="innerHTML"
+            hx-disabled-elt="find button" hx-indicator="#draft-thinking">
+        <p class="meta">Reached a decision with the coach? It can draft a record for you to review. Nothing is saved until you propose it, and a lead accepts it. Uses one of your daily messages.</p>
+        <div class="actions">
+          {{ button("Draft a decision from this conversation", "secondary", "submit", small=True) }}
+          {{ loading_indicator("draft-thinking", "Drafting…") }}
+        </div>
+      </form>
+      <div id="decision-draft" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <div class="stack">
+    <section class="panel" aria-labelledby="progress-heading">
+      <div class="panel__head"><h2 class="panel__title" id="progress-heading">Progress</h2>{{ status_label(task.status, status_labels[task.status]) }}</div>
+      <div class="field-label">Stage</div>
+      {% if stages %}
+      <ol class="stages">{% for s in stages %}<li{% if s.state == "past" %} class="is-past"{% elif s.state == "current" %} class="is-current" aria-current="step"{% endif %}>{{ s.label }}</li>{% endfor %}</ol>
+      {% else %}<div class="field">{{ task.stage }}</div>{% endif %}
+      <div class="field-label">Owner</div>
+      <div class="field field--row"><span{% if not task.owner %} class="unclaimed"{% endif %}>{{ task.owner or "Unclaimed" }}</span>{% if owner_since %}<span class="meta">since {{ owner_since }}</span>{% endif %}</div>
+
+      {% if "approve" in actions %}
+      <form class="review" method="post" action="/tasks/{{ task.code }}/status">
+        <div class="field-label"><label for="review-note">Note for the owner (optional)</label></div>
+        <textarea id="review-note" class="field-input" name="note" rows="2" maxlength="500"></textarea>
+        <div class="actions">
+          <button class="btn btn--primary" type="submit" name="action" value="approve">Approve</button>
+          <button class="btn" type="submit" name="action" value="send_back">Send back</button>
+        </div>
+      </form>
+      {% elif actions %}
+      <div class="actions">
+        {% for action, label, primary in [("start", "Start this task", True), ("ready", "Ready for review", True), ("unclaim", "Unclaim", False)] if action in actions %}
+        <form method="post" action="/tasks/{{ task.code }}/status"><input type="hidden" name="action" value="{{ action }}"><button class="btn{% if primary %} btn--primary{% endif %}" type="submit">{{ label }}</button></form>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if task.status == "needs_review" and "approve" not in actions %}
+      <p class="meta">Waiting for a lead to review it.</p>
+      {% elif task.status == "done" %}
+      <p class="meta">A lead approved this task.</p>
+      {% elif task.status == "todo" and task.owner and "start" not in actions %}
+      <p class="meta">{{ task.owner }} owns this task. Only they or a lead can start it.</p>
+      {% elif task.status == "in_progress" and not actions %}
+      <p class="meta">Only {{ task.owner or "its owner" }} or a lead can move this task.</p>
+      {% endif %}
+    </section>
+
+    <section class="panel panel--strong" aria-labelledby="about-heading">
+      <div class="panel__head"><h2 class="panel__title" id="about-heading">About this task</h2><span class="meta">{{ task.subsystem }} · {{ task.task_type }}</span></div>
+      {% if task.description %}<p class="prose">{{ task.description }}</p>{% else %}<p class="meta">The tracker has no description for this task.</p>{% endif %}
+      {% for label, value in details if label != "Description" %}
+      <div class="field-label">{{ label }}</div>
+      <div class="prose">{% if label == "Documentation" %}{{ value | linkify }}{% else %}{{ value }}{% endif %}</div>
+      {% endfor %}
+      <div class="field-label">Related decisions</div>
+      {% if decisions_error %}{{ error_state(decisions_error, "/tasks/" ~ task.code, "Try again") }}
+      {% elif task_decisions %}
+      {% for d in task_decisions %}<div class="field field--row"><span><span class="code">D{{ d.id }}</span> <a href="/decisions/{{ d.id }}">{{ d.topic }}</a></span>{{ status_label(d.status, decision_status_labels.get(d.status, d.status)) }}</div>{% endfor %}
+      {% else %}{{ empty_state("No decisions are linked to this task yet.") }}{% endif %}
+      <div class="actions"><a class="btn btn--small" href="/decisions/new?task={{ task.code | urlencode }}">Propose a decision</a></div>
+    </section>
+
+    <section class="panel" aria-labelledby="history-heading">
+      <div class="panel__head"><h2 class="panel__title" id="history-heading">History</h2></div>
+      {% if history_error %}{{ error_state(history_error, "/tasks/" ~ task.code, "Try again") }}
+      {% elif history %}
+      <ul class="history">{% for h in history %}<li><time>{{ h.date }}</time><span>{{ h.text }}{% if h.note %}<span class="task-row__meta">“{{ h.note }}”</span>{% endif %}</span></li>{% endfor %}</ul>
+      {% else %}{{ empty_state("No changes yet. Starting, review and approval show up here.") }}{% endif %}
+    </section>
+  </div>
+</div>
 {% endif %}
 {% endblock %}

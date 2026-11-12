@@ -1,33 +1,29 @@
 {% extends "base.html" %}
 {% block title %}Import finished – Crush Coach{% endblock %}
+{% block page_title %}Import finished{% endblock %}
+{% block topbar_actions %}<a class="btn" href="/tasks">All tasks</a>{% endblock %}
 {% block main %}
-<h1>Import finished</h1>
-<p role="status">
-  {{ result.added }} added, {{ result.skipped_existing }} skipped (already existed), {{ result.errors | length }} with errors.
-</p>
+<section class="panel" aria-labelledby="result-heading">
+  <h2 class="panel__title" id="result-heading">What happened</h2>
+  <p class="panel__sub" role="status">{{ result.added }} added, {{ result.skipped_existing }} skipped (already existed), {{ result.errors | length }} with errors.</p>
 
-{% if result.added_codes %}
-<section aria-labelledby="added-heading">
-  <h2 id="added-heading">Added</h2>
-  <p>{% for code in result.added_codes %}<span class="code">{{ code }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</p>
-</section>
-{% endif %}
+  {% if result.added_codes %}
+  <div class="field-label">Added</div>
+  <div class="field">{% for code in result.added_codes %}<span class="code">{{ code }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</div>
+  {% endif %}
 
-{% if result.skipped_codes %}
-<section aria-labelledby="skipped-heading">
-  <h2 id="skipped-heading">Skipped: already in the tracker</h2>
-  <p>{% for code in result.skipped_codes %}<span class="code">{{ code }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</p>
-</section>
-{% endif %}
+  {% if result.skipped_codes %}
+  <div class="field-label">Skipped: already in the tracker</div>
+  <div class="field">{% for code in result.skipped_codes %}<span class="code">{{ code }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</div>
+  {% endif %}
 
-{% if result.errors %}
-<section aria-labelledby="errors-heading">
-  <h2 id="errors-heading">Errors (not imported)</h2>
-  <ul class="problem-list">
-    {% for message in result.errors %}<li>{{ message }}</li>{% endfor %}
+  {% if result.errors %}
+  <div class="field-label">Errors (not imported)</div>
+  <ul class="history">
+    {% for message in result.errors %}<li><span>{{ message }}</span></li>{% endfor %}
   </ul>
-</section>
-{% endif %}
+  {% endif %}
 
-<p><a href="/tasks">Go to the task board</a> · <a href="/admin/import">Import another file</a></p>
+  <div class="actions"><a class="btn btn--primary" href="/tasks">Go to all tasks</a><a class="btn" href="/admin/import">Import another file</a></div>
+</section>
 {% endblock %}

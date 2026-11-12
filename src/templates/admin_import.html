@@ -1,15 +1,17 @@
 {% extends "base.html" %}
+{% from "components/feedback.html" import notice %}
 {% block title %}Import tasks – Crush Coach{% endblock %}
+{% block page_title %}Import tasks{% endblock %}
+{% block topbar_actions %}<a class="btn" href="/admin">Admin</a>{% endblock %}
 {% block main %}
-<h1>Import tasks</h1>
-<p>Upload a CSV export of the tracker’s “Mechanical Tasks” or “Mission Actuators” tab (Google Sheets: File → Download → Comma-separated values). The simple sample format works too.</p>
-<p class="count">You’ll see every row first. Nothing is saved until you click Import, and tasks that already exist are skipped, never changed.</p>
-
-{% if error %}<p class="notice" role="alert">{{ error }}</p>{% endif %}
-
-<form class="import-form" method="post" action="/admin/import/preview" enctype="multipart/form-data">
-  <label for="import-file">Tracker CSV file</label>
-  <input id="import-file" type="file" name="file" accept=".csv,text/csv" required>
-  <button class="btn btn-primary" type="submit">Preview</button>
-</form>
+<section class="panel" aria-labelledby="upload-heading">
+  <h2 class="panel__title" id="upload-heading">Upload the tracker</h2>
+  <p class="panel__sub">Upload a CSV export of the tracker’s “Mechanical Tasks” or “Mission Actuators” tab (Google Sheets: File → Download → Comma-separated values). The simple sample format works too. You’ll see every row first. Nothing is saved until you click Import, and tasks that already exist are skipped, never changed.</p>
+  {% if error %}{{ notice(error, "error") }}{% endif %}
+  <form method="post" action="/admin/import/preview" enctype="multipart/form-data">
+    <label class="field-label" for="import-file">Tracker CSV file</label>
+    <input id="import-file" class="field-input" type="file" name="file" accept=".csv,text/csv" required>
+    <div class="actions"><button class="btn btn--primary" type="submit">Preview</button></div>
+  </form>
+</section>
 {% endblock %}

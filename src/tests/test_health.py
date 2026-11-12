@@ -23,16 +23,22 @@ def test_index_is_accessible_html():
     assert "<title>Crush Coach</title>" in html
     assert '<html lang="en">' in html
     assert 'name="viewport"' in html
-    assert '<main id="main">' in html
+    assert '<main class="main" id="main">' in html
     assert 'href="#main"' in html  # skip link
-    assert html.count("<h1>") == 1
+    assert html.count("<h1 ") == 1
+    assert '<nav class="sidebar" aria-label="Main">' in html
 
 
-def test_stylesheet_is_served():
+def test_stylesheets_and_fonts_are_served_and_the_old_one_is_not():
     with TestClient(main.app) as client:
-        response = client.get("/static/style.css")
-    assert response.status_code == 200
-    assert response.headers["content-type"].startswith("text/css")
+        for name in ("tokens", "app", "extras"):
+            response = client.get(f"/static/styles/{name}.css")
+            assert response.status_code == 200
+            assert response.headers["content-type"].startswith("text/css")
+        font = client.get("/static/fonts/manrope/manrope-latin-400-normal.woff2")
+        assert font.status_code == 200
+        assert client.get("/static/img/crush.png").status_code == 200
+        assert client.get("/static/style.css").status_code == 404
 
 
 def test_migrations_run_on_startup_and_task_round_trips():
