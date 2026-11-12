@@ -12,12 +12,13 @@ with the reason, it is logged, and the sync moves on.
 
 import io
 import logging
+import os
 import re
 import time
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from googleapiclient.discovery import build
@@ -27,6 +28,7 @@ from sqlmodel import Session
 
 import drive
 import drive_exclude
+import drive_rank
 from drive import DriveError
 from drive_exclude import ExcludeRules
 from models import KIND_WORDS, DriveChunk, DriveFile, SyncState, utc_now
@@ -1494,6 +1496,8 @@ NAME_ANY_BOOST = 0.45  # some query word is in the name
 PATH_ALL_BOOST = 0.6  # every word is somewhere in name + folder + kind (name-only hits)
 ALL_TERMS_BOOST = 0.25  # a chunk that contains every query word
 COPY_PENALTY = 0.4  # "Copy of ..." files rank below the original
+DEMOTE_PHRASE_PENALTY = 0.35  # folder path has OBSOLETE, Old, Alfie... (drive_rank.py)
+OLD_SEASON_PENALTY = 0.35  # from a season more than a year behind the current one
 SNIPPET_CHARS = 240
 SEARCH_TYPES = ("cad", "doc", "sheet", "pdf")
 _WORD = re.compile(r"\w+")
@@ -1518,6 +1522,11 @@ class SearchHit:
     score: float
     chunk_id: int | None = None
     also_in: int = 0  # identical copies left out of the results (kept: the newer)
+    old_reasons: tuple[str, ...] = ()  # why it ranks lower, in words; empty if current
+
+    @property
+    def possibly_old(self) -> bool:
+        return bool(self.old_reasons)
 
 
 def make_snippet(body: str, words: list[str], width: int = SNIPPET_CHARS) -> str:
@@ -1765,6 +1774,42 @@ def _collapse(hits: list[SearchHit]) -> list[SearchHit]:
     return kept
 
 
+_rules_cache: dict[tuple, drive_rank.DemoteRules] = {}
+
+
+def demote_rules() -> drive_rank.DemoteRules:
+    """The demotion rules from config, re-read only when the file or variable changes."""
+    try:
+        stamp = drive_rank.DEFAULT_FILE.stat().st_mtime_ns
+    except OSError:
+        stamp = None
+    key = (stamp, os.environ.get(drive_rank.ENV_VAR, ""))
+    if key not in _rules_cache:
+        _rules_cache.clear()
+        _rules_cache[key] = drive_rank.load_rules()
+    return _rules_cache[key]
+
+
+def hit_for_model(hit: SearchHit) -> dict[str, Any]:
+    """A result in the shape the model gets: the folder path and modified date are
+    ALWAYS there ("unknown" if Drive gave none), with whether the source looks old
+    and why, so the model can prefer current-season files and say when one is old.
+    """
+    return {
+        "title": hit.name,
+        "link": hit.web_link or "",
+        "folder_path": hit.folder_path or "unknown",
+        "modified": hit.modified_time.date().isoformat()
+        if hit.modified_time
+        else "unknown",
+        "kind": hit.kind,
+        "section": hit.heading,
+        "possibly_old": hit.possibly_old,
+        "old_because": list(hit.old_reasons),
+        "text": hit.text or "",
+    }
+
+
 def search(
     session: Session,
     query: str,
@@ -1772,6 +1817,8 @@ def search(
     *,
     max_per_file: int | None = 3,
     kind: str | None = None,
+    today: date | None = None,
+    demote: drive_rank.DemoteRules | None = None,
 ) -> list[SearchHit]:
     """Ranked chunks (or name-only file hits) for a question's keywords.
 
@@ -1783,6 +1830,9 @@ def search(
     kept as written. `kind` ("cad", "doc", "sheet", "pdf") limits the file type.
     "Copy of ..." files rank below the original, identical results collapse to
     the newer file, and `max_per_file` stops one long document filling the list.
+    Files in OBSOLETE/Old/Archive/Alfie folders, or from a season more than a year
+    behind `today`, rank lower (config: drive_index_demote.txt) and say why in
+    `old_reasons`; they are never removed.
     """
     if kind is not None and kind not in SEARCH_TYPES:
         raise ValueError(f"kind must be one of {', '.join(SEARCH_TYPES)}")
@@ -1796,12 +1846,17 @@ def search(
     else:
         hits = _like_hits(session, words, fetch, kind)
 
-    hits = [
-        replace(hit, score=hit.score - COPY_PENALTY)
-        if _COPY_PREFIX.match(hit.name)
-        else hit
-        for hit in _collapse(hits)
-    ]
+    rules = demote if demote is not None else demote_rules()
+    ranked: list[SearchHit] = []
+    for hit in _collapse(hits):
+        old = rules.assess(hit.folder_path, hit.modified_time, today)
+        penalty = (
+            (COPY_PENALTY if _COPY_PREFIX.match(hit.name) else 0.0)
+            + (DEMOTE_PHRASE_PENALTY if old.folder_words else 0.0)
+            + (OLD_SEASON_PENALTY if old.old_season is not None else 0.0)
+        )
+        ranked.append(replace(hit, score=hit.score - penalty, old_reasons=old.reasons))
+    hits = ranked
     oldest = datetime.fromtimestamp(0, UTC).replace(tzinfo=None)
     hits.sort(
         key=lambda hit: (round(hit.score, 3), hit.modified_time or oldest),

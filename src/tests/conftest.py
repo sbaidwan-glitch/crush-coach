@@ -133,3 +133,22 @@ def fake():
         "fDocs",
     )
     return g
+
+
+@pytest.fixture(autouse=True)
+def real_demote_rules():
+    """Search ranks old seasons lower, which depends on today's date. Tests that are
+    not about that get an empty rule set so they can't drift with the calendar; the
+    ones that are about it pass `demote=` and `today=` explicitly. Yields the real
+    function for the one test that wants the config file.
+
+    (Patched by hand, not with `monkeypatch`: sharing that fixture would change when
+    other tests' patches are undone relative to the database cleanup.)
+    """
+    import drive_index
+    import drive_rank
+
+    real = drive_index.demote_rules
+    drive_index.demote_rules = lambda: drive_rank.DemoteRules.none()
+    yield real
+    drive_index.demote_rules = real

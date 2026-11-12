@@ -75,6 +75,8 @@ def main() -> int:
         )
         print(f"{number}. {hit.name}  [{hit.kind}, score {hit.score:.3f}]{copies}")
         print(f"   {hit.folder_path}  ·  modified {modified}")
+        if hit.old_reasons:
+            print(f"   Ranked lower, may be out of date: {'; '.join(hit.old_reasons)}")
         if hit.heading:
             print(f"   Section: {hit.heading}")
         print(f"   {hit.web_link}")

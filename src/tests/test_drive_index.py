@@ -19,6 +19,7 @@ from fake_google import (
 from sqlmodel import select
 
 import drive_index as di
+import drive_rank
 from models import DriveChunk, DriveFile, SyncState
 
 
@@ -1197,3 +1198,139 @@ def test_index_stats_script_prints_the_numbers(session, fake, monkeypatch, capsy
     assert "10 largest files by chunk count" in out
     assert "Files not read" in out and "CAD file: no text" in out
     assert "text chunks" in out
+
+
+# --- ranking old sources lower ---
+
+NOW = datetime.fromisoformat("2026-11-11").date()  # the 2026-2027 season
+
+
+def season_docs(fake):
+    """The same notes in a current-season folder, an Alfie folder and an old season."""
+    for folder_id, name, parent in (
+        ("f2627", "2026-2027", "drv1"),
+        ("f2122", "2021-2022", "drv1"),
+        ("fAlfie", "Alfie Simplified for Comparison", "f2627"),
+        ("fOld", "Old Crush", "f2627"),
+    ):
+        fake.add(folder_id, name, FOLDER, parent)
+    for doc_id, parent, modified in (
+        ("cur", "f2627", "2026-10-30T00:00:00Z"),
+        ("alfie", "fAlfie", "2026-11-01T00:00:00Z"),  # newer than the current one
+        ("oldf", "fOld", "2026-11-02T00:00:00Z"),
+        ("oldseason", "f2122", "2026-11-03T00:00:00Z"),  # edited last week
+    ):
+        fake.add(doc_id, "Gasket groove notes", DOC, parent, modified=modified)
+        fake.documents[doc_id] = {
+            "tabs": [doc_tab("T", doc_paragraph(f"gasket groove depth {doc_id}"))]
+        }
+
+
+def test_old_sources_rank_below_current_ones_but_are_not_removed(session, fake):
+    season_docs(fake)
+    di.full_sync(session, fake.google())
+
+    hits = di.search(
+        session, "gasket groove", today=NOW, demote=drive_rank.load_rules(environ={})
+    )
+    ids = [
+        h.drive_id for h in hits if h.drive_id in ("cur", "alfie", "oldf", "oldseason")
+    ]
+
+    assert ids[0] == "cur"  # even though every other copy is newer
+    assert set(ids) == {"cur", "alfie", "oldf", "oldseason"}  # all still there
+    by_id = {h.drive_id: h for h in hits}
+    assert by_id["cur"].old_reasons == () and not by_id["cur"].possibly_old
+    assert "folder path mentions Alfie" in by_id["alfie"].old_reasons
+    assert "folder path mentions for Comparison" in by_id["alfie"].old_reasons
+    assert by_id["oldf"].old_reasons == ("folder path mentions Old",)
+    assert by_id["oldseason"].old_reasons == ("from the 2021-2022 season",)
+    assert all(by_id[i].possibly_old for i in ("alfie", "oldf", "oldseason"))
+
+
+def test_with_no_demotion_rules_the_newest_wins_as_before(session, fake):
+    season_docs(fake)
+    di.full_sync(session, fake.google())
+    hits = di.search(
+        session, "gasket groove", today=NOW, demote=drive_rank.DemoteRules.none()
+    )
+    assert hits[0].drive_id == "oldseason"  # newest modified
+    assert all(h.old_reasons == () for h in hits)
+
+
+def test_two_old_reasons_rank_lower_than_one(session, fake):
+    fake.add("f2122", "2021-2022", FOLDER, "drv1")
+    fake.add("fAlfie2", "Alfie", FOLDER, "f2122")
+    fake.add("fSolo", "Alfie", FOLDER, "drv1")
+    for doc_id, parent in (("both", "fAlfie2"), ("one", "fSolo")):
+        fake.add(doc_id, "Thruster notes", DOC, parent, modified="2026-11-01T00:00:00Z")
+        fake.documents[doc_id] = {
+            "tabs": [doc_tab("T", doc_paragraph(f"thruster mount notes {doc_id}"))]
+        }
+    di.full_sync(session, fake.google())
+
+    hits = di.search(
+        session, "thruster mount", today=NOW, demote=drive_rank.load_rules(environ={})
+    )
+
+    assert [h.drive_id for h in hits if h.drive_id in ("one", "both")] == [
+        "one",
+        "both",
+    ]
+
+
+def test_an_old_cad_file_ranks_below_a_current_one_with_the_same_name_words(
+    session, fake
+):
+    fake.add("f2627", "2026-2027", FOLDER, "drv1")
+    fake.add("fAlfie", "Alfie CAD", FOLDER, "f2627")
+    add_cad(fake, "alfieLatch", "Latch plate.SLDPRT", "fAlfie", "2026-11-05T00:00:00Z")
+    add_cad(fake, "crushLatch", "Latch bracket.SLDPRT", "f2627", "2026-03-01T00:00:00Z")
+    di.full_sync(session, fake.google())
+
+    hits = di.search(
+        session,
+        "latch",
+        kind="cad",
+        today=NOW,
+        demote=drive_rank.load_rules(environ={}),
+    )
+
+    assert [h.drive_id for h in hits] == ["crushLatch", "alfieLatch"]
+
+
+def test_the_config_file_is_what_search_uses_by_default(
+    session, fake, monkeypatch, real_demote_rules
+):
+    season_docs(fake)
+    di.full_sync(session, fake.google())
+    monkeypatch.setattr(di, "demote_rules", real_demote_rules)  # the real config
+    monkeypatch.setenv(drive_rank.ENV_VAR, "")
+    di._rules_cache.clear()
+
+    hits = di.search(session, "gasket groove", today=NOW)
+
+    assert hits[0].drive_id == "cur"
+    assert di.demote_rules() is di.demote_rules()  # re-read only when config changes
+    monkeypatch.setenv(drive_rank.ENV_VAR, "Brand New Word")
+    assert any(t == "Brand New Word" for t, _ in di.demote_rules().phrases)
+
+
+def test_hit_for_model_always_has_the_folder_path_and_modified_date(session, fake):
+    season_docs(fake)
+    di.full_sync(session, fake.google())
+    hits = di.search(
+        session, "gasket groove", today=NOW, demote=drive_rank.load_rules(environ={})
+    )
+
+    for hit in hits:
+        view = di.hit_for_model(hit)
+        assert view["folder_path"] and view["modified"] not in ("", None)
+        assert set(view) >= {"title", "link", "possibly_old", "old_because", "text"}
+    alfie = next(di.hit_for_model(h) for h in hits if h.drive_id == "alfie")
+    assert alfie["possibly_old"] is True and alfie["modified"] == "2026-11-01"
+    assert alfie["folder_path"].endswith("Alfie Simplified for Comparison")
+    # even a result Drive gave no date or folder for says so, instead of leaving it out
+    bare = di.SearchHit(1, "x", "n", "doc", "", None, None, None, "", "", 0.0)
+    assert di.hit_for_model(bare)["modified"] == "unknown"
+    assert di.hit_for_model(bare)["folder_path"] == "unknown"

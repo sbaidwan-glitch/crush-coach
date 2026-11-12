@@ -16,9 +16,11 @@ import pytest
 from fake_google import DOC, doc_paragraph, doc_tab
 from sqlalchemy import create_engine, inspect, text
 from sqlmodel import Session, delete, select
+from test_drive_index import NOW, season_docs
 
 import db
 import drive_index as di
+import drive_rank
 from models import DriveChunk, DriveFile, SyncState
 
 URL = os.environ.get("TEST_POSTGRES_URL")
@@ -224,3 +226,18 @@ def test_any_word_matches_but_every_word_ranks_higher(pg, fake):
     ]
 
     assert ids == ["both", "one"]
+
+
+def test_old_sources_rank_below_current_ones_on_postgres(pg, fake):
+    season_docs(fake)
+    di.full_sync(pg, fake.google())
+
+    hits = di.search(
+        pg, "gasket groove", today=NOW, demote=drive_rank.load_rules(environ={})
+    )
+
+    ids = [
+        h.drive_id for h in hits if h.drive_id in ("cur", "alfie", "oldf", "oldseason")
+    ]
+    assert ids[0] == "cur" and set(ids) == {"cur", "alfie", "oldf", "oldseason"}
+    assert {h.drive_id: h.possibly_old for h in hits}["oldseason"] is True

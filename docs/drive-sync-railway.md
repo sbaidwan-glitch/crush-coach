@@ -73,6 +73,13 @@ worth excluding: `python scripts/index_stats.py --noise`.
 A new rule applies to files already indexed at the next **full** sync (it removes
 them); an incremental sync only applies rules to what changed.
 
+## What ranks lower
+
+Search ranks results from obsolete, old or Alfie folders, and from seasons more than
+a year behind, below current ones (they still appear, with the reason). The list
+is `src/drive_index_demote.txt`, plus the `DRIVE_INDEX_DEMOTE` variable for extras
+(`;`-separated). It is read at search time, so a change needs no re-sync.
+
 ## Size and cost
 
 Check the real numbers any time with `python scripts/index_stats.py`. For the team
