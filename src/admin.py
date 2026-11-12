@@ -1,4 +1,10 @@
-"""Lead-only pages. `/admin/import` loads tasks from the team's tracker CSV.
+"""Lead-only pages. `/admin` runs the Drive sync; `/admin/import` loads tasks.
+
+The Drive block shows when the index was last synced and how big it is. "Sync
+Drive now" takes the sync lock, starts an incremental sync in the background and
+returns at once; the status block then polls until the sync is done.
+
+`/admin/import` loads tasks from the team's tracker CSV.
 
 Flow: upload -> review (nothing saved) -> Import. The review page is stateless:
 the rows exactly as parsed travel in a hidden field, and the lead's edits (codes,
@@ -9,20 +15,24 @@ browser is never trusted and nothing is stored between steps.
 
 import json
 import logging
+import os
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
+from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 from starlette.datastructures import FormData, UploadFile
 
 import db
+import drive_index
 import import_tasks as importer
 from auth import LeadUser
-from models import SUBSYSTEMS, TASK_TYPES, Task
+from models import SUBSYSTEMS, TASK_TYPES, SyncState, Task, utc_now
 
 log = logging.getLogger("crush_coach")
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
@@ -301,3 +311,131 @@ async def import_confirm(
     return templates.TemplateResponse(
         request, "admin_import_result.html", {"user": user, "result": result}
     )
+
+
+# --- Drive index ---
+
+DEFAULT_TIMEZONE = "America/Los_Angeles"
+SYNC_MESSAGES = {
+    "error": "Couldn’t start the sync: the database didn’t answer. Try again.",
+    "started": "Sync started. This page updates when it finishes.",
+    "running": "A sync is already running. This page updates when it finishes.",
+}
+SYNC_STATUS_ERROR = (
+    "Couldn’t read the Drive sync status from the database. Try again in a moment."
+)
+
+
+def _local_time(value: datetime | None) -> str:
+    """A stored naive-UTC time in the team's time zone, for people to read."""
+    if value is None:
+        return "Never"
+    try:
+        zone = ZoneInfo(os.environ.get("COACH_TIMEZONE") or DEFAULT_TIMEZONE)
+    except Exception:  # noqa: BLE001  (bad name or no tz database: show UTC)
+        zone = UTC
+    local = value.replace(tzinfo=UTC).astimezone(zone)
+    return f"{local:%b} {local.day}, {local:%Y}, {local:%-I:%M %p} {local:%Z}"
+
+
+def _drive_status(session: Session) -> dict[str, Any]:
+    """What the Drive block shows: counts, last sync time, running, last error."""
+    state = session.get(SyncState, 1) or SyncState(id=1)
+    stale = utc_now() - drive_index.STALE_LOCK_AFTER
+    alive = state.heartbeat_at or state.running_since
+    running = state.running_since is not None and alive is not None and alive > stale
+    synced = [t for t in (state.last_full_sync, state.last_incremental_sync) if t]
+    last_synced = max(synced) if synced else None
+    return {
+        "running": running,
+        "last_synced": _local_time(last_synced),
+        "last_synced_iso": last_synced.isoformat() if last_synced else None,
+        "ever_synced": last_synced is not None,
+        "file_count": state.file_count,
+        "chunk_count": state.chunk_count,
+        "error_count": state.error_count,
+        "last_error": state.last_error,
+        "status_error": None,
+    }
+
+
+def _drive_context(session: Session, message_key: str | None = None) -> dict[str, Any]:
+    try:
+        context = _drive_status(session)
+    except Exception as exc:  # noqa: BLE001  (a DB failure must not break the page)
+        log.error("Admin could not read the Drive sync state (%s)", type(exc).__name__)
+        context = {"status_error": SYNC_STATUS_ERROR, "running": False}
+    context["sync_message"] = SYNC_MESSAGES.get(message_key or "")
+    context["sync_message_kind"] = "error" if message_key == "error" else "note"
+    return context
+
+
+def run_background_sync() -> None:
+    """Run the incremental sync the button started. Never raises: nobody is waiting.
+
+    The button already took the sync lock; incremental_sync releases it, and
+    records the reason on the state row if the sync fails.
+    """
+    try:
+        with Session(db.engine) as session:
+            report = drive_index.incremental_sync(session, already_claimed=True)
+        log.info(
+            "Drive sync from the admin page finished (%s, %d files read, %d removed)",
+            report.mode,
+            report.files_read,
+            report.removed,
+        )
+    except drive_index.SyncError:
+        pass  # already logged and stored as last_error by the sync itself
+    except Exception as exc:  # noqa: BLE001  (a background task has nowhere to raise)
+        # incremental_sync releases the lock itself; this covers a crash before it ran.
+        log.error("Drive sync from the admin page crashed (%s)", type(exc).__name__)
+        with Session(db.engine) as session:
+            drive_index.release_quietly(
+                session, f"Unexpected error ({type(exc).__name__})"
+            )
+
+
+@router.get("", response_class=HTMLResponse)
+def admin_home(
+    request: Request,
+    session: Annotated[Session, Depends(db.get_session)],
+    user: LeadUser,
+    sync: str | None = None,
+):
+    return templates.TemplateResponse(
+        request,
+        "admin.html",
+        {"user": user, "drive": _drive_context(session, sync)},
+    )
+
+
+@router.get("/drive/status", response_class=HTMLResponse)
+def drive_status(
+    request: Request,
+    session: Annotated[Session, Depends(db.get_session)],
+    user: LeadUser,
+):
+    """Just the status block, for the page to poll while a sync runs."""
+    return templates.TemplateResponse(
+        request, "_drive_sync_status.html", {"drive": _drive_context(session)}
+    )
+
+
+@router.post("/drive/sync")
+def drive_sync(
+    session: Annotated[Session, Depends(db.get_session)],
+    background: BackgroundTasks,
+    user: LeadUser,
+):
+    """Start an incremental sync and go straight back to the page."""
+    try:
+        drive_index.claim(session)
+    except drive_index.SyncAlreadyRunning:
+        return RedirectResponse("/admin?sync=running", status_code=303)
+    except Exception as exc:  # noqa: BLE001  (a DB failure must not break the page)
+        session.rollback()
+        log.error("Admin could not start a Drive sync (%s)", type(exc).__name__)
+        return RedirectResponse("/admin?sync=error", status_code=303)
+    background.add_task(run_background_sync)
+    return RedirectResponse("/admin?sync=started", status_code=303)

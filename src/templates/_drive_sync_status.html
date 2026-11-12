@@ -1,0 +1,31 @@
+{# The Drive index block: status, counts and the sync button. While a sync runs it
+   polls itself (htmx) and swaps in the finished state. #}
+{% from "components/button.html" import button %}
+{% from "components/feedback.html" import notice, error_state %}
+{% from "components/readout.html" import readout %}
+<div id="drive-status"{% if drive.running %} hx-get="/admin/drive/status" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+  {% if drive.status_error %}
+    {{ error_state(drive.status_error) }}
+  {% else %}
+    {% if drive.sync_message %}
+      {{ notice(drive.sync_message, drive.sync_message_kind) }}
+    {% elif drive.running %}
+      {{ notice("Syncing Drive now. This page updates when it finishes.") }}
+    {% endif %}
+    {% if drive.last_error and not drive.running %}
+      {{ error_state("The last sync failed: " ~ drive.last_error ~ " The index still has what it had before.") }}
+    {% endif %}
+    {{ readout([
+      {"label": "Last synced", "value": drive.last_synced},
+      {"label": "Files", "value": drive.file_count},
+      {"label": "Text chunks", "value": drive.chunk_count},
+      {"label": "Files whose text couldn’t be read", "value": drive.error_count}
+    ]) }}
+    {% if not drive.ever_synced and not drive.running %}
+      <p class="count">Nothing has been synced yet. The first sync reads the whole Drive and can take several minutes.</p>
+    {% endif %}
+  {% endif %}
+  <form class="drive-sync-form" method="post" action="/admin/drive/sync">
+    <button type="submit" class="btn btn-primary"{% if drive.running %} disabled aria-disabled="true"{% endif %}>{{ "Syncing…" if drive.running else "Sync Drive now" }}</button>
+  </form>
+</div>

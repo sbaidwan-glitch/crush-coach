@@ -4,7 +4,7 @@
 
 Starts the app against a throwaway SQLite database seeded with the made-up sample
 tasks, signs in with a forged session cookie for a made-up member, and saves
-/, /tasks, /tasks/M04 and the decision pages at 375px and 1280px into
+/, /tasks, /tasks/M04, the decision pages and /admin at 375px and 1280px into
 .context/screenshots/ (gitignored).
 It never touches your real database, your .env secrets, the model or Google.
 
@@ -38,6 +38,7 @@ PAGES = (
     ("decision-new", "/decisions/new?task=M04", "member"),
     ("decision-proposed-lead", "/decisions/2", "lead"),
     ("decision-confirmed-lead", "/decisions/1", "lead"),
+    ("admin", "/admin", "lead"),
 )
 
 # Made-up values; nothing here is a real secret, person or team data.
@@ -67,7 +68,7 @@ def seed() -> None:
 
     import db
     import import_tasks
-    from models import CoachMessage, Decision, DecisionTask, Task, utc_now
+    from models import CoachMessage, Decision, DecisionTask, SyncState, Task, utc_now
 
     assert db.database_url().startswith("sqlite"), (
         "refusing to seed a non-SQLite database"
@@ -138,7 +139,10 @@ def seed() -> None:
             decision="Use two cam latches on the long sides.",
             rationale="Toggle latches loosen under vibration.",
             alternatives=[
-                {"option": "Toggle latch", "rejected_because": "Loosens under vibration."}
+                {
+                    "option": "Toggle latch",
+                    "rejected_because": "Loosens under vibration.",
+                }
             ],
             sources=[],
             status="proposed",
@@ -148,6 +152,16 @@ def seed() -> None:
         session.flush()
         session.add(DecisionTask(decision_id=latch.id, task_id=task.id))
         session.add(DecisionTask(decision_id=proposal.id, task_id=task.id))
+        # A made-up Drive sync state, so /admin shows real-looking numbers.
+        session.add(
+            SyncState(
+                id=1,
+                last_incremental_sync=utc_now(),
+                file_count=412,
+                chunk_count=2380,
+                error_count=3,
+            )
+        )
         session.commit()
 
 

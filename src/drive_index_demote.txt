@@ -1,0 +1,21 @@
+# Search results from these places rank lower. They still show up, further down:
+# an old document is sometimes the only one that answers a question.
+# More can be added without a deploy in the DRIVE_INDEX_DEMOTE environment variable
+# (separate lines with a semicolon). Lives next to drive_index_exclude.txt.
+#
+# A line is a word or phrase matched as WHOLE WORDS anywhere in a file's folder
+# path, in any case: "Old" matches "Old Crush" but not "Holder". * matches word
+# characters, so "Archive*" also catches "Archived".
+
+OBSOLETE
+Old
+Archive*
+Alfie
+for Comparison
+
+# Seasons are folders named like 2024-2025 (a file outside any season folder is
+# placed by its modified date). A season starts in this month (8 = August):
+season_start_month = 8
+# A file from a season more than this many seasons behind the current one is old.
+# 1 means last season is fine and anything older ranks lower:
+old_after_seasons = 1

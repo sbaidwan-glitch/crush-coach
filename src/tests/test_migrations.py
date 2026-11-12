@@ -128,6 +128,77 @@ def test_downgrade_to_0001_removes_only_the_coach_tables(fresh_engine):
     assert "coach_message" not in tables and "llm_call" not in tables
 
 
+def test_upgrade_creates_drive_index_tables(fresh_engine):
+    db.run_migrations(fresh_engine)
+
+    inspector = inspect(fresh_engine)
+    files = {c["name"]: c for c in inspector.get_columns("drive_file")}
+    assert set(files) == {
+        "id",
+        "drive_id",
+        "name",
+        "mime_type",
+        "parent_id",
+        "folder_path",
+        "modified_time",
+        "web_link",
+        "size",
+        "kind",
+        "text_status",
+        "text_reason",
+        "last_indexed_at",
+        "search_vector",
+    }
+    drive_id_index = [
+        i
+        for i in inspector.get_indexes("drive_file")
+        if i["column_names"] == ["drive_id"]
+    ]
+    assert len(drive_id_index) == 1 and drive_id_index[0]["unique"]
+
+    chunks = {c["name"] for c in inspector.get_columns("drive_chunk")}
+    assert chunks == {"id", "file_id", "position", "heading", "text", "search_vector"}
+    assert [
+        fk["referred_table"] for fk in inspector.get_foreign_keys("drive_chunk")
+    ] == ["drive_file"]
+    names = {i["name"] for i in inspector.get_indexes("drive_chunk")}
+    assert "ix_drive_chunk_search_vector" in names
+
+    state = {c["name"] for c in inspector.get_columns("sync_state")}
+    assert {
+        "page_token",
+        "last_full_sync",
+        "last_incremental_sync",
+        "heartbeat_at",
+    } <= state
+    file_indexes = {i["name"] for i in inspector.get_indexes("drive_file")}
+    assert "ix_drive_file_search_vector" in file_indexes
+
+
+def test_downgrade_one_step_keeps_the_drive_tables_but_drops_their_new_columns(
+    fresh_engine,
+):
+    db.run_migrations(fresh_engine)
+    command.downgrade(db.alembic_config(fresh_engine), "-1")
+    inspector = inspect(fresh_engine)
+    assert "search_vector" not in {
+        c["name"] for c in inspector.get_columns("drive_file")
+    }
+    assert "heartbeat_at" not in {
+        c["name"] for c in inspector.get_columns("sync_state")
+    }
+    assert "drive_chunk" in inspector.get_table_names()
+
+
+def test_downgrade_to_0004_removes_only_the_drive_index(fresh_engine):
+    db.run_migrations(fresh_engine)
+    command.downgrade(db.alembic_config(fresh_engine), "0004")
+    tables = inspect(fresh_engine).get_table_names()
+    assert {"drive_file", "drive_chunk", "sync_state"}.isdisjoint(tables)
+    assert {"task", "coach_message", "llm_call"} <= set(tables)
+    assert {"decision", "decision_task"} <= set(tables)
+
+
 def test_upgrade_creates_decision_tables(fresh_engine):
     db.run_migrations(fresh_engine)
 

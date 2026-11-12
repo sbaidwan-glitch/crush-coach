@@ -36,6 +36,7 @@ pyyaml==6.0.3           # evals/coach_questions.yaml (make eval)
 # --- Google Drive (read-only team docs) ---
 google-api-python-client==2.201.0
 google-auth==2.62.1
+pypdf==7.0.0            # PDF text for the Drive index (src/drive_index.py)
 
 # --- lab notebooks (hw5.ipynb and friends) ---
 ipykernel==7.3.0

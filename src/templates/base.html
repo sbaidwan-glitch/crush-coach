@@ -26,6 +26,7 @@
           <a href="/tasks"{% if request.url.path.startswith("/tasks") %} aria-current="page"{% endif %}>Tasks</a>
           <a href="/decisions"{% if request.url.path.startswith("/decisions") %} aria-current="page"{% endif %}>Decisions</a>
           {% if user and user.role == "lead" %}
+          <a href="/admin"{% if request.url.path == "/admin" %} aria-current="page"{% endif %}>Admin</a>
           <a href="/admin/import"{% if request.url.path.startswith("/admin/import") %} aria-current="page"{% endif %}>Import tasks</a>
           {% endif %}
           {% if user %}

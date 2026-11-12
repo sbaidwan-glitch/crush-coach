@@ -772,6 +772,23 @@ main {
   white-space: pre-line; /* keep the line breaks from the sheet cell */
 }
 
+/* ---------- Lead admin ---------- */
+.admin-section {
+  margin-top: var(--space-6);
+}
+
+.admin-section > * + * {
+  margin-top: var(--space-3);
+}
+
+.admin-section .readout {
+  margin-top: var(--space-4);
+}
+
+.drive-sync-form {
+  margin-top: var(--space-4);
+}
+
 /* ---------- Lead import ---------- */
 .import-form {
   display: grid;
