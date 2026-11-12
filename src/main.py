@@ -16,6 +16,7 @@ import board
 import coach
 import db
 import decisions
+import facts
 import home
 import workflow
 
@@ -56,6 +57,7 @@ app.include_router(workflow.router)
 app.include_router(coach.router)
 app.include_router(decisions.router)
 app.include_router(admin.router)
+app.include_router(facts.router)
 
 
 @app.exception_handler(StarletteHTTPException)

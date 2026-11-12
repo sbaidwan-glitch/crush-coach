@@ -12,20 +12,28 @@ import json
 import logging
 import os
 import re
+from collections.abc import Iterator
 from datetime import UTC, datetime, tzinfo
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Form, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import (
+    HTMLResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup, escape
 from sqlmodel import Session, func, select
 
+import answering
 import db
 import decisions
 import llm
+import retrieval
 import taskpage
 from auth import CurrentUser, User
 from markup import render_markdown
@@ -81,16 +89,6 @@ templates.env.filters["linkify"] = linkify
 templates.env.filters["markdown"] = render_markdown
 templates.env.filters["message_parts"] = taskpage.message_parts  # presentation only
 
-# What each member's in-flight coach answer is doing right now, for the progress poll.
-# One entry per (member, task) while a question is being answered. It lives in this
-# process only; if the poll can't see it the page just keeps its generic text.
-_progress: dict[tuple[str, str], str] = {}
-
-
-def _progress_key(member: str, code: str) -> tuple[str, str]:
-    return (member.casefold(), code)
-
-
 # --- configuration (read per request so tests and Railway env changes apply) ---
 
 
@@ -145,8 +143,25 @@ def task_context(task: Task) -> dict[str, str]:
     return context
 
 
-def _view(message: CoachMessage, user: User) -> dict:
-    meta = json.loads(message.meta) if message.meta else {}
+def _meta(message: CoachMessage) -> dict:
+    try:
+        meta = json.loads(message.meta) if message.meta else {}
+    except ValueError:
+        return {}
+    return meta if isinstance(meta, dict) else {}
+
+
+def _view(message: CoachMessage, user: User, retry_id: int | None = None) -> dict:
+    meta = _meta(message)
+    if message.role == "error":
+        return {
+            "role": "error",
+            "member": "Coach",
+            "content": message.content,
+            "sources": [],
+            "notes": [],
+            "retry_id": retry_id,
+        }
     mine = message.member == user["email"]
     return {
         "role": message.role,
@@ -157,6 +172,18 @@ def _view(message: CoachMessage, user: User) -> dict:
     }
 
 
+def _views(messages: list[CoachMessage], user: User) -> list[dict]:
+    """The thread as the page shows it. A failure gets a Retry button only while it is
+    the last thing in the thread: after that the member has moved on."""
+    views = []
+    for position, message in enumerate(messages):
+        retry_id = None
+        if message.role == "error" and position == len(messages) - 1:
+            retry_id = _meta(message).get("retry_of")
+        views.append(_view(message, user, retry_id))
+    return views
+
+
 def _history(session: Session, task_id: int) -> list[CoachMessage]:
     return list(
         session.exec(
@@ -165,6 +192,42 @@ def _history(session: Session, task_id: int) -> list[CoachMessage]:
             .order_by(CoachMessage.created_at, CoachMessage.id)
         ).all()
     )
+
+
+def _chat(
+    thread: list[CoachMessage], skip: set[int] | None = None
+) -> list[CoachMessage]:
+    """The turns the model is shown: member messages and coach answers. A message whose
+    answer failed was never answered, so it is left out (and so is the failure)."""
+    failed = {_meta(m).get("retry_of") for m in thread if m.role == "error"}
+    left_out = failed | (skip or set())
+    return [
+        m for m in thread if m.role in ("user", "assistant") and m.id not in left_out
+    ]
+
+
+def _model_history(chat: list[CoachMessage]) -> list[dict[str, str]]:
+    turns = [{"role": m.role, "content": m.content} for m in chat][-HISTORY_TURNS:]
+    while turns and turns[0]["role"] != "user":
+        turns.pop(0)  # the model's first turn must be the member's
+    return turns
+
+
+def _earlier_sources(chat: list[CoachMessage]) -> list[dict[str, Any]]:
+    """Sources the coach cited earlier in this thread, newest answer first.
+
+    Kept for the whole thread, not only the turns the model is shown, so a follow-up
+    still has the documents the first answer used.
+    """
+    found: dict[str, dict[str, Any]] = {}
+    for message in reversed(chat):
+        if message.role != "assistant":
+            continue
+        for source in _meta(message).get("sources", []):
+            link = source.get("link") if isinstance(source, dict) else None
+            if link and link not in found:
+                found[link] = source
+    return list(found.values())[: retrieval.EARLIER_SOURCES * 2]
 
 
 def messages_today(session: Session, member: str) -> int:
@@ -194,7 +257,7 @@ def _render_page(
     try:
         task = session.exec(select(Task).where(Task.code == code)).first()
         if task is not None:
-            messages = [_view(m, user) for m in _history(session, task.id)]
+            messages = _views(_history(session, task.id), user)
     except Exception as exc:  # noqa: BLE001  (a DB failure must not break the page)
         log.error("Could not load task page (%s)", type(exc).__name__)
         page_error = "Couldn't load this task from the database right now. Try again."
@@ -256,20 +319,235 @@ def _add_llm_calls(
         )
 
 
+def _exchange_html(code: str, **context: Any) -> str:
+    """The coach's reply as an HTML fragment (the `_coach_exchange.html` partial)."""
+    return templates.get_template("_coach_exchange.html").render(code=code, **context)
+
+
 def _fragment(
     request: Request,
+    code: str,
     user: User,
     *,
     answer: dict | None = None,
+    failure: dict | None = None,
     error: str | None = None,
 ) -> Response:
-    """The htmx reply: the coach's answer or an error. The page already shows the
-    member's own message (it adds it on submit), so it is not repeated here."""
+    """The htmx reply: the coach's answer, a failure with Retry, or a plain notice. The
+    page already shows the member's own message, so it is not repeated here."""
     return templates.TemplateResponse(
         request,
         "_coach_exchange.html",
-        {"answer": answer, "error": error, "user": user},
+        {
+            "code": code,
+            "answer": answer,
+            "failure": failure,
+            "error": error,
+            "user": user,
+        },
     )
+
+
+# --- one message, start to finish ---
+
+NO_INDEX = "Drive index is empty: ask a lead to sync."
+DB_DOWN = "Couldn't reach the database right now. Try again in a moment."
+UNEXPECTED = "The coach hit an unexpected problem. Try again in a moment."
+DROPPED = "The connection dropped before the answer finished."
+
+
+def today() -> str:
+    return datetime.now(_timezone()).date().isoformat()
+
+
+def _save_failure(
+    task_id: int,
+    member: str,
+    user_message_id: int | None,
+    text: str,
+    calls: list[llm.CallRecord],
+) -> None:
+    """Keep what failed in the thread (with the call costs) so a reload still shows it
+    with a Retry button. Never raises: the failure is shown either way."""
+    try:
+        with Session(db.engine) as session:
+            _add_llm_calls(session, task_id, member, calls)
+            if user_message_id is not None:
+                session.add(
+                    CoachMessage(
+                        task_id=task_id,
+                        member="Coach",
+                        role="error",
+                        content=text,
+                        meta=json.dumps({"retry_of": user_message_id}),
+                    )
+                )
+            session.commit()
+    except Exception as exc:  # noqa: BLE001
+        log.error("Coach could not save a failure (%s)", type(exc).__name__)
+
+
+def converse(
+    code: str, user: User, message: str, retry_of: int | None = None
+) -> Iterator[dict[str, Any]]:
+    """Answer one message from a member, yielding what the page needs as it happens.
+
+    Events: `step` (text), `text` (the answer so far, Markdown), `reset`, then exactly
+    one of `done` (answer: content, sources, notes), `failed` (message, retry_id: the
+    member's message is saved and can be retried) or `rejected` (message: nothing was
+    saved, so the text stays in the box).
+
+    The order is: save the member's message (so it is never lost and counts toward the
+    cap), retrieve with no model call, one streamed model call, save the answer. With
+    `retry_of`, the member's earlier message is answered again instead of a new one.
+    """
+    member = user["email"]
+    message = message.strip()
+    calls: list[llm.CallRecord] = []
+    user_message_id: int | None = None
+    task_id: int | None = None
+
+    def failed(text: str) -> dict[str, Any]:
+        if task_id is not None:
+            _save_failure(task_id, member, user_message_id, text, calls)
+        return {"type": "failed", "message": text, "retry_id": user_message_id}
+
+    try:
+        with Session(db.engine) as session:
+            task = session.exec(select(Task).where(Task.code == code)).first()
+            if task is None:
+                yield {"type": "rejected", "message": f"There is no task “{code}”."}
+                return
+            task_id = task.id
+            thread = _history(session, task_id)
+            if retry_of is not None:
+                original = next((m for m in thread if m.id == retry_of), None)
+                if (
+                    original is None
+                    or original.role != "user"
+                    or original.member.casefold() != member.casefold()
+                ):
+                    yield {
+                        "type": "rejected",
+                        "message": "That message is gone. Write it again.",
+                    }
+                    return
+                if any(m.role == "assistant" and m.id > original.id for m in thread):
+                    yield {
+                        "type": "rejected",
+                        "message": "The coach already answered that message.",
+                    }
+                    return
+                message = original.content
+                user_message_id = original.id
+                for old in thread:  # the failure being retried goes away
+                    if old.role == "error" and _meta(old).get("retry_of") == retry_of:
+                        session.delete(old)
+                session.commit()
+                thread = _history(session, task_id)
+            else:
+                if not message or len(message) > MAX_MESSAGE_CHARS:
+                    yield {
+                        "type": "rejected",
+                        "message": f"Write a message of up to {MAX_MESSAGE_CHARS} characters.",
+                    }
+                    return
+                limit = daily_limit()
+                if messages_today(session, member) >= limit:
+                    yield {
+                        "type": "rejected",
+                        "message": f"You've used your {limit} coach messages for today. "
+                        "The count starts over at midnight.",
+                    }
+                    return
+                # Saved before anything can fail, so the message is never lost and a
+                # failed attempt still counts toward the cap.
+                row = CoachMessage(
+                    task_id=task_id, member=member, role="user", content=message
+                )
+                session.add(row)
+                session.commit()
+                user_message_id = row.id
+                thread = _history(session, task_id)
+
+            chat = _chat(thread, skip={user_message_id})
+            history = _model_history(chat)
+            previous = next((m.content for m in reversed(chat) if m.role == "user"), "")
+            context = task_context(task)
+            yield {"type": "step", "text": "Searching the Drive index…"}
+            found = retrieval.retrieve(
+                session,
+                task,
+                message,
+                previous_question=previous,
+                earlier_sources=_earlier_sources(chat),
+            )
+    except retrieval.IndexEmpty:
+        yield failed(NO_INDEX)
+        return
+    except Exception as exc:  # noqa: BLE001  (a DB failure must not break the page)
+        log.error("Coach could not use the database (%s)", type(exc).__name__)
+        if user_message_id is None:
+            yield {"type": "rejected", "message": DB_DOWN}
+        else:
+            yield failed(DB_DOWN)
+        return
+
+    count = len(found.chunks) + len(found.earlier)
+    yield {
+        "type": "step",
+        "text": f"Found {count} passage{'' if count == 1 else 's'} in the Drive index. "
+        "Writing the answer…",
+    }
+    run = answering.AnswerRun(
+        context, found, message, history, today=today(), record=calls.append
+    )
+    events = iter(run)
+    try:
+        yield from events
+    except GeneratorExit:  # the page went away mid-answer
+        events.close()
+        _save_failure(task_id, member, user_message_id, DROPPED, calls)
+        raise
+    except llm.LLMError as exc:
+        yield failed(exc.message)
+        return
+    except Exception as exc:  # noqa: BLE001  (never let the model break the page)
+        log.error("Coach failed unexpectedly (%s)", type(exc).__name__)
+        yield failed(UNEXPECTED)
+        return
+
+    answer = run.answer
+    assert answer is not None
+    notes = answering.notes_for(answer)
+    try:
+        with Session(db.engine) as session:
+            _add_llm_calls(session, task_id, member, calls)
+            session.add(
+                CoachMessage(
+                    task_id=task_id,
+                    member="Coach",
+                    role="assistant",
+                    content=answer.text,
+                    meta=json.dumps({"sources": answer.sources, "notes": notes}),
+                )
+            )
+            session.commit()
+    except Exception as exc:  # noqa: BLE001  (the member still gets their answer)
+        log.error("Coach could not save the exchange (%s)", type(exc).__name__)
+        notes.append("This answer could not be saved to the task history.")
+    log.info(
+        "Coach answered %s in %.1fs (first text %.1fs, retrieval %.2fs, %d reads)",
+        code,
+        answer.seconds,
+        answer.first_text_seconds or 0.0,
+        found.seconds,
+        answer.tool_calls,
+    )
+    yield {
+        "type": "done",
+        "answer": {"content": answer.text, "sources": answer.sources, "notes": notes},
+    }
 
 
 # --- routes ---
@@ -285,11 +563,54 @@ def task_page(
     return _render_page(request, session, user, code)
 
 
-@router.get("/tasks/{code}/coach/progress")
-def coach_progress(code: str, user: CurrentUser):
-    """What the coach is doing for this member on this task ("" when idle)."""
-    step = _progress.get(_progress_key(user["email"], code), "")
-    return JSONResponse({"step": step}, headers={"Cache-Control": "no-store"})
+def _retry_id(value: str) -> int | None:
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+@router.post("/tasks/{code}/coach/stream")
+def stream_coach(
+    code: str,
+    session: Annotated[Session, Depends(db.get_session)],
+    user: CurrentUser,
+    message: Annotated[str, Form()] = "",
+    retry: Annotated[str, Form()] = "",
+):
+    """The coach's answer as it is written: one JSON object per line.
+
+    `step` and `reset` pass through; `text` carries the answer so far already rendered
+    as safe HTML; the last line is `done` or `failed` (an HTML fragment for the thread)
+    or `rejected` (a plain message, nothing saved). The page (`coach.js`) shows the
+    lines as they arrive.
+    """
+    if session.exec(select(Task.id).where(Task.code == code)).first() is None:
+        raise HTTPException(status_code=404)
+
+    def lines() -> Iterator[str]:
+        for event in converse(code, user, message, _retry_id(retry)):
+            kind = event["type"]
+            if kind == "text":
+                out = {"type": "text", "html": str(render_markdown(event["text"]))}
+            elif kind == "done":
+                html = _exchange_html(code, answer=event["answer"], user=user)
+                out = {"type": "done", "html": html}
+            elif kind == "failed":
+                failure = {"content": event["message"], "retry_id": event["retry_id"]}
+                out = {
+                    "type": "failed",
+                    "html": _exchange_html(code, failure=failure, user=user),
+                }
+            else:
+                out = event
+            yield json.dumps(out) + "\n"
+
+    return StreamingResponse(
+        lines(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/tasks/{code}/coach", response_class=HTMLResponse)
@@ -299,133 +620,35 @@ def ask_coach(
     session: Annotated[Session, Depends(db.get_session)],
     user: CurrentUser,
     message: Annotated[str, Form()] = "",
+    retry: Annotated[str, Form()] = "",
     hx_request: Annotated[str | None, Header()] = None,
 ):
+    """The same answer without streaming: a plain form post (no JavaScript) or htmx."""
     is_htmx = hx_request == "true"
-    member = user["email"]
     message = message.strip()
+    if session.exec(select(Task.id).where(Task.code == code)).first() is None:
+        raise HTTPException(status_code=404)
 
-    def fail(text: str) -> Response:
-        """Show a plain error; the rest of the page keeps working."""
+    last: dict[str, Any] = {}
+    for event in converse(code, user, message, _retry_id(retry)):
+        if event["type"] in ("done", "failed", "rejected"):
+            last = event
+
+    if last.get("type") == "rejected":
         if is_htmx:
-            return _fragment(request, user, error=text)
-        return _render_page(request, session, user, code, error=text, draft=message)
-
-    if not message or len(message) > MAX_MESSAGE_CHARS:
-        return fail(f"Write a message of up to {MAX_MESSAGE_CHARS} characters.")
-
-    try:
-        task = session.exec(select(Task).where(Task.code == code)).first()
-        if task is None:
-            raise HTTPException(status_code=404)
-
-        limit = daily_limit()
-        if messages_today(session, member) >= limit:
-            return fail(
-                f"You've used your {limit} coach messages for today. "
-                "The count starts over at midnight."
-            )
-
-        history = [
-            {"role": m.role, "content": m.content}
-            for m in _history(session, task.id)[-HISTORY_TURNS:]
-        ]
-        # Saved before the call, so a failed attempt still counts toward the cap.
-        session.add(
-            CoachMessage(task_id=task.id, member=member, role="user", content=message)
+            return _fragment(request, code, user, error=last["message"])
+        return _render_page(
+            request, session, user, code, error=last["message"], draft=message
         )
-        session.commit()
-    except HTTPException:
-        raise
-    except Exception as exc:  # noqa: BLE001  (a DB failure must not break the page)
-        log.error("Coach could not use the database (%s)", type(exc).__name__)
-        return fail("Couldn't reach the database right now. Try again in a moment.")
-
-    calls: list[llm.CallRecord] = []
-    answer: llm.CoachAnswer | None = None
-    llm_error: str | None = None
-    task_id = task.id
-
-    def lookup_decisions(query: str, subsystem: str) -> list[dict]:
-        try:
-            return decisions.search_confirmed(session, query, subsystem, task_id)
-        except Exception:
-            session.rollback()  # a failed query must not poison the later save
-            raise
-
-    progress_key = _progress_key(member, code)
-    try:
-        answer = llm.run_coach(
-            task_context(task),
-            history,
-            message,
-            record=calls.append,
-            find_decisions=lookup_decisions,
-            on_step=lambda step: _progress.__setitem__(progress_key, step),
-        )
-    except llm.LLMError as exc:
-        llm_error = exc.message
-    except Exception as exc:  # noqa: BLE001  (never let the model break the page)
-        log.error("Coach failed unexpectedly (%s)", type(exc).__name__)
-        llm_error = "The coach hit an unexpected problem. Try again in a moment."
-    finally:
-        _progress.pop(progress_key, None)
-
-    notes: list[str] = []
-    if answer is not None:
-        if answer.drive_failed:
-            notes.append(
-                "Google Drive failed during this answer, so it may not use the "
-                "team's documents."
-            )
-        if answer.decisions_failed:
-            notes.append(
-                "The team's decision records couldn't be checked for this answer, "
-                "so it may disagree with a confirmed decision."
-            )
-        if answer.ungrounded_links:
-            notes.append(
-                "A link in the first draft of this answer did not come from a "
-                "search, so it was removed."
-            )
-        if answer.unsourced_numbers:
-            notes.append(
-                "This answer includes numbers without a source. Don't machine "
-                "from them; ask your lead."
-            )
-
-    try:
-        _add_llm_calls(session, task_id, member, calls)
-        if answer is not None:
-            session.add(
-                CoachMessage(
-                    task_id=task_id,
-                    member="Coach",
-                    role="assistant",
-                    content=answer.text,
-                    meta=json.dumps({"sources": answer.sources, "notes": notes}),
-                )
-            )
-        session.commit()
-    except Exception as exc:  # noqa: BLE001  (the member still gets their answer)
-        session.rollback()
-        log.error("Coach could not save the exchange (%s)", type(exc).__name__)
-        notes.append("This answer could not be saved to the task history.")
-
-    if llm_error is not None:
-        response = fail(llm_error)
-    elif is_htmx:
-        assert answer is not None
-        response = _fragment(
-            request,
-            user,
-            answer={"content": answer.text, "sources": answer.sources, "notes": notes},
-        )
-        # Tells coach.js to clear the box; on a failure the text stays for a retry.
-        response.headers["HX-Trigger"] = "coachSent"
-    else:
-        response = RedirectResponse(f"/tasks/{code}", status_code=303)
-    return response
+    if is_htmx:
+        if last["type"] == "done":
+            response = _fragment(request, code, user, answer=last["answer"])
+            # Tells coach.js to clear the box; on a failure the text stays.
+            response.headers["HX-Trigger"] = "coachSent"
+            return response
+        failure = {"content": last["message"], "retry_id": last["retry_id"]}
+        return _fragment(request, code, user, failure=failure)
+    return RedirectResponse(f"/tasks/{code}", status_code=303)
 
 
 # --- drafting a decision from the conversation ---
@@ -484,7 +707,7 @@ def draft_decision(
         if task is None:
             raise HTTPException(status_code=404)
         task_id = task.id
-        thread = _history(session, task_id)
+        thread = _chat(_history(session, task_id))
         if not any(m.role == "assistant" for m in thread):
             return fail(
                 "There is nothing to draft from yet. Ask the coach about this "

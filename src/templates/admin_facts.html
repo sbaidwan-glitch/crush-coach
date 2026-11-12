@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "components/button.html" import button %}
+{% from "components/feedback.html" import notice, empty_state, error_state %}
+{% block title %}Team facts – Crush Coach{% endblock %}
+{% block page_title %}Team facts{% endblock %}
+{% block topbar_actions %}<a class="btn" href="/admin">Admin</a>{% endblock %}
+{% block main %}
+{% if result %}{{ notice(result) }}{% endif %}
+{% if error %}{{ notice(error, "error") }}{% endif %}
+
+{% if load_error %}
+{{ error_state(load_error, "/admin/facts", "Try again") }}
+{% else %}
+<div class="grid-2">
+  <section class="panel" aria-labelledby="facts-heading">
+    <div class="panel__head"><h2 class="panel__title" id="facts-heading">Facts the coach knows</h2></div>
+    <p class="panel__sub">Short facts the coach is told in every answer, such as which season is current and which vehicle is Crush. It treats them as true, so keep them current. One sentence each, {{ max_chars }} characters at most.</p>
+    {% if facts %}
+    {% for fact in facts %}
+    <div class="form-row">
+      <form method="post" action="/admin/facts/{{ fact.id }}">
+        <label class="field-label" for="fact-{{ fact.id }}">Fact {{ loop.index }}</label>
+        <textarea id="fact-{{ fact.id }}" class="field-input" name="text" required maxlength="{{ max_chars }}" rows="2">{{ fact.text }}</textarea>
+        <div class="actions">{{ button("Save fact " ~ loop.index, "secondary", "submit", small=True) }}</div>
+      </form>
+      <form method="post" action="/admin/facts/{{ fact.id }}/delete">
+        <div class="actions">{{ button("Remove fact " ~ loop.index, "secondary", "submit", small=True) }}</div>
+      </form>
+    </div>
+    {% endfor %}
+    {% else %}
+    {{ empty_state("No facts yet. Add the ones every answer should start from, such as the current season.") }}
+    {% endif %}
+  </section>
+
+  <section class="panel panel--strong" aria-labelledby="add-heading">
+    <div class="panel__head"><h2 class="panel__title" id="add-heading">Add a fact</h2></div>
+    <form method="post" action="/admin/facts">
+      <label class="field-label" for="new-fact">New fact</label>
+      <textarea id="new-fact" class="field-input" name="text" required maxlength="{{ max_chars }}" rows="2">{{ draft }}</textarea>
+      <div class="actions">{{ button("Add fact", "primary", "submit") }}</div>
+    </form>
+  </section>
+</div>
+{% endif %}
+{% endblock %}

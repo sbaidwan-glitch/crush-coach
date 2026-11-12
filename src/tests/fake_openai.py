@@ -1,6 +1,8 @@
 """A scripted stand-in for the OpenAI client: no network, no key."""
 
 import copy
+import re
+import time
 from types import SimpleNamespace
 
 import httpx
@@ -13,14 +15,24 @@ def _response(status: int) -> httpx.Response:
     return httpx.Response(status, request=_REQUEST)
 
 
-def reply(text, input_tokens=100, output_tokens=20, cost="0.0012"):
-    """A final answer."""
+def reply(
+    text,
+    input_tokens=100,
+    output_tokens=20,
+    cost="0.0012",
+    delay=0.0,
+    then_raise=None,
+):
+    """A final answer. When streamed it arrives a word at a time, `delay` seconds
+    apart; `then_raise` is an exception the stream hits after the last word."""
     return {
         "message": SimpleNamespace(content=text, tool_calls=None),
         "usage": SimpleNamespace(
             prompt_tokens=input_tokens, completion_tokens=output_tokens
         ),
         "headers": {"x-litellm-response-cost": cost} if cost else {},
+        "delay": delay,
+        "then_raise": then_raise,
     }
 
 
@@ -40,6 +52,8 @@ def tool_request(*calls, input_tokens=80, output_tokens=15, cost="0.0008"):
             prompt_tokens=input_tokens, completion_tokens=output_tokens
         ),
         "headers": {"x-litellm-response-cost": cost} if cost else {},
+        "delay": 0.0,
+        "then_raise": None,
     }
 
 
@@ -89,6 +103,51 @@ class _Raw:
         )
 
 
+class _Stream:
+    """What `stream=True` returns: chunks like the real client's, then the usage."""
+
+    def __init__(self, spec):
+        self._spec = spec
+        self.closed = False
+
+    def __iter__(self):
+        message = self._spec["message"]
+        delay = self._spec.get("delay", 0.0)
+        if message.content:
+            for piece in re.findall(r"\S+\s*", message.content):
+                if delay:
+                    time.sleep(delay)
+                delta = SimpleNamespace(content=piece, tool_calls=None)
+                yield SimpleNamespace(
+                    choices=[SimpleNamespace(delta=delta)], usage=None
+                )
+        for index, call in enumerate(message.tool_calls or []):
+            part = SimpleNamespace(
+                index=index,
+                id=call.id,
+                function=SimpleNamespace(
+                    name=call.function.name, arguments=call.function.arguments
+                ),
+            )
+            delta = SimpleNamespace(content=None, tool_calls=[part])
+            yield SimpleNamespace(choices=[SimpleNamespace(delta=delta)], usage=None)
+        if self._spec.get("then_raise") is not None:
+            raise self._spec["then_raise"]
+        yield SimpleNamespace(choices=[], usage=self._spec["usage"])
+
+    def close(self):
+        self.closed = True
+
+
+class _StreamRaw:
+    def __init__(self, spec):
+        self.headers = spec["headers"]
+        self._stream = _Stream(spec)
+
+    def parse(self):
+        return self._stream
+
+
 class FakeClient:
     """Plays `script` in order: dicts are responses, exceptions are raised."""
 
@@ -105,4 +164,6 @@ class FakeClient:
         item = self.script.pop(0)
         if isinstance(item, Exception):
             raise item
+        if kwargs.get("stream"):
+            return _StreamRaw(item)
         return _Raw(item)

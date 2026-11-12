@@ -5,6 +5,7 @@ import json
 import fake_openai as fake
 import pytest
 from fastapi.testclient import TestClient
+from index_helpers import add_file
 from sqlmodel import select
 
 import auth
@@ -583,31 +584,23 @@ def test_linkify_makes_decision_paths_clickable_but_nothing_else(client):
     assert "<a" not in html.replace('<a href="/decisions/12">/decisions/12</a>', "")
 
 
-def test_coach_checks_decisions_before_drive_and_links_both_on_a_conflict(
+def test_the_coach_is_given_confirmed_decisions_first_and_links_both_on_a_conflict(
     monkeypatch, session, task, client, no_real_services
 ):
     decision = confirmed(session, topic="Latch style")
     link_to(session, decision, task)
     make_decision(session, topic="Latch style proposal: toggles")  # not binding
-    monkeypatch.setattr(
-        drive,
-        "search",
-        lambda query, limit=10: [
-            {
-                "title": "Latch design notes",
-                "link": DRIVE_LINK,
-                "mime_type": "application/vnd.google-apps.document",
-                "modified_time": "2023-01-02T00:00:00Z",
-                "folder_path": "Alfie / Enclosure",
-                "locations": [],
-            }
-        ],
+    add_file(
+        session,
+        "Latch design notes",
+        folder="Alfie / Enclosure",
+        modified="2023-01-02",
+        chunks=["Use a toggle latch on the lid."],
+        drive_id="1AbCdEfGhIjKlMnOp",
+        link=DRIVE_LINK,
     )
     model = script(
         monkeypatch,
-        fake.tool_request(("c1", "drive_search", json.dumps({"query": "latch"}))),
-        fake.tool_request(("c2", "find_decisions", json.dumps({"query": "latch"}))),
-        fake.tool_request(("c3", "drive_search", json.dumps({"query": "latch"}))),
         fake.reply(
             f"Decision /decisions/{decision.id} says cam latch, but {DRIVE_LINK} "
             "says toggle. That document is possibly stale."
@@ -618,29 +611,30 @@ def test_coach_checks_decisions_before_drive_and_links_both_on_a_conflict(
 
     assert response.status_code == 200
     html = response.text
-    assert f'<a href="/decisions/{decision.id}"' in html  # the decision page is clickable
+    assert (
+        f'<a href="/decisions/{decision.id}"' in html
+    )  # the decision page is clickable
     assert f'<a href="{DRIVE_LINK}"' in html
     assert f"Decision D{decision.id}: Latch style" in html  # listed under sources
-    # Drive was refused the first time, then the decision came back, without the proposal.
-    first = model.requests[1]["messages"][-1]["content"]
-    assert "Call find_decisions first" in first
-    found = model.requests[2]["messages"][-1]["content"]
-    assert "Use the two-point cam latch." in found and "proposal" not in found
+    # One call; the confirmed decision (not the proposal) came with it, before Drive.
+    assert len(model.requests) == 1
+    sent = model.requests[0]["messages"][-1]["content"]
+    assert "Use the two-point cam latch." in sent and "proposal" not in sent
+    assert sent.index("Confirmed decisions") < sent.index("Drive sources")
+    assert "they outrank Drive text" in sent
     assert {c.status for c in stored(session, LlmCall)} == {"ok"}
 
 
 def test_a_decision_database_failure_is_noted_and_the_answer_still_arrives(
     monkeypatch, session, task, client, no_real_services
 ):
+    add_file(session, "Latch notes", chunks=["latch"], drive_id="1AbCdEfGhIjKlMnOp")
+
     def broken(*args, **kwargs):
         raise RuntimeError("postgresql://user:secret@host/db is down")
 
     monkeypatch.setattr(decisions, "search_confirmed", broken)
-    script(
-        monkeypatch,
-        fake.tool_request(("c1", "find_decisions", json.dumps({"query": "latch"}))),
-        fake.reply("I couldn't check the decisions, so ask your lead."),
-    )
+    script(monkeypatch, fake.reply("I couldn't check the decisions, so ask your lead."))
 
     response = ask(client)
 
@@ -648,7 +642,7 @@ def test_a_decision_database_failure_is_noted_and_the_answer_still_arrives(
     assert "ask your lead" in response.text
     assert "decision records couldn&#39;t be checked" in response.text
     assert "secret" not in response.text
-    assert len(stored(session, LlmCall)) == 2  # the exchange was still logged
+    assert len(stored(session, LlmCall)) == 1  # the exchange was still logged
 
 
 # --- the coach drafts a decision ---
@@ -757,7 +751,7 @@ def test_draft_failure_says_so_and_keeps_the_page_working(
     response = draft(client)
 
     assert response.status_code == 200
-    assert "took too long" in response.text
+    assert "Took too long" in response.text
     assert stored(session, Decision) == []
     [call] = stored(session, LlmCall)
     assert call.status == "timeout"

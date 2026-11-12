@@ -328,6 +328,31 @@ def test_downgrade_to_0003_removes_only_the_decision_tables(fresh_engine):
     assert {"task", "coach_message", "llm_call"} <= set(tables)
 
 
+def test_upgrade_creates_team_facts_with_the_three_starting_facts(fresh_engine):
+    db.run_migrations(fresh_engine)
+
+    inspector = inspect(fresh_engine)
+    columns = {c["name"]: c for c in inspector.get_columns("team_fact")}
+    assert set(columns) == {"id", "text", "updated_by", "updated_at"}
+    assert columns["text"]["nullable"] is False
+    with fresh_engine.connect() as connection:
+        rows = connection.execute(text("SELECT text FROM team_fact ORDER BY id")).all()
+    assert [r[0] for r in rows] == [
+        "Current season is 2026-27",
+        "Crush is the current vehicle; Alfie docs are older and may be stale",
+        "Current Crush CAD lives in the 2025-2026 Mechanical CAD folder",
+    ]
+
+
+def test_downgrade_to_0006_removes_only_the_team_facts(fresh_engine):
+    db.run_migrations(fresh_engine)
+    command.downgrade(db.alembic_config(fresh_engine), "0006")
+
+    tables = inspect(fresh_engine).get_table_names()
+    assert "team_fact" not in tables
+    assert {"task", "drive_file", "decision"} <= set(tables)
+
+
 def test_migrations_match_models(fresh_engine):
     """Fails when a model changed without a new migration."""
     db.run_migrations(fresh_engine)
