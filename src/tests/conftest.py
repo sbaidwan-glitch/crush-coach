@@ -47,6 +47,7 @@ def session():
         SyncState,
         Task,
         TaskEvent,
+        TeamFact,
     )
 
     def clear(s):
@@ -61,6 +62,7 @@ def session():
             DriveChunk,
             DriveFile,
             SyncState,
+            TeamFact,
         ):
             s.exec(delete(table))
         s.commit()

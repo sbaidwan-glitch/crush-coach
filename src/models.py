@@ -147,9 +147,27 @@ class LlmCall(SQLModel, table=True):
     input_tokens: int | None = None
     output_tokens: int | None = None
     latency_ms: int
-    cost: float | None = None  # only when the response provides it
+    # From the proxy's cost header when it sends one; a streamed answer's usually
+    # doesn't, so then it is estimated from the token counts (llm.ESTIMATED_PRICES).
+    cost: float | None = None
     status: str  # ok, budget_exceeded, rate_limited, timeout, error
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class TeamFact(SQLModel, table=True):
+    """A short fact every coach answer is told, e.g. "Current season is 2026-27".
+
+    Leads edit these at /admin/facts. They exist so the coach never has to ask which
+    season or which vehicle. The whole table goes into every prompt, so keep each
+    fact one short sentence.
+    """
+
+    __tablename__ = "team_fact"
+
+    id: int | None = Field(default=None, primary_key=True)
+    text: str
+    updated_by: str | None = None  # the lead's email; None for the seeded facts
+    updated_at: datetime = Field(default_factory=utc_now)
 
 
 # --- local index of the team's shared Drive (see drive_index.py) ---

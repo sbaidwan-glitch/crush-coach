@@ -1,9 +1,17 @@
-{# htmx fragment: placed above the pending slot in #coach-log. The member's own
-   message is already on the page (coach.js adds it on submit), so only the coach's
-   answer or an error comes back. #}
+{# The coach's reply, a fragment placed above the pending slot in #coach-log. The
+   member's own message is already on the page (coach.js adds it on submit), so only
+   one of these comes back. Expects `code`, the task's code.
+   - `answer`: the coach's answer (content, sources, notes)
+   - `failure`: what failed (content) and `retry_id`; the member's message is saved in
+     the thread and Retry sends it again
+   - `error`: something rejected before anything was saved (too long, over the daily
+     limit); the text stays in the box #}
 {% from "components/coach_message.html" import coach_message, coach_error %}
 {% if answer %}
-{{ coach_message({"role": "assistant", "member": "Coach", "content": answer.content, "notes": answer.notes, "sources": answer.sources}, request.path_params.code) }}
+{{ coach_message({"role": "assistant", "member": "Coach", "content": answer.content, "notes": answer.notes, "sources": answer.sources}, code) }}
+{% endif %}
+{% if failure %}
+{% with m = {"role": "error", "member": "Coach", "content": failure.content, "notes": [], "sources": [], "retry_id": failure.retry_id} %}{% include "_coach_message.html" %}{% endwith %}
 {% endif %}
 {% if error %}
 {{ coach_error(error) }}

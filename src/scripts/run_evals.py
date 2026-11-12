@@ -15,8 +15,10 @@ questions as fails and also says how many were errors.
 
 Each question is asked the way the web page asks it: the task's context comes from
 `coach.task_context` (from the local database when the task is there, otherwise a
-made-up task with that code) and the answer from `llm.run_coach`, with an empty chat
-history. Full answers go to .context/evals/<timestamp>.json and .md (gitignored).
+made-up task with that code), the passages from `retrieval.retrieve` on the local Drive
+index (so DATABASE_URL must point at a synced one), and the answer from
+`answering.AnswerRun`, with an empty chat history. Full answers go to
+.context/evals/<timestamp>.json and .md (gitignored).
 """
 
 import argparse
@@ -43,31 +45,36 @@ load_dotenv(ROOT / ".env")
 # just means every task is made up, so point it at an empty in-memory database.
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 
+import answering
 import coach
 import coach_eval
 import db
 import llm
+import retrieval
 from models import Task
 
 log = logging.getLogger("crush_coach")
 
 
 def missing_setup() -> str | None:
-    """A plain message if the real model or Drive can't be reached, else None.
+    """A plain message if the real model or the Drive index can't be reached, else None.
 
     Without these every question would "fail" for the same reason, which says
     nothing about the coach, so the run refuses to start.
     """
     if not os.environ.get("GLASSROOM_API_KEY"):
         return "GLASSROOM_API_KEY is not set (see .env.example)."
-    if not (
-        os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
-        or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-    ):
-        return (
-            "No Google credentials: set GOOGLE_APPLICATION_CREDENTIALS or "
-            "GOOGLE_SERVICE_ACCOUNT_JSON (see .env.example)."
-        )
+    try:
+        from sqlmodel import Session
+
+        with Session(db.engine) as session:
+            if retrieval.index_is_empty(session):
+                return (
+                    "The Drive index in DATABASE_URL is empty. Run "
+                    "scripts/sync_drive.py --full first."
+                )
+    except Exception as exc:  # noqa: BLE001  (no database, or not migrated)
+        return f"Can't read the Drive index in DATABASE_URL ({type(exc).__name__})."
     return None
 
 
@@ -104,6 +111,25 @@ class _LogCapture(logging.Handler):
         self.lines.append(record.getMessage())
 
 
+def answer_question(
+    task: Task, question: str, calls: list[llm.CallRecord]
+) -> llm.CoachAnswer:
+    """Retrieval, then one streamed answer: the same two steps the web page runs."""
+    from sqlmodel import Session
+
+    with Session(db.engine) as session:
+        found = retrieval.retrieve(session, task, question)
+    run = answering.AnswerRun(
+        coach.task_context(task),
+        found,
+        question,
+        [],
+        today=coach.today(),
+        record=calls.append,
+    )
+    return run.run()
+
+
 def ask(question: coach_eval.Question) -> coach_eval.Outcome:
     """Ask the coach one question exactly as the web page would, and time it."""
     task, task_source = find_task(question.task)
@@ -113,12 +139,13 @@ def ask(question: coach_eval.Question) -> coach_eval.Outcome:
     log.addHandler(capture)
     started = time.monotonic()
     try:
-        answer = llm.run_coach(
-            coach.task_context(task), [], question.question, record=calls.append
-        )
+        answer = answer_question(task, question.question, calls)
     except llm.LLMError as exc:
         outcome.error, outcome.error_kind = exc.message, exc.kind
         outcome.drive_calls = None  # the count is lost when the coach raises
+    except retrieval.IndexEmpty:
+        outcome.error, outcome.error_kind = "The Drive index is empty.", "error"
+        outcome.drive_calls = None
     except Exception as exc:  # noqa: BLE001  (one bad question must not end the run)
         outcome.error = f"Unexpected failure ({type(exc).__name__})."
         outcome.error_kind = "error"
@@ -127,14 +154,7 @@ def ask(question: coach_eval.Question) -> coach_eval.Outcome:
         outcome.answer = answer.text
         outcome.sources = answer.sources
         outcome.drive_calls = answer.tool_calls
-        if answer.drive_failed:
-            outcome.notes.append("Google Drive failed during this answer.")
-        if answer.ungrounded_links:
-            outcome.notes.append(
-                "A link in the model's draft was removed (not from a search)."
-            )
-        if answer.unsourced_numbers:
-            outcome.notes.append("The answer has numbers without a source.")
+        outcome.notes.extend(answering.notes_for(answer))
     finally:
         log.removeHandler(capture)
     outcome.error_detail = capture.lines

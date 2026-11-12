@@ -514,8 +514,8 @@ def render_markdown(meta: dict, run: Run) -> str:
             out.append(f"- Must not: {', '.join(r.must_not)}")
         drive = "unknown" if o.drive_calls is None else o.drive_calls
         out.append(
-            f"- {o.seconds:.1f}s, {o.model_calls} model calls, {drive} Drive "
-            f"calls, {o.input_tokens} in / {o.output_tokens} out tokens, ${o.cost:.4f}"
+            f"- {o.seconds:.1f}s, {o.model_calls} model calls, {drive} live Drive "
+            f"reads, {o.input_tokens} in / {o.output_tokens} out tokens, ${o.cost:.4f}"
         )
         if o.task_source:
             out.append(f"- Task context from: {o.task_source}")

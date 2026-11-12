@@ -21,7 +21,7 @@ def model_is_off_limits(monkeypatch):
         raise AssertionError("Home called the model")
 
     monkeypatch.setattr(llm, "get_client", refuse)
-    monkeypatch.setattr(llm, "run_coach", refuse)
+    monkeypatch.setattr(llm, "CoachStream", refuse)
 
 
 @pytest.fixture

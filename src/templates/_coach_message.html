@@ -1,3 +1,20 @@
-{# One message in the coach log. Expects `m` (and `code`) in the including context. #}
+{# One message in the coach log. Expects `m` and `code` (the task's code) in the
+   including context. A failed answer (role "error") says what failed in plain words;
+   the member's question stays above it, saved in the thread. With `m.retry_id` it
+   offers Retry: a form that posts plainly without JavaScript, and that coach.js sends
+   as a stream. Everything else is the shared coach message. #}
 {% from "components/coach_message.html" import coach_message %}
+{% if m.role == "error" %}
+<article class="msg msg--coach msg--error" role="alert" data-failed>
+  <div class="msg__who">Couldn’t get an answer</div>
+  <p>{{ m.content }} Your question is kept above.</p>
+  {% if m.retry_id %}
+  <form method="post" action="/tasks/{{ code }}/coach" data-coach-retry>
+    <input type="hidden" name="retry" value="{{ m.retry_id }}">
+    <button class="btn btn--small" type="submit">Retry</button>
+  </form>
+  {% endif %}
+</article>
+{% else %}
 {{ coach_message(m, code) }}
+{% endif %}
