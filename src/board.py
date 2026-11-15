@@ -17,7 +17,7 @@ from sqlmodel import Session, col, select
 
 import db
 import progress
-from auth import CurrentUser
+from auth import MaybeUser
 from models import (
     DECISION_STATUS_LABELS,
     STATUS_LABELS,
@@ -39,6 +39,38 @@ FILTERS = {
     "review": "Needs review",
 }
 RECENT_DECISIONS = 3
+
+
+# Made-up titles of different lengths. A signed-out visitor sees these (blurred) instead of
+# the team's real task titles, so nothing real is in the page source.
+PREVIEW_TITLES = (
+    "Placeholder task title hidden until you sign in",
+    "Hidden task title",
+    "Another hidden task title for the preview",
+    "Task title hidden",
+    "A longer hidden task title that wraps onto a line",
+)
+
+
+def preview_task(task: Task, index: int) -> Task:
+    """A copy of a task for a signed-out visitor: code, part and status only.
+
+    Title and owner are made up, and the description and other tracker text are dropped.
+    The copy is never saved.
+    """
+    return Task(
+        code=task.code,
+        title=PREVIEW_TITLES[index % len(PREVIEW_TITLES)],
+        subsystem=task.subsystem,
+        task_type=task.task_type,
+        stage=task.stage,
+        status=task.status,
+        owner="Name hidden" if task.owner else None,
+    )
+
+
+def preview_tasks(tasks: list[Task]) -> list[Task]:
+    return [preview_task(t, i) for i, t in enumerate(tasks)]
 
 
 def load_tasks(session: Session) -> list[Task]:
@@ -90,11 +122,14 @@ def waiting_for_review(session: Session, tasks: list[Task]) -> list[dict]:
 def task_board(
     request: Request,
     session: Annotated[Session, Depends(db.get_session)],
-    user: CurrentUser,
+    user: MaybeUser,
     show: str = "all",
 ):
+    preview = user is None
+    # Signed out, there is no "Mine".
+    filters = {k: v for k, v in FILTERS.items() if not (preview and k == "mine")}
     notice = None
-    if show not in FILTERS:
+    if show not in filters:
         notice = f"Unknown filter {show!r}; showing all tasks."
         show = "all"
 
@@ -109,7 +144,7 @@ def task_board(
             "Couldn't load tasks from the database right now. Try again in a moment."
         )
 
-    shown = apply_filter(tasks, show, user)
+    shown = apply_filter(tasks, show, user or {})
     # Rulers always count every task; the filter only changes which rows are listed.
     groups = progress.group_progress(tasks)
     visible = {t.id for t in shown}
@@ -118,12 +153,16 @@ def task_board(
         for g in groups
         if g.total and (show == "all" or any(t.id in visible for t in g.tasks))
     ]
+    if preview:
+        # Counts and rulers above came from the real tasks; only the rows are replaced.
+        panels = [(g, preview_tasks(rows)) for g, rows in panels]
 
     # Decisions and the review queue load on their own: a failure only hides that panel.
     recent: list[Decision] = []
     decisions_error = None
     try:
-        recent = list(
+        # Decisions are team content: a signed-out visitor gets a sign-in prompt instead.
+        recent = [] if preview else list(
             session.exec(
                 select(Decision)
                 .where(Decision.status != "superseded")
@@ -138,7 +177,7 @@ def task_board(
 
     review: list[dict] = []
     review_error = None
-    if user["role"] == "lead":
+    if user and user["role"] == "lead":
         try:
             review = waiting_for_review(session, tasks)
         except Exception as exc:  # noqa: BLE001
@@ -151,7 +190,7 @@ def task_board(
         "left": panels[0::2],
         "right": panels[1::2],
         "counts": progress.counts(tasks),
-        "filters": FILTERS,
+        "filters": filters,
         "show": show,
         "shown_count": len(shown),
         "total_count": len(tasks),
@@ -164,6 +203,7 @@ def task_board(
         "notice": notice,
         "error": error,
         "user": user,
+        "preview": preview,
     }
     return templates.TemplateResponse(
         request, "tasks.html", context, status_code=503 if error else 200

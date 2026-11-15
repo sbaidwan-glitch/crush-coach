@@ -110,6 +110,33 @@ def require_user(request: Request) -> User:
 CurrentUser = Annotated[User, Depends(require_user)]
 
 
+def optional_user(request: Request) -> User | None:
+    """For pages a signed-out visitor may open (a read-only preview): None if anonymous.
+
+    Anything that changes data or shows real team content keeps `CurrentUser`.
+    """
+    return session_user(request)
+
+
+MaybeUser = Annotated[User | None, Depends(optional_user)]
+
+
+def locked_page(request: Request, what: str) -> HTMLResponse:
+    """The page a signed-out visitor sees where real team content would be.
+
+    `what` finishes "Sign in to see ...". Nothing from the database is read to make it.
+    """
+    next_path = request.url.path
+    if request.url.query:
+        next_path = f"{next_path}?{request.url.query}"
+    return templates.TemplateResponse(
+        request,
+        "locked.html",
+        {"user": None, "what": what, "login_url": f"/login?{urlencode({'next': next_path})}"},
+        status_code=401,
+    )
+
+
 def require_lead(user: CurrentUser) -> User:
     """Signed in AND listed in LEAD_EMAILS; anyone else gets a 403 page."""
     if user["role"] != "lead":

@@ -45,12 +45,13 @@ def sign_in(client, monkeypatch, userinfo, next_path="/tasks"):
     return client.get("/auth/callback", follow_redirects=False)
 
 
-def test_tasks_require_sign_in_but_health_and_home_are_public(client):
-    response = client.get("/tasks", follow_redirects=False)
+def test_team_pages_require_sign_in_but_health_home_and_the_task_board_are_public(client):
+    response = client.get("/admin", follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/login?next=%2Ftasks"
+    assert response.headers["location"] == "/login?next=%2Fadmin"
     assert client.get("/health").status_code == 200
+    assert client.get("/tasks").status_code == 200
     home = client.get("/")
     assert home.status_code == 200
     assert "Sign in with Google" in home.text
@@ -139,7 +140,7 @@ def test_nonmembers_and_unverified_accounts_are_denied(client, monkeypatch, user
 
     assert response.status_code == 403
     assert "Not on the team list" in response.text
-    assert client.get("/tasks", follow_redirects=False).status_code == 303
+    assert client.get("/admin", follow_redirects=False).status_code == 303
 
 
 def test_lead_role_comes_from_environment(client, monkeypatch):
@@ -174,7 +175,7 @@ def test_logout_clears_the_session(client, monkeypatch):
 
     assert response.status_code == 303
     assert response.headers["location"] == "/"
-    assert client.get("/tasks", follow_redirects=False).status_code == 303
+    assert client.get("/admin", follow_redirects=False).status_code == 303
 
 
 def test_removing_a_member_from_the_allowlist_revokes_their_session(
@@ -191,7 +192,7 @@ def test_removing_a_member_from_the_allowlist_revokes_their_session(
     )
     monkeypatch.setenv("ALLOWED_EMAILS", "")
 
-    response = client.get("/tasks", follow_redirects=False)
+    response = client.get("/admin", follow_redirects=False)
 
     assert response.status_code == 303
 
@@ -257,6 +258,6 @@ def test_tampered_session_cookie_is_not_accepted(client, monkeypatch):
     client.cookies.clear()
     client.cookies.set("crush_coach_session", f"{replacement}{cookie[1:]}")
 
-    response = client.get("/tasks", follow_redirects=False)
+    response = client.get("/admin", follow_redirects=False)
 
     assert response.status_code == 303

@@ -113,3 +113,7 @@ input[type="checkbox"] { accent-color: var(--color-ink); width: var(--space-4); 
 .remove-list { list-style: none; margin: 0; padding: 0; }
 .remove-list li { padding: var(--space-1) 0; }
 .nowrap { white-space: nowrap; }
+
+/* ---------- Signed-out preview: task titles and owners are stand-ins, blurred ---------- */
+.is-blurred { display: block; filter: blur(var(--space-1)); user-select: none; pointer-events: none; }
+.is-blurred .task-row__title { display: block; }

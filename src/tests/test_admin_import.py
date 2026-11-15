@@ -25,6 +25,7 @@ LEAD = {"name": "Test Lead", "email": "lead@example.edu", "role": "lead"}
 def make_client(user):
     if user is not None:
         main.app.dependency_overrides[auth.require_user] = lambda: user
+        main.app.dependency_overrides[auth.optional_user] = lambda: user
     return TestClient(main.app, follow_redirects=False)
 
 
@@ -100,9 +101,11 @@ def test_member_gets_403_everywhere(member, session, method, path):
 
 def test_nav_link_is_only_for_leads(session):
     main.app.dependency_overrides[auth.require_user] = lambda: LEAD
+    main.app.dependency_overrides[auth.optional_user] = lambda: LEAD
     with make_client(LEAD) as client:
         assert 'href="/admin"' in client.get("/tasks").text
     main.app.dependency_overrides[auth.require_user] = lambda: MEMBER
+    main.app.dependency_overrides[auth.optional_user] = lambda: MEMBER
     with make_client(MEMBER) as client:
         assert 'href="/admin"' not in client.get("/tasks").text
     main.app.dependency_overrides.clear()
