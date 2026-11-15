@@ -1383,6 +1383,7 @@ def test_a_pdf_over_the_limit_is_skipped_and_the_reason_names_the_limit(monkeypa
         "drive_id": "bigbook",
         "name": "Textbook.pdf",
         "kind": "pdf",
+        "mime_type": "application/pdf",
         "size": 60 * 1024 * 1024,
     }
 
