@@ -325,29 +325,46 @@ def test_a_database_failure_is_a_plain_message_without_the_url(session, as_user,
 def test_task_page_buttons_follow_who_is_looking(session, as_user):
     make_task(session)
     sam = as_user(SAM)
-    assert "Start this task" in sam.get("/tasks/M04").text
+    assert ">Start</button>" in sam.get("/tasks/M04").text
 
     post(sam, "start")
     page = sam.get("/tasks/M04").text
-    assert "Next step done" in page and "Unclaim" in page
-    assert "Start this task" not in page
+    assert ">Ask for review</button>" in page and "Unclaim" in page  # Drawing comes before Lead review
+    assert ">Start</button>" not in page
 
     other = as_user(ALEX).get("/tasks/M04").text
-    assert "Next step done" not in other and "Unclaim" not in other
+    assert "Ask for review" not in other and "Unclaim" not in other
     assert "Only Sam Example or a lead can move this task." in other
 
 
-def test_leads_see_approve_and_send_back_with_a_note_box_when_it_is_in_review(session, as_user):
+def test_the_task_page_shows_one_main_button_at_a_time(session, as_user):
+    make_task(session)
+    sam = as_user(SAM)
+
+    def main_buttons():
+        page = sam.get("/tasks/M04").text
+        return [label for label in ("Start", "Mark step done", "Ask for review") if f">{label}</button>" in page]
+
+    assert main_buttons() == ["Start"]
+    post(sam, "start")  # Drawing: the next step is a review step
+    assert main_buttons() == ["Ask for review"]
+    post(sam, "advance")  # now at Lead review
+    assert main_buttons() == []
+    post(as_user(LEE), "approve")  # a lead accepts; Process router is plain work
+    assert main_buttons() == ["Mark step done"]
+
+
+def test_leads_check_work_in_the_inbox_not_on_the_task_page(session, as_user):
     make_task(session, "needs_review", "Sam Example")
 
     lead = as_user(LEE).get("/tasks/M04").text
-    assert 'value="approve"' in lead and 'value="send_back"' in lead
-    assert 'name="note"' in lead
-    assert "Note for the owner (optional)" in lead
+    assert 'value="approve"' not in lead and 'value="send_back"' not in lead
+    assert 'name="note"' not in lead
+    assert "Waiting for a lead to check it." in lead and 'href="/inbox">Check it in the Inbox</a>' in lead
 
     owner = as_user(SAM).get("/tasks/M04").text
     assert 'value="approve"' not in owner
-    assert "Waiting for a lead to review it." in owner
+    assert "Waiting for a lead to check it." in owner and "Check it in the Inbox" not in owner
 
 
 def test_history_lists_each_move_newest_first_with_the_leads_note(session, as_user):
@@ -503,12 +520,9 @@ def test_approving_someone_elses_task_is_a_plain_approval(session):
     assert event.kind == "approve"
 
 
-def test_the_task_page_tells_a_lead_that_approving_their_own_task_is_recorded(session, as_user):
+def test_a_lead_accepting_their_own_task_is_recorded_as_self_approved(session, as_user):
     make_task(session, "needs_review", "Lee Lead")
     lead = as_user(LEE)
-
-    page = lead.get("/tasks/M04").text
-    assert "recorded in the History as self-approved" in page
 
     post(lead, "approve")
     assert "Lee Lead self-approved" in lead.get("/tasks/M04").text

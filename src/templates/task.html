@@ -21,7 +21,7 @@
   <section class="panel" aria-labelledby="coach-heading">
     <div class="panel__head"><div>
       <h2 class="panel__title" id="coach-heading">Coach</h2>
-      <p class="panel__sub">Answers from the team Drive and confirmed decisions. It advises; leads decide. Limit: {{ daily_limit }} messages per person per day.</p>
+      <p class="panel__sub">Answers from the team Drive and the Record. It advises; leads decide. Limit: {{ daily_limit }} messages per person per day.</p>
     </div></div>
     <div class="coach">
       <div id="coach-log" role="log" aria-live="polite" aria-label="Conversation with the coach" class="coach">
@@ -47,16 +47,6 @@
         <p class="meta ask__hint" id="coach-hint">Press Enter to send, Shift+Enter for a new line.</p>
       </form>
 
-      <form id="draft-form" method="post" action="/tasks/{{ task.code }}/decision-draft"
-            hx-post="/tasks/{{ task.code }}/decision-draft" hx-target="#decision-draft" hx-swap="innerHTML"
-            hx-disabled-elt="find button" hx-indicator="#draft-thinking">
-        <p class="meta">Reached a decision with the coach? It can draft a record for you to review. Nothing is saved until you propose it, and a lead accepts it. Uses one of your daily messages.</p>
-        <div class="actions">
-          {{ button("Draft a decision from this conversation", "secondary", "submit", small=True) }}
-          {{ loading_indicator("draft-thinking", "Drafting…") }}
-        </div>
-      </form>
-      <div id="decision-draft" aria-live="polite"></div>
     </div>
   </section>
 
@@ -70,27 +60,19 @@
       <div class="field-label">Owner</div>
       <div class="field field--row"><span{% if not task.owner %} class="unclaimed"{% endif %}>{{ task.owner or "Unclaimed" }}</span>{% if owner_since %}<span class="meta">since {{ owner_since }}</span>{% endif %}</div>
 
-      {% if "approve" in actions %}
-      <form class="review" method="post" action="/tasks/{{ task.code }}/status">
-        <input type="hidden" name="step" value="{{ step_name }}">
-        <div class="field-label"><label for="review-note">Note for the owner (optional)</label></div>
-        <textarea id="review-note" class="field-input" name="note" rows="2" maxlength="500"></textarea>
-        {% if self_review %}<p class="meta">This is your own task. Approving it is recorded in the History as self-approved.</p>{% endif %}
-        <div class="actions">
-          <button class="btn btn--primary" type="submit" name="action" value="approve">{% if self_review %}Approve (self-approve){% else %}Approve{% endif %}</button>
-          <button class="btn" type="submit" name="action" value="send_back">Send back</button>
-        </div>
-      </form>
-      {% elif actions %}
+      {% if main_action or "unclaim" in actions %}
       <div class="actions">
-        {% for action, label, primary in [("start", "Start this task", True), ("advance", "Next step done", True), ("unclaim", "Unclaim", False)] if action in actions %}
-        <form method="post" action="/tasks/{{ task.code }}/status"><input type="hidden" name="action" value="{{ action }}">{% if action == "advance" %}<input type="hidden" name="step" value="{{ step_name }}">{% endif %}<button class="btn{% if primary %} btn--primary{% endif %}" type="submit">{{ label }}</button></form>
-        {% endfor %}
+        {% if main_action %}
+        <form method="post" action="/tasks/{{ task.code }}/status"><input type="hidden" name="action" value="{{ main_action[0] }}">{% if main_action[0] == "advance" %}<input type="hidden" name="step" value="{{ step_name }}">{% endif %}<button class="btn btn--primary" type="submit">{{ main_action[1] }}</button></form>
+        {% endif %}
+        {% if "unclaim" in actions %}
+        <form method="post" action="/tasks/{{ task.code }}/status"><input type="hidden" name="action" value="unclaim"><button class="btn" type="submit">Unclaim</button></form>
+        {% endif %}
       </div>
       {% endif %}
       {% if step_note and "advance" in actions %}<p class="meta">{{ step_note }}</p>{% endif %}
-      {% if task.status == "needs_review" and "approve" not in actions %}
-      <p class="meta">Waiting for a lead to review it.</p>
+      {% if task.status == "needs_review" %}
+      <p class="meta">Waiting for a lead to check it.{% if is_lead %} <a href="/inbox">Check it in the Inbox</a>.{% endif %}</p>
       {% elif task.status == "done" %}
       <p class="meta">Every step is done.</p>
       {% elif task.status == "todo" and task.owner and "start" not in actions %}
@@ -125,12 +107,11 @@
       <div class="field-label">{{ label }}</div>
       <div class="prose">{% if label == "Documentation" %}{{ value | linkify }}{% else %}{{ value }}{% endif %}</div>
       {% endfor %}
-      <div class="field-label">Related decisions</div>
+      <div class="field-label">Recorded answers</div>
       {% if decisions_error %}{{ error_state(decisions_error, "/tasks/" ~ task.code, "Try again") }}
       {% elif task_decisions %}
-      {% for d in task_decisions %}<div class="field field--row"><span><span class="code">D{{ d.id }}</span> <a href="/decisions/{{ d.id }}">{{ d.topic }}</a></span>{{ status_label(d.status, decision_status_labels.get(d.status, d.status)) }}</div>{% endfor %}
-      {% else %}{{ empty_state("No decisions are linked to this task yet.") }}{% endif %}
-      <div class="actions"><a class="btn btn--small" href="/decisions/new?task={{ task.code | urlencode }}">Propose a decision</a></div>
+      {% for d in task_decisions %}<div class="field field--row"><span><a href="/decisions/{{ d.id }}">{{ d.topic }}</a>: {{ d.decision }}</span>{{ status_label(d.status, decision_status_labels.get(d.status, d.status)) }}</div>{% endfor %}
+      {% else %}{{ empty_state("Nothing has been recorded from this task yet.") }}{% endif %}
     </section>
 
     <section class="panel" aria-labelledby="history-heading">

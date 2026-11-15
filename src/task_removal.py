@@ -24,6 +24,7 @@ from sqlalchemy import func
 from sqlmodel import Session, col, delete, select, update
 
 from models import (
+    AnswerRequest,
     CoachMessage,
     Decision,
     DecisionTask,
@@ -180,6 +181,12 @@ def remove(
     session.exec(delete(DecisionTask).where(col(DecisionTask.task_id).in_(ids)))
     session.exec(
         update(LlmCall).where(col(LlmCall.task_id).in_(ids)).values(task_id=None)
+    )
+    # A question a lead hasn't settled stays (it keeps its task code as text).
+    session.exec(
+        update(AnswerRequest)
+        .where(col(AnswerRequest.task_id).in_(ids))
+        .values(task_id=None, message_id=None)
     )
     session.exec(delete(Task).where(col(Task.id).in_(ids)))
     session.commit()

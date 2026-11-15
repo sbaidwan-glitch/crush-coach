@@ -66,10 +66,12 @@ def normalize_status(value: str | None) -> str | None:
         return word
     return STATUS_ALIASES.get(word)
 
+# The database keeps proposed / confirmed / superseded; people read Suggested / Recorded /
+# Replaced. A "recorded answer" is a Decision with status "confirmed".
 DECISION_STATUS_LABELS = {
-    "proposed": "Proposed",
-    "confirmed": "Confirmed",
-    "superseded": "Superseded",
+    "proposed": "Suggested",
+    "confirmed": "Recorded",
+    "superseded": "Replaced",
 }
 DECISION_STATUSES = tuple(DECISION_STATUS_LABELS)
 
@@ -357,3 +359,63 @@ class DecisionTask(SQLModel, table=True):
 
     decision_id: int = Field(foreign_key="decision.id", primary_key=True)
     task_id: int = Field(foreign_key="task.id", primary_key=True, index=True)
+
+
+# --- what waits on a lead besides work to check (see inbox.py) ---
+
+ANSWER_REQUEST_KINDS = ("conflict", "none")  # sources disagree / nothing answers it
+
+
+class AnswerRequest(SQLModel, table=True):
+    """An "Answer to settle": a member asked a lead to settle a coach answer.
+
+    Made when a member presses "Ask a lead to settle this" on an answer whose sources
+    conflict, or that nothing in the Drive answers. Any lead can record an answer, which
+    becomes a recorded Decision (`decision_id`).
+    """
+
+    __tablename__ = "answer_request"
+
+    id: int | None = Field(default=None, primary_key=True)
+    # Set null when the task is removed; `task_code` keeps the words.
+    task_id: int | None = Field(default=None, foreign_key="task.id", index=True)
+    task_code: str
+    message_id: int | None = Field(default=None, index=True)  # the coach answer asked about
+    subsystem: str = Field(index=True)
+    question: str
+    asked_by: str  # display name
+    kind: str  # one of ANSWER_REQUEST_KINDS
+    answer_text: str = ""  # the coach's answer, shown when there are no options
+    # JSON lists: options [{"value", "source", "link", "date"}] and the answer's sources
+    # [{"title", "link", "modified"}]. `suggested` is the option the coach prefers.
+    options: list[dict[str, Any]] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    sources: list[dict[str, Any]] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    suggested: int | None = None
+    suggestion: str | None = None  # the coach's suggestion in words (when no options)
+    status: str = Field(default="open", index=True)  # open, recorded
+    deferred_at: datetime | None = None  # "Not now": goes to the end of the list
+    created_at: datetime = Field(default_factory=utc_now, index=True)
+    settled_by: str | None = None
+    settled_at: datetime | None = None
+    decision_id: int | None = Field(default=None, foreign_key="decision.id")
+
+
+class TaskSuggestion(SQLModel, table=True):
+    """A member's "Suggest a task". A lead adds it (a Task is made), edits it first, or
+    dismisses it."""
+
+    __tablename__ = "task_suggestion"
+
+    id: int | None = Field(default=None, primary_key=True)
+    title: str
+    why: str = ""
+    suggested_by: str  # display name
+    status: str = Field(default="open", index=True)  # open, added, dismissed
+    created_at: datetime = Field(default_factory=utc_now, index=True)
+    resolved_by: str | None = None
+    resolved_at: datetime | None = None
+    task_code: str | None = None  # the task a lead made from it

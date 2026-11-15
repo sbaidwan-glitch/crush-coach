@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "components/feedback.html" import notice as notice_box, empty_state, error_state %}
+{% block title %}Record – Crush Coach{% endblock %}
+{% block heading %}
+<div class="topbar__title">
+  <h1 class="page-title">Record</h1>
+  <p class="page-sub">What the team has settled, by date.</p>
+  <nav class="segmented" aria-label="Part of Crush">
+    {% for slug, name in parts %}<a href="/record?part={{ slug }}{% if q %}&amp;q={{ q | urlencode }}{% endif %}"{% if slug == part %} aria-current="true"{% endif %}>{{ name }}</a>{% endfor %}
+  </nav>
+</div>
+<form class="search" method="get" action="/record" role="search">
+  <input type="hidden" name="part" value="{{ part }}">
+  <label class="visually-hidden" for="record-search">Search the record</label>
+  <input id="record-search" type="search" name="q" value="{{ q }}" placeholder="Search the record" maxlength="100">
+</form>
+{% endblock %}
+{% block main %}
+{% if notice %}{{ notice_box(notice) }}{% endif %}
+<section class="panel panel--strong" aria-labelledby="record-heading">
+  <div class="panel__head">
+    <h2 class="panel__title" id="record-heading">{{ label }}</h2>
+    {% if has_notes %}<span class="meta"><label><input type="checkbox" checked> Show work notes</label></span>{% endif %}
+  </div>
+  {% if error %}{{ error_state(error, "/record?part=" ~ part, "Try again") }}
+  {% elif not days %}
+  {% if q %}{{ empty_state("Nothing in " ~ label ~ " matches “" ~ q ~ "”.", "/record?part=" ~ part, "Clear the search") }}
+  {% else %}{{ empty_state("Nothing has been recorded for " ~ label ~ " yet. A lead records an answer from Home when a question is settled.") }}{% endif %}
+  {% endif %}
+  {% for day, entries in days %}
+  <h3 class="day">{{ day.day }} {{ day.strftime("%b %Y") }}</h3>
+  {% for e in entries %}
+  <div class="entry" id="answer-{{ e.id }}">
+    <p><span class="tag tag--answer">Answer</span><b>{{ e.topic }}:</b> {{ e.answer }}</p>
+    <p class="why">
+      {%- if e.why %}Why: {{ e.why }} {% endif -%}
+      {%- if e.replaces %}Replaces: {{ e.replaces | join("; ") }}. {% endif -%}
+      Recorded by {{ e.recorded_by }}
+      {%- for code in e.tasks %} · <a class="code" href="/tasks/{{ code }}">{{ code }}</a>{% endfor -%}
+      {%- for s in e.sources if s.link %} · <a href="{{ s.link }}" target="_blank" rel="noopener noreferrer">{{ s.title }}</a>{% endfor %}
+    </p>
+  </div>
+  {% endfor %}
+  {% endfor %}
+</section>
+{% endblock %}

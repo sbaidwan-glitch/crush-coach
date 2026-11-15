@@ -117,7 +117,7 @@ def test_confirmed_decisions_for_the_subsystem_come_along_and_nothing_else(
 
     assert [d["id"] for d in found.decisions] == [mine.id]
     assert f"/decisions/{mine.id}" in found.known
-    assert found.known[f"/decisions/{mine.id}"]["title"].startswith("Decision D")
+    assert found.known[f"/decisions/{mine.id}"]["title"].startswith("Record: ")
     # and its own Drive sources may be cited
     assert "https://docs.google.com/document/d/1DecisionSource00/edit" in found.known
 

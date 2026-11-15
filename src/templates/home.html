@@ -1,25 +1,16 @@
 {% extends "base.html" %}
 {% from "components/button.html" import button_link %}
-{% from "components/feedback.html" import empty_state, error_state, preview_notice %}
+{% from "components/feedback.html" import notice as notice_box, empty_state, error_state, preview_notice %}
 {% from "components/progress_bar.html" import pbar, diamond %}
 {% from "components/status.html" import status_label %}
-{% from "components/task_row.html" import claim_row, review_row %}
+{% from "components/task_row.html" import claim_row %}
 {% block title %}Home – Crush Coach{% endblock %}
 {% block page_title %}Crush Build{% endblock %}
 {% block topbar_actions %}{% if task %}<a class="btn btn--primary" href="/tasks/{{ task.code }}#coach-message">Ask the coach</a>{% endif %}{% endblock %}
 {% block main %}
 {% if preview %}{{ preview_notice() }}{% endif %}
 {% if error %}{{ error_state(error, "/", "Try again") }}{% endif %}
-{% if is_lead %}
-<section class="panel panel--strong review-panel" aria-labelledby="waiting-review">
-  <div class="panel__head">
-    <div><h2 class="panel__title" id="waiting-review">Waiting for your review</h2><p class="panel__sub">Longest wait first. Approve moves a task past its review step; Send back returns it to its owner.</p></div>
-    {% if not review_error %}<span class="meta">{{ review | length }} waiting</span>{% endif %}
-  </div>
-  {% if review_error %}{{ error_state(review_error, "/", "Try again") }}
-  {% else %}{% for r in review %}{{ review_row(r) }}{% else %}{{ empty_state("Nothing is waiting for your review.") }}{% endfor %}{% endif %}
-</section>
-{% endif %}
+{% if notice %}{{ notice_box(notice, "error") }}{% endif %}
 <div class="grid-2">
   <section class="panel" aria-labelledby="your-task">
     <div class="panel__head">
@@ -39,10 +30,10 @@
     {% endif %}
     <div class="actions">
       <a class="btn btn--primary" href="/tasks/{{ task.code }}">Open task</a>
-      {% if task.status == "in_progress" %}
+      {% if main_action %}
       <form method="post" action="/tasks/{{ task.code }}/status">
         <input type="hidden" name="action" value="advance"><input type="hidden" name="step" value="{{ step_name }}"><input type="hidden" name="next" value="/">
-        <button class="btn" type="submit">Next step done</button>
+        <button class="btn" type="submit">{{ main_action[1] }}</button>
       </form>
       {% endif %}
     </div>
@@ -79,7 +70,7 @@
   <section class="panel panel--strong" aria-labelledby="crush">
     <div class="panel__head">
       <div><h2 class="panel__title" id="crush">Crush</h2><p class="panel__sub">Build map by subsystem. Select a label to see its tasks.</p></div>
-      <a class="btn btn--small" href="/decisions">Decisions</a>
+      <a class="btn btn--small" href="/record">Record</a>
     </div>
     <div class="blueprint"><div class="render"><img src="/static/img/crush.png" alt="CAD render of Crush">
       {% for g in groups %}<a class="render__tag" href="/tasks#{{ g.slug }}" style="left:{{ g.tag[0] }}%;top:{{ g.tag[1] }}%"><span class="status status--{{ {'done': 'done', 'in_progress': 'in-progress', 'todo': 'todo'}[g.tag_state] }}"><span class="visually-hidden">{{ {'done': 'Done', 'in_progress': 'Started', 'todo': 'Not started'}[g.tag_state] }}: </span></span>{{ g.label }} {{ g.done }}/{{ g.total }}</a>{% endfor %}

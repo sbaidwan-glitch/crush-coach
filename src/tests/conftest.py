@@ -38,6 +38,7 @@ def session():
 
     import db
     from models import (
+        AnswerRequest,
         CoachMessage,
         Decision,
         DecisionTask,
@@ -48,12 +49,15 @@ def session():
         Task,
         TaskEvent,
         TaskRemoval,
+        TaskSuggestion,
         TeamFact,
     )
 
     def clear(s):
         # Children first: they all point at task (or at decision, or at a file).
         for table in (
+            AnswerRequest,
+            TaskSuggestion,
             DecisionTask,
             Decision,
             TaskEvent,

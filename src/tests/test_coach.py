@@ -1090,11 +1090,11 @@ def test_next_step_and_conflicts_get_their_own_boxes(session, task, client):
     html = client.get("/tasks/M04").text
 
     assert '<div class="conflict">' in html and "Likely current: 0.050 in" in html
-    assert 'href="/decisions/new?task=M04">Propose as a decision</a>' in html
+    assert "Propose as a decision" not in html
     assert '<div class="next msg-md"><b>Next step:</b>' in html
     assert "ask Lee to confirm the clearance." in html
     assert '<ul class="sources" aria-label="Sources">' in html
-    assert "Modified 2026-03-30" in html and "Decision · confirmed 2026-10-01" in html
+    assert "Modified 2026-03-30" in html and "Record · recorded 2026-10-01" in html
 
 
 def test_a_failed_answer_uses_the_error_box_and_keeps_the_question_above_it(

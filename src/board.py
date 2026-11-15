@@ -1,8 +1,9 @@
 """All tasks (`/tasks`): where is the team?
 
 Filters (All / Mine / Unclaimed / Needs review), the counts box, one panel per part of
-Crush with its progress ruler and task rows, recent decisions, and (leads only) the tasks
-waiting for review. Every number comes from `Task.status` through `progress.py`.
+Crush with its progress ruler and task rows, recently recorded answers, and the "Suggest
+a task" form. Leads act on work to check from Home, not here (`inbox.py`). Every number
+comes from `Task.status` through `progress.py`.
 """
 
 import logging
@@ -13,12 +14,12 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from sqlmodel import Session, col, select
 
+import auth
 import db
 import progress
 import shell
 from auth import MaybeUser
 from models import (
-    DECISION_STATUS_LABELS,
     STATUS_LABELS,
     Decision,
     Task,
@@ -123,11 +124,32 @@ def task_board(
     session: Annotated[Session, Depends(db.get_session)],
     user: MaybeUser,
     show: str = "all",
+    suggested: bool = False,
 ):
+    return render_board(
+        request,
+        session,
+        user,
+        show=show,
+        notice="Sent to the leads. Thank you." if suggested and user else None,
+    )
+
+
+def render_board(
+    request: Request,
+    session: Session,
+    user: auth.User | None,
+    *,
+    show: str = "all",
+    notice: str | None = None,
+    status: int | None = None,
+    draft: tuple[str, str] = ("", ""),
+) -> HTMLResponse:
+    """All tasks. `notice` is a plain sentence at the top (a filter we didn't know, a
+    suggestion sent, why one couldn't be); `draft` refills the Suggest a task form."""
     preview = user is None
     # Signed out, there is no "Mine".
     filters = {k: v for k, v in FILTERS.items() if not (preview and k == "mine")}
-    notice = None
     if show not in filters:
         notice = f"Unknown filter {show!r}; showing all tasks."
         show = "all"
@@ -156,33 +178,23 @@ def task_board(
         # Counts and rulers above came from the real tasks; only the rows are replaced.
         panels = [(g, preview_tasks(rows)) for g, rows in panels]
 
-    # Decisions and the review queue load on their own: a failure only hides that panel.
+    # Recorded answers load on their own: a failure only hides that panel.
     recent: list[Decision] = []
     decisions_error = None
     try:
-        # Decisions are team content: a signed-out visitor gets a sign-in prompt instead.
+        # They are team content: a signed-out visitor gets a sign-in prompt instead.
         recent = [] if preview else list(
             session.exec(
                 select(Decision)
-                .where(Decision.status != "superseded")
-                .order_by(col(Decision.created_at).desc(), col(Decision.id).desc())
+                .where(Decision.status == "confirmed")
+                .order_by(col(Decision.confirmed_at).desc(), col(Decision.id).desc())
                 .limit(RECENT_DECISIONS)
             ).all()
         )
     except Exception as exc:  # noqa: BLE001
         session.rollback()
-        log.error("Could not load recent decisions (%s)", type(exc).__name__)
-        decisions_error = "Couldn't load decisions right now."
-
-    review: list[dict] = []
-    review_error = None
-    if user and user["role"] == "lead":
-        try:
-            review = waiting_for_review(session, tasks)
-        except Exception as exc:  # noqa: BLE001
-            session.rollback()
-            log.error("Could not load the review queue (%s)", type(exc).__name__)
-            review_error = "Couldn't load the review queue right now."
+        log.error("Could not load recent recorded answers (%s)", type(exc).__name__)
+        decisions_error = "Couldn't load the Record right now."
 
     context = {
         "panels": panels,
@@ -195,15 +207,13 @@ def task_board(
         "total_count": len(tasks),
         "status_labels": STATUS_LABELS,
         "recent_decisions": recent,
-        "decision_status_labels": DECISION_STATUS_LABELS,
         "decisions_error": decisions_error,
-        "review": review,
-        "review_error": review_error,
         "notice": notice,
+        "draft": draft,
         "error": error,
         "user": user,
         "preview": preview,
     }
-    return templates.TemplateResponse(
-        request, "tasks.html", context, status_code=503 if error else 200
-    )
+    if status is None:
+        status = 503 if error else 200
+    return templates.TemplateResponse(request, "tasks.html", context, status_code=status)

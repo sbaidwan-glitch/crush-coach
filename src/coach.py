@@ -31,6 +31,7 @@ from sqlmodel import Session, func, select
 import answering
 import db
 import decisions
+import inbox
 import llm
 import retrieval
 import shell
@@ -40,8 +41,8 @@ from markup import render_markdown
 from models import (
     DECISION_STATUS_LABELS,
     STATUS_LABELS,
-    SUBSYSTEMS,
     TASK_DETAIL_LABELS,
+    AnswerRequest,
     CoachMessage,
     LlmCall,
     Task,
@@ -151,7 +152,12 @@ def _meta(message: CoachMessage) -> dict:
     return meta if isinstance(meta, dict) else {}
 
 
-def _view(message: CoachMessage, user: User, retry_id: int | None = None) -> dict:
+def _view(
+    message: CoachMessage,
+    user: User,
+    retry_id: int | None = None,
+    asked: set[int] | None = None,
+) -> dict:
     meta = _meta(message)
     if message.role == "error":
         return {
@@ -163,16 +169,23 @@ def _view(message: CoachMessage, user: User, retry_id: int | None = None) -> dic
             "retry_id": retry_id,
         }
     mine = message.member == user["email"]
+    sources = meta.get("sources", [])
     return {
+        "id": message.id,
         "role": message.role,
         "member": "You" if mine else message.member,
         "content": message.content,
-        "sources": meta.get("sources", []),
+        "sources": sources,
         "notes": meta.get("notes", []),
+        "settle": _settle_state(
+            message.role, message.id, message.content, sources, asked or set()
+        ),
     }
 
 
-def _views(messages: list[CoachMessage], user: User) -> list[dict]:
+def _views(
+    messages: list[CoachMessage], user: User, asked: set[int] | None = None
+) -> list[dict]:
     """The thread as the page shows it. A failure gets a Retry button only while it is
     the last thing in the thread: after that the member has moved on."""
     views = []
@@ -180,7 +193,7 @@ def _views(messages: list[CoachMessage], user: User) -> list[dict]:
         retry_id = None
         if message.role == "error" and position == len(messages) - 1:
             retry_id = _meta(message).get("retry_of")
-        views.append(_view(message, user, retry_id))
+        views.append(_view(message, user, retry_id, asked))
     return views
 
 
@@ -258,7 +271,14 @@ def _render_page(
     try:
         task = session.exec(select(Task).where(Task.code == code)).first()
         if task is not None:
-            messages = _views(_history(session, task.id), user)
+            asked = set(
+                session.exec(
+                    select(AnswerRequest.message_id).where(
+                        AnswerRequest.task_id == task.id, AnswerRequest.status == "open"
+                    )
+                ).all()
+            )
+            messages = _views(_history(session, task.id), user, asked)
     except Exception as exc:  # noqa: BLE001  (a DB failure must not break the page)
         log.error("Could not load task page (%s)", type(exc).__name__)
         page_error = "Couldn't load this task from the database right now. Try again."
@@ -522,19 +542,20 @@ def converse(
     answer = run.answer
     assert answer is not None
     notes = answering.notes_for(answer)
+    saved_id: int | None = None
     try:
         with Session(db.engine) as session:
             _add_llm_calls(session, task_id, member, calls)
-            session.add(
-                CoachMessage(
-                    task_id=task_id,
-                    member="Coach",
-                    role="assistant",
-                    content=answer.text,
-                    meta=json.dumps({"sources": answer.sources, "notes": notes}),
-                )
+            saved = CoachMessage(
+                task_id=task_id,
+                member="Coach",
+                role="assistant",
+                content=answer.text,
+                meta=json.dumps({"sources": answer.sources, "notes": notes}),
             )
+            session.add(saved)
             session.commit()
+            saved_id = saved.id
     except Exception as exc:  # noqa: BLE001  (the member still gets their answer)
         log.error("Coach could not save the exchange (%s)", type(exc).__name__)
         notes.append("This answer could not be saved to the task history.")
@@ -548,7 +569,13 @@ def converse(
     )
     yield {
         "type": "done",
-        "answer": {"content": answer.text, "sources": answer.sources, "notes": notes},
+        "answer": {
+            "id": saved_id,
+            "content": answer.text,
+            "sources": answer.sources,
+            "notes": notes,
+            "settle": _settle_state("assistant", saved_id, answer.text, answer.sources, set()),
+        },
     }
 
 
@@ -655,124 +682,84 @@ def ask_coach(
     return RedirectResponse(f"/tasks/{code}", status_code=303)
 
 
-# --- drafting a decision from the conversation ---
-
-DRAFT_REQUEST_TEXT = "Draft a decision from this conversation."
+# --- asking a lead to settle an answer ---
 
 
-def _draft_response(
-    request: Request,
-    user: User,
-    is_htmx: bool,
-    *,
-    form: dict | None = None,
-    error: str | None = None,
-) -> Response:
-    """The draft form (or a plain error) as a fragment for htmx, else a whole page."""
-    context = {
-        "user": user,
-        "form": form,
-        "problems": [],
-        "error": error,
-        "subsystems": SUBSYSTEMS,
-        "action": "/decisions",
-    }
-    if is_htmx:
-        return templates.TemplateResponse(request, "_decision_draft.html", context)
-    if form is not None:
-        return templates.TemplateResponse(request, "decision_form.html", context)
-    return templates.TemplateResponse(
-        request, "decision_form.html", {**context, "form": decisions.blank_form()}
-    )
+def _settle_state(
+    role: str, message_id: int | None, content: str, sources: list, asked: set[int]
+) -> str | None:
+    """What the coach answer offers: "ask" (a button: its sources conflict or it cites
+    nothing), "asked" (a lead already has it) or None (nothing to settle)."""
+    if role != "assistant" or message_id is None:
+        return None
+    if message_id in asked:
+        return "asked"
+    return "ask" if inbox.asks_for_a_lead(content, sources) else None
 
 
-@router.post("/tasks/{code}/decision-draft", response_class=HTMLResponse)
-def draft_decision(
+@router.post("/tasks/{code}/settle", response_class=HTMLResponse)
+def ask_a_lead(
     request: Request,
     code: str,
     session: Annotated[Session, Depends(db.get_session)],
     user: CurrentUser,
-    hx_request: Annotated[str | None, Header()] = None,
+    message: Annotated[str, Form()] = "",
 ):
-    """The coach drafts a decision from this task's conversation.
+    """A member hands a coach answer to the leads ("Answer to settle" on their Home).
 
-    Nothing is saved as a decision here. The member gets a pre-filled form, reviews
-    it, and submits it as a proposal; a lead then accepts or not. The draft counts as
-    one coach message toward the daily cap.
+    When the sources conflict, one model call lists the values as options for the lead
+    to choose between; if that fails (or the member is over today's cap) the request is
+    still made, with the coach's answer for the lead to read and a box to type into.
+    Asking twice about one answer makes one request.
     """
-    is_htmx = hx_request == "true"
-    member = user["email"]
-
-    def fail(text: str) -> Response:
-        return _draft_response(request, user, is_htmx, error=text)
-
     try:
         task = session.exec(select(Task).where(Task.code == code)).first()
         if task is None:
             raise HTTPException(status_code=404)
-        task_id = task.id
-        thread = _chat(_history(session, task_id))
-        if not any(m.role == "assistant" for m in thread):
-            return fail(
-                "There is nothing to draft from yet. Ask the coach about this "
-                "decision first, then draft it."
+        answer = session.get(CoachMessage, int(message)) if message.isdigit() else None
+        if answer is None or answer.task_id != task.id or answer.role != "assistant":
+            return _render_page(
+                request, session, user, code,
+                error="That answer isn't in this task's conversation.",
             )
-        limit = daily_limit()
-        if messages_today(session, member) >= limit:
-            return fail(
-                f"You've used your {limit} coach messages for today. "
-                "The count starts over at midnight."
-            )
-        history = [
-            {"role": m.role, "content": m.content} for m in thread[-HISTORY_TURNS:]
-        ]
-        # Saved before the call, like a chat message, so a failed attempt still counts.
-        session.add(
-            CoachMessage(
-                task_id=task_id, member=member, role="user", content=DRAFT_REQUEST_TEXT
-            )
+        if inbox.open_request_for(session, answer.id) is not None:
+            return RedirectResponse(f"/tasks/{code}#coach-log", status_code=303)
+        thread = _history(session, task.id)
+        question = next(
+            (m.content for m in reversed(thread) if m.role == "user" and m.id < answer.id),
+            "",
         )
-        session.commit()
+        sources = _meta(answer).get("sources", [])
+        conflict = any(p["kind"] == "conflict" for p in taskpage.message_parts(answer.content))
+        within_cap = messages_today(session, user["email"]) < daily_limit()
         context = task_context(task)
+        task_id = task.id
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001  (a DB failure must not break the page)
-        log.error("Decision draft could not use the database (%s)", type(exc).__name__)
-        return fail("Couldn't reach the database right now. Try again in a moment.")
-
-    calls: list[llm.CallRecord] = []
-    draft: dict | None = None
-    llm_error: str | None = None
-    try:
-        draft = llm.draft_decision(context, history, record=calls.append)
-    except llm.LLMError as exc:
-        llm_error = exc.message
-    except Exception as exc:  # noqa: BLE001  (never let the model break the page)
-        log.error("Decision draft failed unexpectedly (%s)", type(exc).__name__)
-        llm_error = "The coach hit an unexpected problem. Try again in a moment."
-
-    form = decisions.form_from_draft(draft, task) if draft is not None else None
-    try:
-        _add_llm_calls(session, task_id, member, calls)
-        if form is not None:
-            topic = form["topic"] or "untitled"
-            session.add(
-                CoachMessage(
-                    task_id=task_id,
-                    member="Coach",
-                    role="assistant",
-                    content=(
-                        f"Drafted a decision: {topic}. Review it, edit anything "
-                        "that's wrong, and submit it for a lead to accept."
-                    ),
-                    meta=json.dumps({"sources": [], "notes": []}),
-                )
-            )
-        session.commit()
-    except Exception as exc:  # noqa: BLE001  (the member still gets their draft)
+        log.error("Could not ask a lead (%s)", type(exc).__name__)
         session.rollback()
-        log.error("Decision draft could not be logged (%s)", type(exc).__name__)
+        return _render_page(request, session, user, code, error=DB_DOWN)
 
-    if form is None:
-        return fail(llm_error or "The coach couldn't draft a decision. Try again.")
-    return _draft_response(request, user, is_htmx, form=form)
+    options: list[dict] | None = None
+    suggested: int | None = None
+    calls: list[llm.CallRecord] = []
+    if conflict and within_cap:
+        try:
+            options, suggested = llm.settle_options(
+                context, question, answer.content, sources, record=calls.append
+            )
+        except llm.LLMError:
+            pass  # the lead reads the answer and types the value
+        except Exception as exc:  # noqa: BLE001  (never let the model break the page)
+            log.error("Listing the options failed unexpectedly (%s)", type(exc).__name__)
+    try:
+        _add_llm_calls(session, task_id, user["email"], calls)
+        inbox.create_answer_request(
+            session, task, answer, question, user, sources, options, suggested
+        )
+    except Exception as exc:  # noqa: BLE001
+        session.rollback()
+        log.error("Could not ask a lead (%s)", type(exc).__name__)
+        return _render_page(request, session, user, code, error=DB_DOWN)
+    return RedirectResponse(f"/tasks/{code}#coach-log", status_code=303)

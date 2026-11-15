@@ -453,69 +453,86 @@ def test_the_prompt_is_short_enough_to_keep_answers_fast():
     assert len(llm.system_prompt()) < 7000
 
 
-# --- drafting a decision ---
+# --- listing the options for an answer to settle ---
 
-TRANSCRIPT = [
-    {"role": "user", "content": "Should we use a toggle or a cam latch?"},
-    {"role": "assistant", "content": f"The notes {DOC_LINK} favor a cam latch."},
-    {"role": "user", "content": "OK, cam latch. Toggles loosen with vibration."},
+ANSWER = (
+    f"**Likely current: 0.050 in** from [Crush Documentation]({DOC_LINK}). The "
+    f"[Seal Calculations]({OLD_LINK}) say 0.030 in. A lead should confirm."
+)
+SOURCES = [
+    {"title": "Crush Documentation", "link": DOC_LINK, "modified": "2026-03-30"},
+    {"title": "Seal Calculations", "link": OLD_LINK, "modified": "2026-02-10"},
 ]
-DRAFT = {
-    "subsystem": "Enclosure",
-    "topic": "Latch style",
-    "decision": "Use the cam latch.",
-    "rationale": "It holds under vibration.",
-    "alternatives": [{"option": "Toggle", "rejected_because": "Loosens."}],
-    "sources": [
-        {"title": "Latch design notes", "link": DOC_LINK},
-        {
-            "title": "Invented",
-            "link": "https://docs.google.com/document/d/nope1234567/edit",
-        },
-        {"title": "No link", "link": ""},
+OPTIONS = {
+    "options": [
+        {"value": "0.050 in", "source": "Crush Documentation", "link": DOC_LINK, "date": "2026-03-30"},
+        {"value": "0.030 in", "source": "Seal Calculations", "link": OLD_LINK, "date": ""},
     ],
+    "suggested": 0,
 }
 
 
-def test_draft_decision_returns_the_draft_and_drops_invented_sources(monkeypatch):
-    client = use_client(monkeypatch, [fake.reply(json.dumps(DRAFT))])
+def settle(monkeypatch, reply, records=None):
+    client = use_client(monkeypatch, [reply])
+    result = llm.settle_options(
+        TASK, "Gasket hole clearance?", ANSWER, SOURCES, record=(records if records is not None else []).append
+    )
+    return result, client
+
+
+def test_settle_options_returns_the_values_and_the_suggested_one(monkeypatch):
     records = []
 
-    draft = llm.draft_decision(TASK, TRANSCRIPT, record=records.append)
+    (options, suggested), client = settle(monkeypatch, fake.reply(json.dumps(OPTIONS)), records)
 
-    assert draft["topic"] == "Latch style"
-    assert [s["link"] for s in draft["sources"]] == [DOC_LINK]
+    assert [o["value"] for o in options] == ["0.050 in", "0.030 in"]
+    assert suggested == 0
+    assert options[1]["date"] == "2026-02-10"  # a missing date comes from the cited source
     assert [r.status for r in records] == ["ok"]
     request = client.requests[0]
-    assert "tools" not in request  # a draft never calls tools
-    assert "Never invent a link" in request["messages"][0]["content"]
-    assert "cam latch" in request["messages"][1]["content"]
+    assert "tools" not in request  # it only lists; it never calls tools
+    assert "you never decide" in request["messages"][0]["content"]
+    assert "Gasket hole clearance?" in request["messages"][1]["content"]
 
 
-def test_draft_decision_accepts_json_wrapped_in_a_code_fence(monkeypatch):
-    use_client(monkeypatch, [fake.reply("```json\n" + json.dumps(DRAFT) + "\n```")])
+def test_settle_options_drops_a_source_the_answer_never_cited(monkeypatch):
+    invented = {
+        "options": [
+            {"value": "0.050 in", "source": "Made up", "link": "https://docs.google.com/document/d/nope/edit"},
+            {"value": "0.030 in", "source": "Seal Calculations", "link": OLD_LINK},
+        ],
+        "suggested": 9,
+    }
 
-    assert llm.draft_decision(TASK, TRANSCRIPT)["decision"] == "Use the cam latch."
+    (options, suggested), _ = settle(monkeypatch, fake.reply(json.dumps(invented)))
+
+    assert options[0]["link"] == "" and options[1]["link"] == OLD_LINK
+    assert suggested is None  # out of range
+
+
+def test_settle_options_accepts_json_in_a_code_fence(monkeypatch):
+    (options, _), _ = settle(monkeypatch, fake.reply("```json\n" + json.dumps(OPTIONS) + "\n```"))
+
+    assert len(options) == 2
 
 
 @pytest.mark.parametrize(
-    "reply", ["I think you chose the cam latch.", "[1, 2]", "{broken"]
+    "reply",
+    ["Probably 0.050.", "[1, 2]", "{broken", json.dumps({"options": [{"value": "0.050 in"}]})],
 )
-def test_draft_decision_that_is_not_json_is_a_plain_error(monkeypatch, reply):
-    use_client(monkeypatch, [fake.reply(reply)])
-
+def test_settle_options_without_two_usable_options_is_a_plain_error(monkeypatch, reply):
     with pytest.raises(llm.LLMError) as error:
-        llm.draft_decision(TASK, TRANSCRIPT)
+        settle(monkeypatch, fake.reply(reply))
 
-    assert "couldn't turn this conversation into a draft" in error.value.message
+    assert "couldn't list the options" in error.value.message
 
 
-def test_draft_decision_model_failure_is_logged_and_raised(monkeypatch):
+def test_settle_options_model_failure_is_logged_and_raised(monkeypatch):
     use_client(monkeypatch, [fake.timed_out()])
     records = []
 
     with pytest.raises(llm.LLMError) as error:
-        llm.draft_decision(TASK, TRANSCRIPT, record=records.append)
+        llm.settle_options(TASK, "Q?", ANSWER, SOURCES, record=records.append)
 
     assert error.value.kind == "timeout"
     assert [r.status for r in records] == ["timeout"]
