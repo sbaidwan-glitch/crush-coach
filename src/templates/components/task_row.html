@@ -1,23 +1,34 @@
 {# One task as a row: code, title with owner (or Unclaimed) under it, then its status.
-   Pass `claim_next` to show a Claim button instead (Home's "Pick up a task"). #}
+   Pass `claim_next` to show a Claim button instead (Home's "Pick up a task").
+   With preview=True (a signed-out visitor) the title and owner are stand-ins: blurred, not
+   a link, hidden from screen readers and the keyboard, and the Claim button is disabled. #}
 {% from "components/status.html" import status_label %}
-{% macro task_row(task, status_labels) -%}
+{% macro task_row(task, status_labels, preview=False) -%}
 <div class="task-row">
   <span class="code">{{ task.code }}</span>
+  {% if preview -%}
+  <span class="is-blurred" aria-hidden="true"><span class="task-row__title">{{ task.title }}</span><span class="task-row__meta">{{ task.owner or "Unclaimed" }}</span></span>
+  {%- else -%}
   <span><a class="task-row__title" href="/tasks/{{ task.code }}">{{ task.title }}</a><span class="task-row__meta{% if not task.owner %} unclaimed{% endif %}"><span class="visually-hidden">Owner: </span>{{ task.owner or "Unclaimed" }}</span></span>
+  {%- endif %}
   {{ status_label(task.status, status_labels.get(task.status, task.status)) }}
 </div>
 {%- endmacro %}
 
-{% macro claim_row(task, next) -%}
+{% macro claim_row(task, next, preview=False) -%}
 <div class="task-row task-row--claim">
   <span class="code">{{ task.code }}</span>
+  {% if preview -%}
+  <span class="is-blurred" aria-hidden="true"><span class="task-row__title">{{ task.title }}</span><span class="task-row__meta">{{ task.subsystem }} · {{ task.task_type }}</span></span>
+  <button class="btn btn--small" type="button" disabled><span>Claim</span><span class="visually-hidden"> {{ task.code }} (sign in to claim)</span></button>
+  {%- else -%}
   <span><a class="task-row__title" href="/tasks/{{ task.code }}">{{ task.title }}</a><span class="task-row__meta">{{ task.subsystem }} · {{ task.task_type }}</span></span>
   <form method="post" action="/tasks/{{ task.code }}/status">
     <input type="hidden" name="action" value="start">
     <input type="hidden" name="next" value="{{ next }}">
     <button class="btn btn--small" type="submit"><span>Claim</span><span class="visually-hidden"> {{ task.code }}</span></button>
   </form>
+  {%- endif %}
 </div>
 {%- endmacro %}
 

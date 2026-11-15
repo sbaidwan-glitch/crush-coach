@@ -2,7 +2,8 @@
 
 Your task (the stored "Next step" from the coach, never a fresh model call), a few
 unclaimed tasks to pick up, Crush's build progress, and the render with a tag per part.
-Signed-out visitors get a sign-in panel in the same shell.
+Signed-out visitors see the same page as a read-only preview: progress is real, tasks
+are blurred stand-ins, and nothing can be claimed.
 """
 
 import logging
@@ -45,8 +46,7 @@ def my_task(tasks: list[Task], user: auth.User) -> tuple[Task | None, int]:
 @router.get("/", response_class=HTMLResponse)
 def home(request: Request, session: Annotated[Session, Depends(db.get_session)]):
     user = auth.session_user(request)
-    if user is None:
-        return templates.TemplateResponse(request, "home_signed_out.html", {"user": None})
+    preview = user is None
 
     error = None
     tasks: list[Task] = []
@@ -56,7 +56,7 @@ def home(request: Request, session: Annotated[Session, Depends(db.get_session)])
         log.error("Could not load tasks (%s)", type(exc).__name__)
         error = "Couldn't load tasks from the database right now. Try again in a moment."
 
-    current, more = my_task(tasks, user)
+    current, more = (None, 0) if preview else my_task(tasks, user)
     next_step = None
     if current is not None:
         try:
@@ -68,9 +68,10 @@ def home(request: Request, session: Annotated[Session, Depends(db.get_session)])
     # The review queue loads on its own: a failure only costs that panel.
     review: list[dict] = []
     review_error = None
-    if user["role"] == "lead" and error:
+    is_lead = not preview and user["role"] == "lead"  # signed-out visitors see no queue
+    if is_lead and error:
         review_error = "Couldn't load the review queue right now."
-    elif user["role"] == "lead":
+    elif is_lead:
         try:
             review = board.waiting_for_review(session, tasks)
         except Exception as exc:  # noqa: BLE001
@@ -90,11 +91,16 @@ def home(request: Request, session: Annotated[Session, Depends(db.get_session)])
         "step_name": steps.current_step(current).name
         if current and steps.current_step(current)
         else "",
-        "is_lead": user["role"] == "lead",
+        "is_lead": is_lead,
         "review": review,
         "review_error": review_error,
         "status_labels": STATUS_LABELS,
-        "pick_up": unclaimed[:PICK_UP_LIMIT],
+        "pick_up": (
+            board.preview_tasks(unclaimed[:PICK_UP_LIMIT])
+            if preview
+            else unclaimed[:PICK_UP_LIMIT]
+        ),
+        "preview": preview,
         "unclaimed_count": len(unclaimed),
         "groups": groups,
         "total": progress.overall(groups),

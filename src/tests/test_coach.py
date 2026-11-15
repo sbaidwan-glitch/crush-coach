@@ -53,6 +53,7 @@ ALEX = {"name": "Alex Example", "email": "alex@example.edu", "role": "member"}
 
 def sign_in_as(user):
     main.app.dependency_overrides[auth.require_user] = lambda: user
+    main.app.dependency_overrides[auth.optional_user] = lambda: user
 
 
 @pytest.fixture
@@ -242,9 +243,12 @@ def test_coach_requires_sign_in(monkeypatch, task):
         page = anonymous.get("/tasks/M04")
         post = anonymous.post("/tasks/M04/coach", data={"message": "hi"})
 
-    for response in (page, post):
-        assert response.status_code == 303
-        assert response.headers["location"].startswith("/login")
+    # The page is a sign-in prompt; the chat post still sends a visitor to Google.
+    assert page.status_code == 401
+    assert "Sign in to see this task" in page.text
+    assert 'href="/login?next=%2Ftasks%2FM04"' in page.text
+    assert post.status_code == 303
+    assert post.headers["location"].startswith("/login")
     assert "Finish enclosure wall panels" not in page.text
 
 

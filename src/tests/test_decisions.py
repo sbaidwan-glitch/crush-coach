@@ -23,6 +23,7 @@ LEAD = {"name": "Lee Lead", "email": "lee@example.edu", "role": "lead"}
 
 def sign_in_as(user):
     main.app.dependency_overrides[auth.require_user] = lambda: user
+    main.app.dependency_overrides[auth.optional_user] = lambda: user
 
 
 @pytest.fixture
@@ -123,8 +124,8 @@ def test_list_requires_sign_in(session):
     with TestClient(main.app) as c:
         response = c.get("/decisions", follow_redirects=False)
 
-    assert response.status_code == 303
-    assert response.headers["location"].startswith("/login")
+    assert response.status_code == 401
+    assert "Sign in to see the team’s decisions" in response.text
 
 
 def test_empty_list_says_so_and_offers_to_propose(client, session):
@@ -789,3 +790,13 @@ def test_task_page_offers_the_draft_button(client, session, task):
     assert 'hx-post="/tasks/M04/decision-draft"' in html
     assert "Draft a decision from this conversation" in html
     assert 'id="decision-draft"' in html
+
+
+def test_a_decision_and_the_form_show_a_sign_in_prompt_when_signed_out(session):
+    main.app.dependency_overrides.clear()
+    with TestClient(main.app) as c:
+        detail = c.get("/decisions/1", follow_redirects=False)
+        form = c.get("/decisions/new", follow_redirects=False)
+
+    assert detail.status_code == 401 and "Sign in to see this decision" in detail.text
+    assert form.status_code == 401 and "Sign in to see the decision form" in form.text

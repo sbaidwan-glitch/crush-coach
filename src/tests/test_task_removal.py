@@ -28,6 +28,7 @@ MEMBER = {"name": "Test Member", "email": "member@example.edu", "role": "member"
 @pytest.fixture
 def lead():
     main.app.dependency_overrides[auth.require_user] = lambda: LEAD
+    main.app.dependency_overrides[auth.optional_user] = lambda: LEAD
     with TestClient(main.app, follow_redirects=False) as c:
         yield c
     main.app.dependency_overrides.clear()
@@ -36,6 +37,7 @@ def lead():
 @pytest.fixture
 def member():
     main.app.dependency_overrides[auth.require_user] = lambda: MEMBER
+    main.app.dependency_overrides[auth.optional_user] = lambda: MEMBER
     with TestClient(main.app, follow_redirects=False) as c:
         yield c
     main.app.dependency_overrides.clear()

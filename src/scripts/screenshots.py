@@ -46,7 +46,13 @@ PAGES = (
     ("decision-confirmed-lead", "/decisions/1", "lead"),
     ("admin", "/admin", "lead"),
     ("admin-import", "/admin/import", "lead"),
+    # Signed out: a read-only preview (the task and decision pages are a sign-in prompt, 401)
+    ("home-guest", "/", "guest"),
+    ("tasks-guest", "/tasks", "guest"),
+    ("task-guest", "/tasks/E01", "guest"),
+    ("decisions-guest", "/decisions", "guest"),
 )
+EXPECTED_STATUS = {"task-guest": 401, "decisions-guest": 401}
 
 # Made-up values; nothing here is a real secret, person or team data.
 SESSION_SECRET = "screenshots-only-not-a-secret"
@@ -293,19 +299,20 @@ def main() -> int:
                 browser = p.chromium.launch()
                 for width in WIDTHS:
                     contexts = {}
-                    for who, user in (("member", MEMBER), ("lead", LEAD)):
+                    for who, user in (("member", MEMBER), ("lead", LEAD), ("guest", None)):
                         context = browser.new_context(
                             viewport={"width": width, "height": 900}
                         )
-                        context.add_cookies(
-                            [
-                                {
-                                    "name": "crush_coach_session",
-                                    "value": session_cookie(user),
-                                    "url": base,
-                                }
-                            ]
-                        )
+                        if user is not None:
+                            context.add_cookies(
+                                [
+                                    {
+                                        "name": "crush_coach_session",
+                                        "value": session_cookie(user),
+                                        "url": base,
+                                    }
+                                ]
+                            )
                         contexts[who] = context
                     for name, path, who in PAGES:
                         page = contexts[who].new_page()
@@ -320,7 +327,8 @@ def main() -> int:
                         print(
                             f"{response.status} {path} at {width}px -> {target.relative_to(ROOT)}"
                         )
-                        if response.status != 200:
+                        expected = EXPECTED_STATUS.get(name, 200)
+                        if response.status != expected:
                             problems.append(f"{path} returned {response.status}")
                         if overflow > 0:
                             problems.append(

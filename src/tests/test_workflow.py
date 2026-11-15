@@ -214,6 +214,7 @@ def as_user():
 
     def make(user):
         main.app.dependency_overrides[auth.require_user] = lambda: user
+        main.app.dependency_overrides[auth.optional_user] = lambda: user
         c = TestClient(main.app, follow_redirects=False)
         c.__enter__()
         clients.append(c)

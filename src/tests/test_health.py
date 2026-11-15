@@ -20,7 +20,7 @@ def test_index_is_accessible_html():
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
     html = response.text
-    assert "<title>Crush Coach</title>" in html
+    assert "<title>Home – Crush Coach</title>" in html
     assert '<html lang="en">' in html
     assert 'name="viewport"' in html
     assert '<main class="main" id="main">' in html

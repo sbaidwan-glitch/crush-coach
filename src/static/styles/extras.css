@@ -123,3 +123,7 @@ input[type="checkbox"] { accent-color: var(--color-ink); width: var(--space-4); 
 .steps-editor__list { list-style: none; margin: 0; padding: 0; }
 .steps-editor .actions { margin-top: var(--space-2); }
 .review-panel { margin-bottom: var(--space-5); }
+
+/* ---------- Signed-out preview: task titles and owners are stand-ins, blurred ---------- */
+.is-blurred { display: block; filter: blur(var(--space-1)); user-select: none; pointer-events: none; }
+.is-blurred .task-row__title { display: block; }

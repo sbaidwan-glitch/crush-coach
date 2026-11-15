@@ -19,3 +19,8 @@
 {% macro loading_indicator(id, text) -%}
 <span id="{{ id }}" class="htmx-indicator thinking" role="status"><i></i>{{ text }}</span>
 {%- endmacro %}
+
+{# Shown on a page a signed-out visitor can look at: says what is hidden and how to see it. #}
+{% macro preview_notice(what="task titles and owners") -%}
+<p class="notice" role="status">You’re looking at a preview. Crush’s build progress is real; {{ what }} are hidden until you sign in with a team Google account. <a href="/login">Sign in with Google</a></p>
+{%- endmacro %}

@@ -142,3 +142,13 @@ def test_the_needs_review_filter_and_panel_render_for_leads(session, as_user):
     assert "Busy one" not in html
     assert "Waiting for review" in html  # the panel
     assert "Owner: </span>Alex Example · waiting 2 days" in html
+
+
+def test_signed_out_visitors_see_no_review_panel_or_count(session):
+    add(session, "M01", waited_days=1)
+
+    with TestClient(main.app) as visitor:
+        html = visitor.get("/").text
+
+    assert "Waiting for your review" not in html
+    assert "sidebar__badge" not in html

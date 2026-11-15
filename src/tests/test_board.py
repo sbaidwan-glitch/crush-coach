@@ -3,6 +3,7 @@ from datetime import timedelta
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlmodel import select
 
 import auth
 import board
@@ -30,6 +31,7 @@ def add(session, code, title, subsystem, status="todo", owner=None):
 
 def sign_in_as(user):
     main.app.dependency_overrides[auth.require_user] = lambda: user
+    main.app.dependency_overrides[auth.optional_user] = lambda: user
     return TestClient(main.app)
 
 
@@ -251,3 +253,54 @@ def test_decisions_failing_only_hides_that_panel(session, monkeypatch, client):
     assert response.status_code == 200
     assert "Still here" in response.text
     assert "Couldn&#39;t load decisions right now." in response.text
+
+
+# --- signed-out preview ---
+
+
+@pytest.fixture
+def anonymous():
+    main.app.dependency_overrides.clear()  # the real sign-in applies
+    with TestClient(main.app, follow_redirects=False) as c:
+        yield c
+
+
+def test_signed_out_board_shows_real_counts_but_only_stand_in_rows(session, anonymous):
+    add(session, "M01", "Cut the secret panel", "Enclosure", status="done", owner="Alex Example")
+    add(session, "M02", "Drill the hidden lid", "Enclosure", status="todo")
+
+    response = anonymous.get("/tasks")
+    html = response.text
+
+    assert response.status_code == 200
+    assert "You’re looking at a preview" in html
+    assert "1/2" in html  # the real "done" count
+    assert "M01" in html and "M02" in html  # codes and status are fine to show
+    for private in ("Cut the secret panel", "Drill the hidden lid", "Alex Example"):
+        assert private not in html
+    assert 'href="/tasks/M01"' not in html
+    assert 'class="is-blurred"' in html
+    assert ">Mine<" not in html  # no "Mine" without an account
+
+
+def test_signed_out_board_does_not_read_decisions(session, anonymous):
+    session.add(
+        Decision(topic="Secret topic", subsystem="Enclosure", decision="d", rationale="r", proposed_by="x")
+    )
+    session.commit()
+
+    html = anonymous.get("/tasks").text
+
+    assert "Secret topic" not in html
+    assert "Sign in to read the team’s decisions" in html
+
+
+def test_signed_out_visitors_cannot_claim_a_task(session, anonymous):
+    add(session, "M02", "Drill the hidden lid", "Enclosure")
+
+    response = anonymous.post("/tasks/M02/status", data={"action": "start"})
+
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/login")
+    session.expire_all()
+    assert session.exec(select(Task)).one().status == "todo"
