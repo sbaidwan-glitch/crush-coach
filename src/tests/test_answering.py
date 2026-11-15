@@ -144,10 +144,17 @@ def test_notes_say_what_went_wrong():
     assert answering.notes_for(llm.CoachAnswer(text="fine")) == []
 
 
-def test_an_empty_model_reply_is_a_plain_fallback(monkeypatch, found):
-    run, _, _ = start(monkeypatch, found, fake.reply(""))
+def test_an_empty_model_reply_is_an_error_never_a_saved_answer(monkeypatch, found):
+    """The old placeholder ("I couldn't put an answer together") was saved as the coach's
+    answer, with no Retry button. Now it is a failure, which the page shows with one."""
+    run, calls, _ = start(monkeypatch, found, fake.reply(""), fake.reply(""))
 
-    assert "couldn't put an answer together" in run.run().text
+    with pytest.raises(llm.LLMError) as caught:
+        run.run()
+
+    assert caught.value.kind == "empty"
+    assert "couldn't put an answer together" not in caught.value.message
+    assert [c.status for c in calls] == ["empty", "empty"]
 
 
 def test_the_live_read_returns_the_text_untrusted_and_truncated(monkeypatch, found):
@@ -185,3 +192,107 @@ def test_a_live_read_gives_up_when_the_time_is_gone():
             read(DOC_ID, 0.05)
     finally:
         release.set()
+
+
+# --- an answer that hit the output cap ends at its last full sentence ---
+
+
+def test_an_answer_cut_by_the_cap_ends_cleanly_and_says_it_was_shortened(
+    monkeypatch, found
+):
+    cut = "The lid uses the two-point latch. It seals evenly. Next step: open the dra"
+    run, _, _ = start(monkeypatch, found, fake.reply(cut, finish_reason="length"))
+
+    answer = run.run()
+
+    assert answer.text == "The lid uses the two-point latch. It seals evenly."
+    assert answer.shortened is True
+    assert answering.NOTE_SHORTENED in answering.notes_for(answer)
+
+
+def test_a_complete_answer_is_left_alone(monkeypatch, found):
+    text = "The lid uses the two-point latch.\n\nNext step: check the holes"
+    run, _, _ = start(monkeypatch, found, fake.reply(text))
+
+    answer = run.run()
+
+    assert answer.text == text and answer.shortened is False
+    assert answering.notes_for(answer) == []
+
+
+@pytest.mark.parametrize(
+    ("cut", "clean"),
+    [
+        (
+            (
+                "Use the latch in [Draw Latch](https://drive.google.com/file/d/ABC/view). "
+                "Next step: open it and che"
+            ),
+            "Use the latch in [Draw Latch](https://drive.google.com/file/d/ABC/view).",
+        ),
+        ("1. Measure it.\n2. Then comp", "1. Measure it."),
+        ("Use e.g. a latch. It seals. The other", "Use e.g. a latch. It seals."),
+        (
+            "**Likely current: .030.** Older says .050. A lead",
+            "**Likely current: .030.** Older says .050.",
+        ),
+        ("A sentence. **Bold that never clo", "A sentence."),
+    ],
+)
+def test_clean_end_never_leaves_half_a_link_a_list_number_or_open_bold(cut, clean):
+    assert answering.clean_end(cut) == clean
+
+
+def test_with_no_full_sentence_the_text_stops_at_a_whole_word():
+    cut = answering.clean_end("The lid uses the draw latch in [Exa")
+
+    assert cut == "The lid uses the draw latch…"
+
+
+def test_text_cut_at_the_time_limit_is_also_cleaned(monkeypatch, found):
+    run, _, _ = start(
+        monkeypatch,
+        found,
+        fake.reply("It is the draw latch. The mount", then_raise=fake.timed_out()),
+    )
+
+    answer = run.run()
+
+    assert answer.cut_short is True and answer.text == "It is the draw latch."
+
+
+# --- [S3] becomes a link ---
+
+
+def test_a_numbered_citation_becomes_a_link_to_that_source(monkeypatch, found):
+    run, _, _ = start(
+        monkeypatch,
+        found,
+        fake.reply("Use the two-point latch [S1]. It seals evenly [S9]."),
+    )
+
+    answer = run.run()
+
+    assert f"[Latch design notes]({LINK})" in answer.text
+    assert "[S9]" in answer.text  # no such source: left as written, nothing invented
+    assert [s["title"] for s in answer.sources] == ["Latch design notes"]
+
+
+def test_a_real_link_next_to_its_number_is_left_alone():
+    text = "See [Latch design notes](https://x.test/a) [S1]."
+    hit = type(
+        "Hit", (), {"name": "Latch design notes", "web_link": "https://x.test/a"}
+    )
+
+    assert answering.link_source_numbers(text, {1: hit}).count("https://x.test/a") == 2
+    already = "[S1](https://z.test)"  # already a Markdown link: not touched
+    assert answering.link_source_numbers(already, {1: hit}) == already
+
+
+def test_the_streamed_text_shows_numbered_citations_as_links_too(monkeypatch, found):
+    run, _, _ = start(monkeypatch, found, fake.reply("Use the two-point latch [S1]."))
+
+    events = list(run)
+
+    texts = [e["text"] for e in events if e["type"] == "text"]
+    assert f"[Latch design notes]({LINK})" in texts[-1]

@@ -336,6 +336,9 @@ def _add_llm_calls(
                 latency_ms=call.latency_ms,
                 cost=call.cost,
                 status=call.status,
+                finish_reason=call.finish_reason,
+                reasoning_tokens=call.reasoning_tokens,
+                tool_called=call.tool_called,
                 created_at=utc_now(),
             )
         )

@@ -34,7 +34,12 @@ BASE_URL = "https://litellm.glassroomai.com/v1"
 DEFAULT_MODEL = "claude-sonnet-5"
 DEFAULT_TIMEOUT_SECONDS = 30.0  # one call; COACH_TIMEOUT_SECONDS
 ANSWER_SECONDS = 25.0  # the whole answer: model, live read, everything
-MAX_ANSWER_TOKENS = 900
+# Output cap per call. It counts every token the model produces, and some models
+# count their hidden "thinking" tokens against it, so a cap that fits the visible
+# answer (a few hundred tokens) can still cut it off. 900 did: answers ended mid
+# sentence. A call that comes back empty is tried once more with RETRY_ANSWER_TOKENS.
+MAX_ANSWER_TOKENS = 2000
+RETRY_ANSWER_TOKENS = 4000
 MAX_DOC_CHARS = 12_000  # of a live-read document
 MAX_SETTLE_CHARS = 6_000  # of a coach answer sent to be turned into options
 MAX_OPTIONS = 4
@@ -42,14 +47,16 @@ SYSTEM_PROMPT_PATH = Path(__file__).parent / "prompts" / "coach_system.md"
 SETTLE_PROMPT_PATH = Path(__file__).parent / "prompts" / "settle_options.md"
 COST_HEADER = "x-litellm-response-cost"
 
-# US dollars per million tokens (input, output). Only used when the proxy does not
+# US dollars per million tokens (input, output), matched by a word in the model name
+# (claude-haiku-4-5, gemini-3.5-flash-lite). Only used when the proxy does not
 # report a cost: a streamed answer's headers are sent before its cost is known, so
-# the number is then an ESTIMATE from the token counts. Check against the Glassroom
-# bill; update when the models change.
+# the number is then an ESTIMATE from the token counts. These are the providers' list
+# prices; check against the Glassroom bill and update when the models change.
 ESTIMATED_PRICES = {
-    "haiku": (1.0, 5.0),
+    "haiku": (1.0, 5.0),  # Claude Haiku 4.5
     "sonnet": (3.0, 15.0),
     "opus": (5.0, 25.0),
+    "flash-lite": (0.30, 2.50),  # Gemini 3.5 Flash-Lite
 }
 
 # The only tool the coach has. OpenAI tool names can't contain dots.
@@ -85,7 +92,8 @@ ReadFile = Callable[[str, float], str]
 class LLMError(RuntimeError):
     """A model failure with a message that is safe to show to a member.
 
-    `kind` is one of budget_exceeded, rate_limited, timeout, error.
+    `kind` is one of budget_exceeded, rate_limited, timeout, error, empty (the model
+    returned no text, even on a second try).
     """
 
     def __init__(self, kind: str, message: str, latency_ms: int = 0):
@@ -106,6 +114,20 @@ class CallRecord:
     output_tokens: int | None = None
     cost: float | None = None
     cost_estimated: bool = False  # cost came from token counts, not from the proxy
+    # Why the call ended, for answers that come back cut off or empty:
+    finish_reason: str | None = None  # stop, length (hit the output cap), tool_calls...
+    reasoning_tokens: int | None = None  # hidden thinking tokens, if the model says
+    tool_called: bool = False  # the model asked for a tool (the live Drive read)
+
+    def describe(self, number: int) -> str:
+        """One plain line for the eval report and the logs. Never includes text."""
+        tokens = f"{self.input_tokens or 0:,} in / {self.output_tokens or 0:,} out"
+        if self.reasoning_tokens:
+            tokens += f" ({self.reasoning_tokens:,} of them reasoning)"
+        return (
+            f"call {number}: {self.status}, finish reason {self.finish_reason or 'unknown'}, "
+            f"{tokens}, {'tool called' if self.tool_called else 'no tool called'}"
+        )
 
 
 @dataclass
@@ -117,6 +139,9 @@ class CoachAnswer:
     unsourced_numbers: bool = False
     ungrounded_links: bool = False
     cut_short: bool = False  # stopped at the time limit or a dropped stream
+    shortened: bool = (
+        False  # hit the output cap; the text ends at its last full sentence
+    )
     tool_calls: int = 0  # live Drive reads (0 or 1)
     seconds: float = 0.0
     first_text_seconds: float | None = None
@@ -196,6 +221,14 @@ def estimate_cost(model: str, input_tokens: int | None, output_tokens: int | Non
     return None
 
 
+def _reasoning_tokens(usage: Any) -> int | None:
+    """Hidden thinking tokens, when the proxy reports them (they count in the output
+    total and against the output cap)."""
+    details = getattr(usage, "completion_tokens_details", None)
+    value = getattr(details, "reasoning_tokens", None)
+    return value if isinstance(value, int) else None
+
+
 def _header_cost(headers: Any) -> float | None:
     try:
         value = headers.get(COST_HEADER)
@@ -245,6 +278,8 @@ class CoachStream:
         self.reads = 0
         self.read_failed = False
         self.cut_short = False
+        self.truncated = False  # the last call hit the output cap while writing text
+        self.finish_reason: str | None = None  # of the last call
         self.first_text_seconds: float | None = None
         self.elapsed = 0.0
         self._started = 0.0
@@ -266,6 +301,10 @@ class CoachStream:
             self.elapsed = time.monotonic() - self._started
 
     def _run(self) -> Iterator[Event]:
+        yield from self._answer()
+        yield from self._recover_if_empty()
+
+    def _answer(self) -> Iterator[Event]:
         wants_tool = self.read_file is not None
         tool_request = yield from self._one_call(allow_tool=wants_tool)
         if tool_request is None:
@@ -296,6 +335,21 @@ class CoachStream:
         yield ("step", "Writing the answer…")
         yield from self._one_call(allow_tool=False)
 
+    def _recover_if_empty(self) -> Iterator[Event]:
+        """No text after the calls (and no time-out or dropped stream, which raise or
+        set `cut_short`): try once more with no tool and room for hidden thinking
+        tokens. Still nothing: an `empty` error, which the page shows with Retry."""
+        if self.text or self.cut_short:
+            return
+        yield ("step", "Trying again…")
+        yield from self._one_call(allow_tool=False, max_tokens=RETRY_ANSWER_TOKENS)
+        if not self.text and not self.cut_short:
+            raise LLMError(
+                "empty",
+                "The coach didn't write an answer this time. Try again.",
+                int((time.monotonic() - self._started) * 1000),
+            )
+
     def _read(self, arguments: str) -> str:
         assert self.read_file is not None
         try:
@@ -315,7 +369,9 @@ class CoachStream:
                 }
             )
 
-    def _one_call(self, *, allow_tool: bool) -> Iterator[Event]:
+    def _one_call(
+        self, *, allow_tool: bool, max_tokens: int = MAX_ANSWER_TOKENS
+    ) -> Iterator[Event]:
         """Stream one completion. Returns the tool request (id, name, arguments) if
         the model made one, else None."""
         model = model_name()
@@ -327,7 +383,7 @@ class CoachStream:
             "messages": self.messages,
             "stream": True,
             "stream_options": {"include_usage": True},
-            "max_tokens": MAX_ANSWER_TOKENS,
+            "max_tokens": max_tokens,
             "timeout": min(call_timeout(), remaining),
         }
         if self.read_file is not None:
@@ -353,6 +409,8 @@ class CoachStream:
         tool_parts: dict[int, dict[str, str]] = {}
         failure: Exception | None = None
         timed_out = False
+        finish: str | None = None
+        wrote = False  # this call produced answer text
         try:
             for chunk in stream:
                 if time.monotonic() > self._deadline:
@@ -361,9 +419,11 @@ class CoachStream:
                 usage = getattr(chunk, "usage", None) or usage
                 if not chunk.choices:
                     continue
+                finish = getattr(chunk.choices[0], "finish_reason", None) or finish
                 delta = chunk.choices[0].delta
                 piece = getattr(delta, "content", None)
                 if piece:
+                    wrote = True
                     if self.first_text_seconds is None:
                         self.first_text_seconds = time.monotonic() - self._started
                     self.text += piece
@@ -378,7 +438,9 @@ class CoachStream:
                         slot["name"] += function.name or ""
                         slot["arguments"] += function.arguments or ""
         except GeneratorExit:
-            self._finish_call(model, started, usage, header_cost, "error")
+            self._finish_call(
+                model, started, usage, header_cost, "error", finish, bool(tool_parts)
+            )
             raise
         except Exception as exc:  # noqa: BLE001  (a dropped stream)
             failure = exc
@@ -392,6 +454,7 @@ class CoachStream:
                         "Closing the model stream failed (%s)", type(exc).__name__
                     )
 
+        self.finish_reason = finish
         if failure is not None:
             error = self._failed(model, failure, started, usage, header_cost)
             if not self.text:
@@ -399,7 +462,9 @@ class CoachStream:
             self.cut_short = True
             return None
         if timed_out:
-            self._finish_call(model, started, usage, header_cost, "timeout")
+            self._finish_call(
+                model, started, usage, header_cost, "timeout", finish, bool(tool_parts)
+            )
             if not self.text:
                 raise LLMError(
                     "timeout",
@@ -408,9 +473,25 @@ class CoachStream:
                 )
             self.cut_short = True
             return None
-        self._finish_call(model, started, usage, header_cost, "ok")
         first = tool_parts.get(0)
-        if first and first["name"] == "read_file" and allow_tool:
+        wants_read = bool(first and first["name"] == "read_file" and allow_tool)
+        # A call with no text and no usable tool request is "empty": the reason is in
+        # its finish reason and token counts (llm_call), not in a guess.
+        status = "ok" if wrote or wants_read else "empty"
+        self._finish_call(
+            model, started, usage, header_cost, status, finish, bool(tool_parts)
+        )
+        self.truncated = bool(
+            wrote and (finish or "").lower() in ("length", "max_tokens")
+        )
+        if status == "empty":
+            log.warning(
+                "Coach model call came back empty (finish reason %s, %s output tokens)",
+                finish or "unknown",
+                getattr(usage, "completion_tokens", "?"),
+            )
+        if wants_read:
+            assert first is not None
             return (first["id"] or "call_read_file", first["name"], first["arguments"])
         return None
 
@@ -427,12 +508,14 @@ class CoachStream:
         usage: Any,
         header_cost: float | None,
         status: str,
+        finish_reason: str | None = None,
+        tool_called: bool = False,
     ) -> None:
         input_tokens = getattr(usage, "prompt_tokens", None)
         output_tokens = getattr(usage, "completion_tokens", None)
         cost = header_cost
         estimated = False
-        if cost is None and status == "ok":
+        if cost is None and status in ("ok", "empty"):
             cost = estimate_cost(model, input_tokens, output_tokens)
             estimated = cost is not None
         self._log_call(
@@ -444,6 +527,9 @@ class CoachStream:
                 output_tokens=output_tokens,
                 cost=cost,
                 cost_estimated=estimated,
+                finish_reason=finish_reason,
+                reasoning_tokens=_reasoning_tokens(usage),
+                tool_called=tool_called,
             )
         )
 
@@ -504,6 +590,8 @@ def _complete(messages: list[dict[str, Any]]) -> tuple[str, CallRecord]:
         output_tokens=output_tokens,
         cost=cost,
         cost_estimated=estimated,
+        finish_reason=getattr(response.choices[0], "finish_reason", None),
+        reasoning_tokens=_reasoning_tokens(usage),
     )
     return response.choices[0].message.content or "", record
 
@@ -547,22 +635,42 @@ def _link_id(link: str) -> str | None:
     return drive_file_id(link) or drive.folder_id_from(link)
 
 
+_MARKDOWN_DRIVE_LINK = re.compile(
+    r"\[([^\]\n]*)\]\((https://(?:docs|drive)\.google\.com/[^\s)]+)\)"
+)
+
+
 def remove_ungrounded_links(text: str, known: dict[str, Any]) -> tuple[str, bool]:
-    """Replace Drive links that weren't in the material the model was given: it can't
-    plant a made-up link. `known` maps each allowed link to its source entry."""
+    """Take out Drive links that weren't in the material the model was given: it can't
+    plant a made-up link. `known` maps each allowed link to its source entry.
+
+    A Markdown link `[title](url)` keeps its title as plain text, so the sentence still
+    reads; a bare URL is replaced by "(link removed: ...)".
+    """
     allowed_ids = {i for i in (_link_id(link) for link in known) if i}
     found = False
+
+    def is_known(url: str) -> bool:
+        file_id = _link_id(url)
+        return url in known or bool(file_id and file_id in allowed_ids)
+
+    def keep_title(match: re.Match[str]) -> str:
+        nonlocal found
+        if is_known(match.group(2)):
+            return match.group(0)
+        found = True
+        return match.group(1)
 
     def check(match: re.Match[str]) -> str:
         nonlocal found
         url = match.group(0).rstrip(".,;:!?")
         trailing = match.group(0)[len(url) :]
-        file_id = _link_id(url)
-        if url in known or (file_id and file_id in allowed_ids):
+        if is_known(url):
             return match.group(0)
         found = True
         return f"(link removed: not one of the sources){trailing}"
 
+    text = _MARKDOWN_DRIVE_LINK.sub(keep_title, text)
     return _DRIVE_URL.sub(check, text), found
 
 

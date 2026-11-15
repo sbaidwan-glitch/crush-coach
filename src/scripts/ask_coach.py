@@ -120,6 +120,8 @@ def ask(
         return None
     except llm.LLMError as exc:
         print(f"Coach failed ({exc.kind}): {exc.message}", file=sys.stderr)
+        for number, call in enumerate(calls, start=1):
+            print(f"  {call.describe(number)}", file=sys.stderr)
         return None
 
     assert answer is not None
@@ -145,7 +147,8 @@ def ask(
             cost = f"{call.cost:.4f}" + (" (estimated)" if call.cost_estimated else "")
         print(
             f"  call {number}: {call.status}, {call.input_tokens} in / "
-            f"{call.output_tokens} out tokens, {call.latency_ms} ms, cost {cost}"
+            f"{call.output_tokens} out tokens, {call.latency_ms} ms, cost {cost}, "
+            f"finish reason {call.finish_reason or 'unknown'}"
         )
     return answer
 

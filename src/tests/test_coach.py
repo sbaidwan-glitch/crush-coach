@@ -1049,10 +1049,14 @@ def test_the_members_message_is_a_filled_box_and_the_coachs_has_a_blue_rule(
     session, task, client
 ):
     session.add(
-        CoachMessage(task_id=task.id, member="sam@example.edu", role="user", content="Hi?")
+        CoachMessage(
+            task_id=task.id, member="sam@example.edu", role="user", content="Hi?"
+        )
     )
     session.add(
-        CoachMessage(task_id=task.id, member="Coach", role="assistant", content="Hello.")
+        CoachMessage(
+            task_id=task.id, member="Coach", role="assistant", content="Hello."
+        )
     )
     session.commit()
 
@@ -1077,8 +1081,16 @@ def test_next_step_and_conflicts_get_their_own_boxes(session, task, client):
             meta=json.dumps(
                 {
                     "sources": [
-                        {"title": "Crush Documentation", "link": LINK, "modified": "2026-03-30"},
-                        {"title": "D1 latch", "link": "/decisions/1", "modified": "2026-10-01"},
+                        {
+                            "title": "Crush Documentation",
+                            "link": LINK,
+                            "modified": "2026-03-30",
+                        },
+                        {
+                            "title": "D1 latch",
+                            "link": "/decisions/1",
+                            "modified": "2026-10-01",
+                        },
                     ],
                     "notes": [],
                 }
@@ -1105,7 +1117,9 @@ def test_a_failed_answer_uses_the_error_box_and_keeps_the_question_above_it(
 
     html = client.get("/tasks/M04").text
 
-    assert '<article class="msg msg--coach msg--error" role="alert" data-failed>' in html
+    assert (
+        '<article class="msg msg--coach msg--error" role="alert" data-failed>' in html
+    )
     assert "Couldn’t get an answer" in html and "Took too long" in html
     assert "Your question is kept above." in html
     assert html.index("Which latch for the lid?") < html.index("Took too long")
@@ -1220,3 +1234,102 @@ def test_member_messages_stay_plain_text(monkeypatch, task, client):
 
     assert "is **this** &lt;b&gt;bold&lt;/b&gt;?" in page
     assert "<strong>this</strong>" not in page
+
+
+# --- why an answer ended: empty and cut-off answers ---
+
+
+def test_an_empty_answer_is_a_failure_with_retry_and_the_reason_is_logged(
+    monkeypatch, session, task, client
+):
+    """It used to be saved as the coach's answer ("I couldn't put an answer together")
+    with no way to try again."""
+    script(
+        monkeypatch,
+        fake.reply("", output_tokens=900, finish_reason="length", reasoning_tokens=900),
+        fake.reply(
+            "", output_tokens=4000, finish_reason="length", reasoning_tokens=4000
+        ),
+    )
+
+    response = ask(client, "can you explain in more detail")
+
+    assert "couldn&#39;t put an answer together" not in response.text
+    assert "didn&#39;t write an answer" in response.text
+    assert 'name="retry"' in response.text and ">Retry</button>" in response.text
+    calls = stored(session, LlmCall)
+    assert [c.status for c in calls] == ["empty", "empty"]
+    assert [c.finish_reason for c in calls] == ["length", "length"]
+    assert [c.reasoning_tokens for c in calls] == [900, 4000]
+    assert [c.tool_called for c in calls] == [False, False]
+    roles = [m.role for m in sorted(stored(session, CoachMessage), key=lambda m: m.id)]
+    assert roles == ["user", "error"]  # no answer was saved
+
+
+def test_an_empty_answer_that_works_the_second_time_is_a_normal_answer(
+    monkeypatch, session, task, client
+):
+    script(monkeypatch, fake.reply(""), fake.reply("Use the two-point latch."))
+
+    response = ask(client)
+
+    assert "Use the two-point latch." in response.text
+    assert 'name="retry"' not in response.text
+    assert [c.status for c in stored(session, LlmCall)] == ["empty", "ok"]
+
+
+def test_every_call_row_has_its_finish_reason_and_whether_the_tool_ran(
+    monkeypatch, session, task, client
+):
+    monkeypatch.setattr(drive, "read_text", lambda file_id: "Doc text.")
+    script(
+        monkeypatch,
+        fake.tool_request(("r1", "read_file", json.dumps({"file_id": DOC_ID}))),
+        fake.reply("From the doc."),
+    )
+
+    ask(client)
+
+    calls = stored(session, LlmCall)
+    assert [(c.finish_reason, c.tool_called) for c in calls] == [
+        ("tool_calls", True),
+        ("stop", False),
+    ]
+
+
+def test_an_answer_cut_by_the_output_cap_is_saved_clean_with_a_note(
+    monkeypatch, session, task, client
+):
+    cut = f"Use the two-point latch ([notes]({LINK})). Next step: check the ho"
+    script(monkeypatch, fake.reply(cut, finish_reason="length"))
+
+    response = ask(client)
+
+    assert "Next step: check the ho" not in response.text
+    assert "last full sentence" in response.text  # the note says it was shortened
+    [saved] = [m for m in stored(session, CoachMessage) if m.role == "assistant"]
+    assert saved.content == f"Use the two-point latch ([notes]({LINK}))."
+    assert "Next step" not in saved.content
+    assert "shortened" in saved.meta
+    [call] = stored(session, LlmCall)
+    assert call.finish_reason == "length"
+
+
+def test_a_follow_up_gets_an_answer_and_keeps_the_first_answers_sources(
+    monkeypatch, session, task, client
+):
+    model = script(
+        monkeypatch,
+        fake.reply(f"The lid uses the two-point latch ([notes]({LINK}))."),
+        fake.reply("General engineering advice: check the latch seats evenly."),
+    )
+    ask(client)
+
+    response = ask(
+        client, "Can you explain what that means and what I should look for?"
+    )
+
+    assert "General engineering advice" in response.text
+    second = model.requests[1]
+    assert [m["role"] for m in second["messages"]][-3:] == ["user", "assistant", "user"]
+    assert "Use the two-point latch on the lid" in second["messages"][-1]["content"]

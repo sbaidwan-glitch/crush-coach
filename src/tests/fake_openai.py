@@ -22,18 +22,33 @@ def reply(
     cost="0.0012",
     delay=0.0,
     then_raise=None,
+    finish_reason="stop",
+    reasoning_tokens=None,
 ):
     """A final answer. When streamed it arrives a word at a time, `delay` seconds
-    apart; `then_raise` is an exception the stream hits after the last word."""
+    apart; `then_raise` is an exception the stream hits after the last word.
+    `finish_reason="length"` is an answer cut off by the output cap."""
     return {
         "message": SimpleNamespace(content=text, tool_calls=None),
-        "usage": SimpleNamespace(
-            prompt_tokens=input_tokens, completion_tokens=output_tokens
-        ),
+        "usage": _usage(input_tokens, output_tokens, reasoning_tokens),
+        "finish_reason": finish_reason,
         "headers": {"x-litellm-response-cost": cost} if cost else {},
         "delay": delay,
         "then_raise": then_raise,
     }
+
+
+def _usage(input_tokens, output_tokens, reasoning_tokens=None):
+    details = (
+        SimpleNamespace(reasoning_tokens=reasoning_tokens)
+        if reasoning_tokens is not None
+        else None
+    )
+    return SimpleNamespace(
+        prompt_tokens=input_tokens,
+        completion_tokens=output_tokens,
+        completion_tokens_details=details,
+    )
 
 
 def tool_request(*calls, input_tokens=80, output_tokens=15, cost="0.0008"):
@@ -48,9 +63,8 @@ def tool_request(*calls, input_tokens=80, output_tokens=15, cost="0.0008"):
     ]
     return {
         "message": SimpleNamespace(content=None, tool_calls=tool_calls),
-        "usage": SimpleNamespace(
-            prompt_tokens=input_tokens, completion_tokens=output_tokens
-        ),
+        "usage": _usage(input_tokens, output_tokens),
+        "finish_reason": "tool_calls",
         "headers": {"x-litellm-response-cost": cost} if cost else {},
         "delay": 0.0,
         "then_raise": None,
@@ -133,6 +147,16 @@ class _Stream:
             yield SimpleNamespace(choices=[SimpleNamespace(delta=delta)], usage=None)
         if self._spec.get("then_raise") is not None:
             raise self._spec["then_raise"]
+        if self._spec.get("finish_reason"):
+            ending = SimpleNamespace(content=None, tool_calls=None)
+            yield SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        delta=ending, finish_reason=self._spec["finish_reason"]
+                    )
+                ],
+                usage=None,
+            )
         yield SimpleNamespace(choices=[], usage=self._spec["usage"])
 
     def close(self):
