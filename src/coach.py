@@ -33,6 +33,7 @@ import db
 import decisions
 import inbox
 import llm
+import recommend as recommend_tools
 import retrieval
 import shell
 import taskpage
@@ -180,6 +181,7 @@ def _view(
         "settle": _settle_state(
             message.role, message.id, message.content, sources, asked or set()
         ),
+        "recommendation": bool(meta.get("recommend")),
     }
 
 
@@ -191,9 +193,19 @@ def _views(
     views = []
     for position, message in enumerate(messages):
         retry_id = None
-        if message.role == "error" and position == len(messages) - 1:
+        last = position == len(messages) - 1
+        if message.role == "error" and last:
             retry_id = _meta(message).get("retry_of")
-        views.append(_view(message, user, retry_id, asked))
+        view = _view(message, user, retry_id, asked)
+        # "Recommend" is offered under the latest answer, once: not under a
+        # recommendation itself, a drafted decision, or anything older.
+        view["can_recommend"] = bool(
+            last
+            and message.role == "assistant"
+            and not view["recommendation"]
+            and not message.content.startswith("Drafted a decision")
+        )
+        views.append(view)
     return views
 
 
@@ -375,6 +387,10 @@ def _fragment(
 
 # --- one message, start to finish ---
 
+RECOMMEND_REQUEST = "Give me your recommendation."  # what the Recommend button sends
+NOTHING_TO_RECOMMEND = (
+    "Ask the coach about this design question first, then ask for a recommendation."
+)
 NO_INDEX = "Drive index is empty: ask a lead to sync."
 DB_DOWN = "Couldn't reach the database right now. Try again in a moment."
 UNEXPECTED = "The coach hit an unexpected problem. Try again in a moment."
@@ -412,8 +428,23 @@ def _save_failure(
         log.error("Coach could not save a failure (%s)", type(exc).__name__)
 
 
+def _design_question(chat: list[CoachMessage]) -> tuple[str, str]:
+    """(the member's latest real question, the one before it): what a recommendation is
+    about. The Recommend button's own message and a decision draft request don't count."""
+    asked = [
+        m.content
+        for m in chat
+        if m.role == "user" and m.content not in (RECOMMEND_REQUEST, DRAFT_REQUEST_TEXT)
+    ]
+    return (asked[-1] if asked else ""), (asked[-2] if len(asked) > 1 else "")
+
+
 def converse(
-    code: str, user: User, message: str, retry_of: int | None = None
+    code: str,
+    user: User,
+    message: str,
+    retry_of: int | None = None,
+    recommend: bool = False,
 ) -> Iterator[dict[str, Any]]:
     """Answer one message from a member, yielding what the page needs as it happens.
 
@@ -425,6 +456,11 @@ def converse(
     The order is: save the member's message (so it is never lost and counts toward the
     cap), retrieve with no model call, one streamed model call, save the answer. With
     `retry_of`, the member's earlier message is answered again instead of a new one.
+
+    With `recommend` (the Recommend button), the message is always RECOMMEND_REQUEST
+    and the coach answers the design question discussed so far with the reference-book
+    search and the calculator (`recommend.py`), under a longer time limit. Retrying a
+    failed recommendation is a recommendation again.
     """
     member = user["email"]
     message = message.strip()
@@ -464,6 +500,7 @@ def converse(
                     }
                     return
                 message = original.content
+                recommend = recommend or message == RECOMMEND_REQUEST
                 user_message_id = original.id
                 for old in thread:  # the failure being retried goes away
                     if old.role == "error" and _meta(old).get("retry_of") == retry_of:
@@ -471,6 +508,11 @@ def converse(
                 session.commit()
                 thread = _history(session, task_id)
             else:
+                if recommend:
+                    message = RECOMMEND_REQUEST
+                    if not any(m.role == "assistant" for m in _chat(thread)):
+                        yield {"type": "rejected", "message": NOTHING_TO_RECOMMEND}
+                        return
                 if not message or len(message) > MAX_MESSAGE_CHARS:
                     yield {
                         "type": "rejected",
@@ -498,12 +540,16 @@ def converse(
             chat = _chat(thread, skip={user_message_id})
             history = _model_history(chat)
             previous = next((m.content for m in reversed(chat) if m.role == "user"), "")
+            asked = message
+            if recommend:  # search for what is being discussed, not for "recommend"
+                asked, previous = _design_question(chat)
+                asked = asked or message
             context = task_context(task)
             yield {"type": "step", "text": "Searching the Drive index…"}
             found = retrieval.retrieve(
                 session,
                 task,
-                message,
+                asked,
                 previous_question=previous,
                 earlier_sources=_earlier_sources(chat),
             )
@@ -522,10 +568,21 @@ def converse(
     yield {
         "type": "step",
         "text": f"Found {count} passage{'' if count == 1 else 's'} in the Drive index. "
-        "Writing the answer…",
+        + ("Looking at the reference books…" if recommend else "Writing the answer…"),
     }
+    kit = (
+        recommend_tools.RecommendKit(found, lambda: Session(db.engine))
+        if recommend
+        else None
+    )
     run = answering.AnswerRun(
-        context, found, message, history, today=today(), record=calls.append
+        context,
+        found,
+        message,
+        history,
+        today=today(),
+        record=calls.append,
+        recommend=kit,
     )
     events = iter(run)
     try:
@@ -554,7 +611,14 @@ def converse(
                 member="Coach",
                 role="assistant",
                 content=answer.text,
-                meta=json.dumps({"sources": answer.sources, "notes": notes}),
+                meta=json.dumps(
+                    {
+                        "sources": answer.sources,
+                        "notes": notes,
+                        "recommend": recommend,
+                        "tools": answer.tools_used,
+                    }
+                ),
             )
             session.add(saved)
             session.commit()
@@ -563,12 +627,12 @@ def converse(
         log.error("Coach could not save the exchange (%s)", type(exc).__name__)
         notes.append("This answer could not be saved to the task history.")
     log.info(
-        "Coach answered %s in %.1fs (first text %.1fs, retrieval %.2fs, %d reads)",
+        "Coach answered %s in %.1fs (first text %.1fs, retrieval %.2fs, tools %s)",
         code,
         answer.seconds,
         answer.first_text_seconds or 0.0,
         found.seconds,
-        answer.tool_calls,
+        answer.tools_used or "none",
     )
     yield {
         "type": "done",
@@ -577,7 +641,10 @@ def converse(
             "content": answer.text,
             "sources": answer.sources,
             "notes": notes,
-            "settle": _settle_state("assistant", saved_id, answer.text, answer.sources, set()),
+            "settle": _settle_state(
+                "assistant", saved_id, answer.text, answer.sources, set()
+            ),
+            "can_recommend": not recommend,
         },
     }
 
@@ -611,6 +678,7 @@ def stream_coach(
     user: CurrentUser,
     message: Annotated[str, Form()] = "",
     retry: Annotated[str, Form()] = "",
+    recommend: Annotated[str, Form()] = "",
 ):
     """The coach's answer as it is written: one JSON object per line.
 
@@ -623,7 +691,7 @@ def stream_coach(
         raise HTTPException(status_code=404)
 
     def lines() -> Iterator[str]:
-        for event in converse(code, user, message, _retry_id(retry)):
+        for event in converse(code, user, message, _retry_id(retry), recommend == "1"):
             kind = event["type"]
             if kind == "text":
                 out = {"type": "text", "html": str(render_markdown(event["text"]))}
@@ -655,6 +723,7 @@ def ask_coach(
     user: CurrentUser,
     message: Annotated[str, Form()] = "",
     retry: Annotated[str, Form()] = "",
+    recommend: Annotated[str, Form()] = "",
     hx_request: Annotated[str | None, Header()] = None,
 ):
     """The same answer without streaming: a plain form post (no JavaScript) or htmx."""
@@ -664,7 +733,7 @@ def ask_coach(
         raise HTTPException(status_code=404)
 
     last: dict[str, Any] = {}
-    for event in converse(code, user, message, _retry_id(retry)):
+    for event in converse(code, user, message, _retry_id(retry), recommend == "1"):
         if event["type"] in ("done", "failed", "rejected"):
             last = event
 

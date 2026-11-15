@@ -1,5 +1,6 @@
 {# One turn of the coach thread. `m` has role, member, content, notes and sources; `code` is the task's code (for
    the "Ask a lead to settle this" form). `m.settle` is "ask" (show the button), "asked" (a lead has it) or empty.
+   With `m.can_recommend`, a Recommend button sits under the answer.
    The member's message is a filled box offset right; the coach's has a blue left rule,
    a ruled list of sources, and its "Next step:" in a blueprint box at the end. #}
 {% from "components/feedback.html" import notice %}
@@ -45,6 +46,15 @@
   </form>
   {%- elif m.settle == "asked" %}
   <p class="meta settle">Sent to the leads. Their answer will appear in the Record.</p>
+  {%- endif %}
+  {%- if m.can_recommend and code %}
+  {#- Offered under the latest answer only. Sends one fixed message; the coach then
+      searches the reference books and does the arithmetic with a calculator tool. #}
+  <form method="post" action="/tasks/{{ code }}/coach" data-coach-recommend data-message="Give me your recommendation.">
+    <input type="hidden" name="recommend" value="1">
+    <button class="btn btn--small" type="submit">Recommend</button>
+    <span class="meta">Checks the reference books and shows its calculation. Uses one of your daily messages.</span>
+  </form>
   {%- endif %}
 </article>
 {%- endif -%}
