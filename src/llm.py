@@ -10,6 +10,11 @@ and Drive text that `retrieval.py` found, so there is no search loop. The model 
 single tool, `read_file`, for the one case where the retrieved text clearly doesn't
 cover the question: it may open one Google Doc live. The whole answer, tool included,
 has a hard limit (`ANSWER_SECONDS`); after that it answers with what it has.
+
+Recommendation mode (the member pressed "Recommend") is the one exception: the caller
+passes more `Tool`s (search the reference books, calculate) and several tool rounds,
+with a longer limit (`RECOMMEND_SECONDS`). The tools themselves live with the caller
+(`recommend.py`); this module only runs them.
 """
 
 import json
@@ -34,6 +39,9 @@ BASE_URL = "https://litellm.glassroomai.com/v1"
 DEFAULT_MODEL = "claude-sonnet-5"
 DEFAULT_TIMEOUT_SECONDS = 30.0  # one call; COACH_TIMEOUT_SECONDS
 ANSWER_SECONDS = 25.0  # the whole answer: model, live read, everything
+RECOMMEND_SECONDS = 45.0  # a recommendation: several tool rounds, then the answer
+RECOMMEND_ROUNDS = 4  # at most this many rounds of tool calls before it must answer
+MAX_TOOL_CALLS_PER_ROUND = 4
 # Output cap per call. It counts every token the model produces, and some models
 # count their hidden "thinking" tokens against it, so a cap that fits the visible
 # answer (a few hundred tokens) can still cut it off. 900 did: answers ended mid
@@ -45,6 +53,7 @@ MAX_SETTLE_CHARS = 6_000  # of a coach answer sent to be turned into options
 MAX_OPTIONS = 4
 SYSTEM_PROMPT_PATH = Path(__file__).parent / "prompts" / "coach_system.md"
 SETTLE_PROMPT_PATH = Path(__file__).parent / "prompts" / "settle_options.md"
+RECOMMEND_PROMPT_PATH = Path(__file__).parent / "prompts" / "coach_recommend.md"
 COST_HEADER = "x-litellm-response-cost"
 
 # US dollars per million tokens (input, output), matched by a word in the model name
@@ -82,6 +91,21 @@ READ_FILE_TOOL: dict[str, Any] = {
         },
     },
 }
+
+
+@dataclass
+class Tool:
+    """An extra tool the model may call while writing a recommendation.
+
+    `run(arguments, seconds_left)` returns the tool result as text (JSON). It may raise:
+    the model is then told the tool failed and carries on without it.
+    """
+
+    name: str
+    spec: dict[str, Any]  # the OpenAI tool definition
+    run: Callable[[dict[str, Any], float], str]
+    step: str  # what the page says while it runs, e.g. "Searching the reference books…"
+
 
 # read_file(file_id, seconds_left) -> the text of the tool result. coach.py supplies
 # it, so this module never touches the database. Raise any exception for "could not
@@ -143,6 +167,8 @@ class CoachAnswer:
         False  # hit the output cap; the text ends at its last full sentence
     )
     tool_calls: int = 0  # live Drive reads (0 or 1)
+    tools_used: dict[str, int] = field(default_factory=dict)  # tool name -> times run
+    tools_failed: list[str] = field(default_factory=list)  # tools that raised
     seconds: float = 0.0
     first_text_seconds: float | None = None
 
@@ -159,6 +185,12 @@ def system_prompt() -> str:
 @lru_cache(maxsize=1)
 def settle_prompt() -> str:
     return SETTLE_PROMPT_PATH.read_text(encoding="utf-8")
+
+
+@lru_cache(maxsize=1)
+def recommend_prompt() -> str:
+    """Added to the system prompt in recommendation mode (replaces the answer shape)."""
+    return RECOMMEND_PROMPT_PATH.read_text(encoding="utf-8")
 
 
 def get_client() -> OpenAI:
@@ -263,6 +295,8 @@ class CoachStream:
         user_content: str,
         *,
         read_file: ReadFile | None = None,
+        tools: list[Tool] | None = None,
+        max_rounds: int = 1,
         record: Callable[[CallRecord], None] | None = None,
         seconds: float | None = None,
     ) -> None:
@@ -274,8 +308,18 @@ class CoachStream:
         self.read_file = read_file
         self.record = record
         self.seconds = ANSWER_SECONDS if seconds is None else seconds
+        self.max_rounds = max_rounds
+        self._tools: dict[str, Tool] = {}
+        if read_file is not None:
+            self._tools["read_file"] = Tool(
+                "read_file", READ_FILE_TOOL, self._read_file, "Reading the document…"
+            )
+        for tool in tools or []:
+            self._tools[tool.name] = tool
         self.text = ""
         self.reads = 0
+        self.tools_used: dict[str, int] = {}
+        self.failed_tools: list[str] = []
         self.read_failed = False
         self.cut_short = False
         self.truncated = False  # the last call hit the output cap while writing text
@@ -305,35 +349,47 @@ class CoachStream:
         yield from self._recover_if_empty()
 
     def _answer(self) -> Iterator[Event]:
-        wants_tool = self.read_file is not None
-        tool_request = yield from self._one_call(allow_tool=wants_tool)
-        if tool_request is None:
-            return
-        # The model asked to read a file. Whatever it wrote before asking is dropped.
-        if self.text:
-            self.text = ""
-            yield ("reset", "")
-        self.reads += 1
-        call_id, name, arguments = tool_request
-        self.messages.append(
-            {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
+        """Rounds of tool calls (none, one, or up to `max_rounds`), then the answer."""
+        rounds = 0
+        while True:
+            allow_tool = bool(self._tools) and rounds < self.max_rounds
+            requests = yield from self._one_call(allow_tool=allow_tool)
+            if not requests:
+                return
+            # The model asked for tools. Whatever it wrote before asking is dropped.
+            if self.text:
+                self.text = ""
+                yield ("reset", "")
+            rounds += 1
+            self.messages.append(
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": call_id,
+                            "type": "function",
+                            "function": {"name": name, "arguments": arguments},
+                        }
+                        for call_id, name, arguments in requests
+                    ],
+                }
+            )
+            for call_id, name, arguments in requests:
+                yield ("step", self._tools[name].step)
+                self.messages.append(
                     {
-                        "id": call_id,
-                        "type": "function",
-                        "function": {"name": name, "arguments": arguments},
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "content": self._run_tool(name, arguments),
                     }
-                ],
-            }
-        )
-        yield ("step", "Reading the document…")
-        self.messages.append(
-            {"role": "tool", "tool_call_id": call_id, "content": self._read(arguments)}
-        )
-        yield ("step", "Writing the answer…")
-        yield from self._one_call(allow_tool=False)
+                )
+            yield (
+                "step",
+                "Writing the answer…"
+                if rounds >= self.max_rounds
+                else "Working it out…",
+            )
 
     def _recover_if_empty(self) -> Iterator[Event]:
         """No text after the calls (and no time-out or dropped stream, which raise or
@@ -350,30 +406,49 @@ class CoachStream:
                 int((time.monotonic() - self._started) * 1000),
             )
 
-    def _read(self, arguments: str) -> str:
+    def _read_file(self, arguments: dict[str, Any], seconds_left: float) -> str:
         assert self.read_file is not None
+        file_id = str(arguments.get("file_id") or "")
+        if not file_id:
+            raise ValueError("no file_id")
+        return self.read_file(file_id, seconds_left)
+
+    def _run_tool(self, name: str, arguments: str) -> str:
+        """Run one tool the model asked for. A failure never stops the answer: the model
+        gets a plain "could not" message instead of a result."""
+        self.tools_used[name] = self.tools_used.get(name, 0) + 1
+        if name == "read_file":
+            self.reads += 1
         try:
-            args = json.loads(arguments or "{}")
-            file_id = str(args["file_id"]) if isinstance(args, dict) else ""
-            if not file_id:
-                raise ValueError("no file_id")
-            return self.read_file(file_id, max(self._remaining(), 0.0))
-        except Exception as exc:  # noqa: BLE001  (a failed read must not stop the answer)
-            self.read_failed = True
-            log.error("Coach live read failed (%s)", type(exc).__name__)
+            parsed = json.loads(arguments or "{}")
+            if not isinstance(parsed, dict):
+                raise TypeError("arguments are not an object")
+            return self._tools[name].run(parsed, max(self._remaining(), 0.0))
+        except Exception as exc:  # noqa: BLE001  (a failed tool must not stop the answer)
+            self.failed_tools.append(name)
+            if name == "read_file":
+                self.read_failed = True
+            log.error("Coach tool %s failed (%s)", name, type(exc).__name__)
+            if name == "read_file":
+                return json.dumps(
+                    {
+                        "error": "The document could not be read.",
+                        "instruction": "Answer from the Drive sources you already have, "
+                        "and tell the member the live read failed.",
+                    }
+                )
             return json.dumps(
                 {
-                    "error": "The document could not be read.",
-                    "instruction": "Answer from the Drive sources you already have, "
-                    "and tell the member the live read failed.",
+                    "error": f"The {name} tool failed.",
+                    "instruction": "Carry on without it and say plainly that it failed.",
                 }
             )
 
     def _one_call(
         self, *, allow_tool: bool, max_tokens: int = MAX_ANSWER_TOKENS
     ) -> Iterator[Event]:
-        """Stream one completion. Returns the tool request (id, name, arguments) if
-        the model made one, else None."""
+        """Stream one completion. Returns the tool requests [(id, name, arguments)] the
+        model made (only known tools, and only when `allow_tool`), else None or []."""
         model = model_name()
         remaining = self._remaining()
         if remaining <= 0:
@@ -386,10 +461,10 @@ class CoachStream:
             "max_tokens": max_tokens,
             "timeout": min(call_timeout(), remaining),
         }
-        if self.read_file is not None:
+        if self._tools:
             # Keep `tools` once a tool result is in the conversation (Anthropic needs
-            # it) but forbid a second read.
-            kwargs["tools"] = [READ_FILE_TOOL]
+            # it) but forbid more calls when the rounds are used up.
+            kwargs["tools"] = [tool.spec for tool in self._tools.values()]
             if not allow_tool:
                 kwargs["tool_choice"] = "none"
 
@@ -473,8 +548,20 @@ class CoachStream:
                 )
             self.cut_short = True
             return None
-        first = tool_parts.get(0)
-        wants_read = bool(first and first["name"] == "read_file" and allow_tool)
+        requests = (
+            [
+                (
+                    slot["id"] or f"call_{slot['name']}_{index}",
+                    slot["name"],
+                    slot["arguments"],
+                )
+                for index, slot in sorted(tool_parts.items())
+                if slot["name"] in self._tools
+            ][:MAX_TOOL_CALLS_PER_ROUND]
+            if allow_tool
+            else []
+        )
+        wants_read = bool(requests)
         # A call with no text and no usable tool request is "empty": the reason is in
         # its finish reason and token counts (llm_call), not in a guess.
         status = "ok" if wrote or wants_read else "empty"
@@ -490,10 +577,7 @@ class CoachStream:
                 finish or "unknown",
                 getattr(usage, "completion_tokens", "?"),
             )
-        if wants_read:
-            assert first is not None
-            return (first["id"] or "call_read_file", first["name"], first["arguments"])
-        return None
+        return requests
 
     def _out_of_time(self) -> None:
         """No time left before a call could start: keep what there is."""
