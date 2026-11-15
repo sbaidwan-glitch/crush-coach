@@ -196,7 +196,7 @@ def test_waiting_for_review_is_for_leads_only(session):
         html = lead.get("/tasks").text
     main.app.dependency_overrides.clear()
     assert "Waiting for review" in html
-    assert "Member B · 2 days" in html
+    assert "Member B · waiting 2 days" in html
     assert 'href="/tasks/M03"' in html
 
 

@@ -13,15 +13,14 @@ import logging
 import re
 from collections.abc import Mapping
 from datetime import datetime
-from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, col, select
 
 import db
+import shell
 from auth import CurrentUser, LeadUser, MaybeUser, User, locked_page
 from models import (
     DECISION_STATUS_LABELS,
@@ -34,7 +33,7 @@ from models import (
 )
 
 log = logging.getLogger("crush_coach")
-templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+templates = shell.templates()
 router = APIRouter()
 
 ALTERNATIVE_ROWS = 3  # blank rows on the form; the form needs no JavaScript

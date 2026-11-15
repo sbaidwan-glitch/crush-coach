@@ -37,7 +37,9 @@ def test_stage_strip_follows_the_task_type_and_marks_past_and_current():
     [
         ("Fabricate", "shop", "Shop"),
         ("Fabricate", "Shop (machine)", "Shop"),
-        ("Fabricate", "AI pre-check", "AI pre-check"),
+        ("Fabricate", "AI pre-check", "Drawing"),  # that step is gone: read as Drawing
+        ("Print", "check cad", "Check CAD"),
+        ("Investigate", "gather info", "Gather info"),
         ("Validate", "test plan", "Test plan"),
         ("Validate", "log results", "Log results"),
     ],
@@ -48,14 +50,16 @@ def test_stage_words_match_however_they_are_stored(task_type, stage, current):
     assert [s["label"] for s in strip if s["state"] == "current"] == [current]
 
 
-def test_an_unknown_stage_marks_nothing_instead_of_guessing():
-    strip = taskpage.stage_strip(task(stage="somewhere else"))
+def test_an_unknown_stage_starts_at_the_first_step():
+    strip = taskpage.stage_strip(task(stage="somewhere else", status="in_progress"))
 
-    assert strip and {s["state"] for s in strip} == {"ahead"}
+    assert [s["state"] for s in strip][:2] == ["current", "ahead"]
 
 
-def test_an_unknown_task_type_has_no_strip():
-    assert taskpage.stage_strip(task(task_type="Other")) == []
+def test_an_unknown_task_type_still_gets_a_working_strip():
+    strip = taskpage.stage_strip(task(task_type="Other", stage="Work"))
+
+    assert [s["label"] for s in strip] == ["Work", "Lead review"]
 
 
 @pytest.mark.parametrize(

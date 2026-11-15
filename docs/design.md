@@ -14,12 +14,12 @@ The look of an engineering drawing: dot-grid paper, square panels, ruled lines, 
 
 Decisions, admin and sign-in pages reuse the same shell, panels and fields; no new components.
 
-**Home**: Your task (the signed-in member's in-progress task: stage strip, the coach's latest "Next step" for it, Open task / Ready for review), Pick up a task (up to 4 unclaimed tasks with Claim), Build progress (total, one bar segmented by subsystem, a swatch per subsystem linking to `/tasks#subsystem`), Crush (the render with a tag per subsystem showing done/total; each tag links to that subsystem on `/tasks`).
+**Home**: (leads only, at the top) Waiting for your review (task, owner, how long it has waited, Review), Your task (the signed-in member's in-progress task: stage strip, the coach's latest "Next step" for it, Open task / Next step done), Pick up a task (up to 4 unclaimed tasks with Claim), Build progress (total, one bar segmented by subsystem, a swatch per subsystem linking to `/tasks#subsystem`), Crush (the render with a tag per subsystem showing done/total; each tag links to that subsystem on `/tasks`).
 Empty states: no task yet → "You haven't started a task. Pick one on the right." No unclaimed tasks → "Every task has an owner."
 
 **Tasks**: filters All / Mine / Unclaimed / Needs review; counts box (Done x/total, In progress, Review, Unclaimed); one flush panel per subsystem with a ruler progress bar (one tick per task) and task rows; right column: Recent decisions (3 newest, proposed ones marked "needs a lead") and, for leads only, Waiting for review.
 
-**Task**: left: Coach thread; right: Progress (stage strip, owner, status buttons), About this task (tracker description, related decisions), History (TaskEvent list).
+**Task**: left: Coach thread; right: Progress (stage strip, owner, Next step done / Start / Unclaim, or Approve / Send back for leads), Type and steps (leads only: change the type, edit the steps), About this task (tracker description, related decisions), History (TaskEvent list).
 
 ## Rules
 

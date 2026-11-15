@@ -1,0 +1,35 @@
+{#- The lead's step editor. A form that re-posts itself: Add, Up, Down, Remove and Reset
+    only rearrange the rows and show this form again (nothing is saved); Save checks the
+    list and stores it. With htmx only this form is swapped, without it the page reloads.
+    The first (hidden) button is the one the Enter key presses, so Enter saves. -#}
+{% set editing = rows if rows is defined else (steps_draft if steps_draft is not none else step_rows) %}
+{% set err = steps_error if steps_error is defined else None %}
+<form id="steps-form" class="steps-editor" method="post" action="/tasks/{{ task.code }}/steps"
+      hx-post="/tasks/{{ task.code }}/steps" hx-target="this" hx-swap="outerHTML">
+  <details{% if steps_draft is not none or rows is defined or err %} open{% endif %}>
+    <summary>Edit steps</summary>
+    <button type="submit" name="op" value="save" hidden tabindex="-1" aria-hidden="true">Save steps</button>
+    <p class="meta">Rename, add, remove or reorder this task’s steps. Tick “Lead review” on a step where a lead has to approve before work goes on.</p>
+    {% if err %}<div class="notice notice--error" role="alert"><p>{{ err }}</p></div>{% endif %}
+    <ol class="steps-editor__list">
+      {% for r in editing %}
+      <li class="form-row">
+        <input type="hidden" name="orig" value="{{ r.orig if r.orig is not none else '' }}">
+        <label class="field-label" for="step-name-{{ loop.index0 }}">Step {{ loop.index }}</label>
+        <input class="field-input" id="step-name-{{ loop.index0 }}" name="name" value="{{ r.name }}" maxlength="40" required>
+        <label class="check"><input type="checkbox" name="review" value="{{ loop.index0 }}"{% if r.review %} checked{% endif %}> Lead review</label>
+        <div class="actions">
+          <button class="btn btn--small" type="submit" name="op" value="up:{{ loop.index0 }}" id="step-up-{{ loop.index0 }}"{% if loop.first %} disabled{% endif %}>Up<span class="visually-hidden"> (move step {{ loop.index }})</span></button>
+          <button class="btn btn--small" type="submit" name="op" value="down:{{ loop.index0 }}" id="step-down-{{ loop.index0 }}"{% if loop.last %} disabled{% endif %}>Down<span class="visually-hidden"> (move step {{ loop.index }})</span></button>
+          <button class="btn btn--small" type="submit" name="op" value="remove:{{ loop.index0 }}" id="step-remove-{{ loop.index0 }}">Remove<span class="visually-hidden"> step {{ loop.index }}</span></button>
+        </div>
+      </li>
+      {% endfor %}
+    </ol>
+    <div class="actions">
+      <button class="btn btn--small" type="submit" name="op" value="add" id="step-add">Add a step</button>
+      <button class="btn btn--small" type="submit" name="op" value="reset" id="step-reset">Use the {{ task.task_type }} defaults</button>
+      <button class="btn btn--primary" type="submit" name="op" value="save">Save steps</button>
+    </div>
+  </details>
+</form>

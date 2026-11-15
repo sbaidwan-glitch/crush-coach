@@ -9,20 +9,19 @@ land back on the list with a one-line result. Nothing here calls the model or Dr
 """
 
 import logging
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
 import db
+import shell
 from auth import LeadUser
 from models import TeamFact, utc_now
 
 log = logging.getLogger("crush_coach")
-templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+templates = shell.templates()
 router = APIRouter(prefix="/admin/facts")
 
 MAX_FACT_CHARS = 300

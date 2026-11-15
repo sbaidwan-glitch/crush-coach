@@ -24,7 +24,7 @@
       <nav class="sidebar" aria-label="Main">
         <a class="sidebar__logo" href="/" aria-label="Crush Coach home">{{ logo() }}</a>
         <a class="sidebar__link" href="/"{% if path == "/" %} aria-current="page"{% endif %}>{{ nav_icon("home") }}<span>Home</span></a>
-        <a class="sidebar__link" href="/tasks"{% if path.startswith("/tasks") %} aria-current="page"{% endif %}>{{ nav_icon("tasks") }}<span>Tasks</span></a>
+        <a class="sidebar__link" href="/tasks"{% if path.startswith("/tasks") %} aria-current="page"{% endif %}>{{ nav_icon("tasks") }}<span>Tasks</span>{% if review_waiting %}<span class="sidebar__badge" aria-hidden="true">{{ review_waiting }}</span><span class="visually-hidden">, {{ review_waiting }} waiting for review</span>{% endif %}</a>
         <a class="sidebar__link" href="/decisions"{% if path.startswith("/decisions") %} aria-current="page"{% endif %}>{{ nav_icon("decisions") }}<span>Decisions</span></a>
         {% if is_lead %}
         <span class="sidebar__spacer"></span>

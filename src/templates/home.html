@@ -3,13 +3,23 @@
 {% from "components/feedback.html" import empty_state, error_state, preview_notice %}
 {% from "components/progress_bar.html" import pbar, diamond %}
 {% from "components/status.html" import status_label %}
-{% from "components/task_row.html" import claim_row %}
+{% from "components/task_row.html" import claim_row, review_row %}
 {% block title %}Home – Crush Coach{% endblock %}
 {% block page_title %}Crush Build{% endblock %}
 {% block topbar_actions %}{% if task %}<a class="btn btn--primary" href="/tasks/{{ task.code }}#coach-message">Ask the coach</a>{% endif %}{% endblock %}
 {% block main %}
 {% if preview %}{{ preview_notice() }}{% endif %}
 {% if error %}{{ error_state(error, "/", "Try again") }}{% endif %}
+{% if is_lead %}
+<section class="panel panel--strong review-panel" aria-labelledby="waiting-review">
+  <div class="panel__head">
+    <div><h2 class="panel__title" id="waiting-review">Waiting for your review</h2><p class="panel__sub">Longest wait first. Approve moves a task past its review step; Send back returns it to its owner.</p></div>
+    {% if not review_error %}<span class="meta">{{ review | length }} waiting</span>{% endif %}
+  </div>
+  {% if review_error %}{{ error_state(review_error, "/", "Try again") }}
+  {% else %}{% for r in review %}{{ review_row(r) }}{% else %}{{ empty_state("Nothing is waiting for your review.") }}{% endfor %}{% endif %}
+</section>
+{% endif %}
 <div class="grid-2">
   <section class="panel" aria-labelledby="your-task">
     <div class="panel__head">
@@ -31,8 +41,8 @@
       <a class="btn btn--primary" href="/tasks/{{ task.code }}">Open task</a>
       {% if task.status == "in_progress" %}
       <form method="post" action="/tasks/{{ task.code }}/status">
-        <input type="hidden" name="action" value="ready"><input type="hidden" name="next" value="/">
-        <button class="btn" type="submit">Ready for review</button>
+        <input type="hidden" name="action" value="advance"><input type="hidden" name="step" value="{{ step_name }}"><input type="hidden" name="next" value="/">
+        <button class="btn" type="submit">Next step done</button>
       </form>
       {% endif %}
     </div>

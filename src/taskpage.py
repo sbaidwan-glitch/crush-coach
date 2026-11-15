@@ -11,10 +11,12 @@ from datetime import datetime
 
 from sqlmodel import Session, col, select
 
+import steps
 import workflow
 from auth import User
 from models import (
     DECISION_STATUS_LABELS,
+    TASK_TYPES,
     CoachMessage,
     Task,
     TaskEvent,
@@ -22,56 +24,10 @@ from models import (
 
 log = logging.getLogger("crush_coach")
 
-# The stages of each kind of task (CLAUDE.md), as (stored key, label). `Task.stage`
-# holds the key, usually lower case ("drawing", "lead review", "CAD").
-STAGES = {
-    "Fabricate": (
-        ("drawing", "Drawing"),
-        ("ai pre-check", "AI pre-check"),
-        ("lead review", "Lead review"),
-        ("process router", "Process router"),
-        ("shop", "Shop"),
-        ("inspect", "Inspect"),
-    ),
-    "Design": (
-        ("requirements", "Requirements"),
-        ("concepts", "Concepts"),
-        ("lead review", "Lead review"),
-        ("cad", "CAD"),
-        ("fit check", "Fit check"),
-    ),
-    "Validate": (
-        ("test plan", "Test plan"),
-        ("calculations", "Calculations"),
-        ("lead approval", "Lead approval"),
-        ("run", "Run"),
-        ("log results", "Log results"),
-    ),
-}
-
-
 def stage_strip(task: Task) -> list[dict]:
-    """The stages for this task's type, each marked past, current or ahead.
-
-    A stage word we don't recognise marks nothing: every step shows as ahead.
-    """
-    stages = STAGES.get(task.task_type, ())
-    word = " ".join((task.stage or "").split()).casefold()
-    current = next(
-        (i for i, (key, _label) in enumerate(stages) if word and word.startswith(key)),
-        None,
-    )
-    return [
-        {
-            "label": label,
-            "state": "current"
-            if i == current
-            else "past"
-            if current is not None and i < current
-            else "ahead",
-        }
-        for i, (_key, label) in enumerate(stages)
-    ]
+    """The task's steps, each marked past, current or ahead (see steps.py: the position
+    always agrees with the status, and a finished task has every step past)."""
+    return steps.strip(task)
 
 
 def short_date(when: datetime) -> str:
@@ -81,6 +37,26 @@ def short_date(when: datetime) -> str:
 def event_text(event: TaskEvent) -> str:
     """One History line, in words: who did what."""
     who = event.actor
+    step = f"“{event.detail}”" if event.detail else None
+    match event.kind:
+        case "advance":
+            done = f"{who} finished {step}" if step else f"{who} finished a step"
+            if event.to_status == "needs_review":
+                return f"{done} and sent it for review"
+            if event.to_status == "done":
+                return f"{done}; the task is complete"
+            return done
+        case "approve":
+            return f"{who} approved {step}" if step else f"{who} approved it"
+        case "self_approve":
+            return f"{who} self-approved {step}" if step else f"{who} self-approved it"
+        case "send_back":
+            return f"{who} sent it back to {step}" if step else f"{who} sent it back"
+        case "change_type":
+            return f"{who} changed the type: {event.detail}"
+        case "edit_steps":
+            return f"{who} edited the steps"
+    # Older rows have no kind: say it from the statuses.
     if event.to_status == "in_progress" and event.from_status == "needs_review":
         return f"{who} sent it back"
     if event.to_status == "in_progress":
@@ -101,7 +77,13 @@ def history(session: Session, task_id: int) -> list[dict]:
         .order_by(col(TaskEvent.created_at).desc(), col(TaskEvent.id).desc())
     ).all()
     return [
-        {"date": short_date(e.created_at), "text": event_text(e), "note": e.note}
+        {
+            "date": short_date(e.created_at),
+            "text": event_text(e),
+            "note": e.note,
+            # The new list of steps, as a second line (the other details are in the text).
+            "detail": e.detail if e.kind == "edit_steps" else None,
+        }
         for e in events
     ]
 
@@ -112,17 +94,46 @@ def owner_since(session: Session, task: Task) -> str | None:
         return None
     event = session.exec(
         select(TaskEvent)
-        .where(TaskEvent.task_id == task.id, TaskEvent.to_status == "in_progress")
+        .where(
+            TaskEvent.task_id == task.id,
+            TaskEvent.to_status == "in_progress",
+            TaskEvent.from_status == "todo",  # a start, not a step finished or a send back
+        )
         .order_by(col(TaskEvent.created_at).desc(), col(TaskEvent.id).desc())
     ).first()
     return short_date(event.created_at) if event else None
 
 
+def step_note(task: Task) -> str | None:
+    """What "Next step done" will do, in words, for a task that is in progress."""
+    current = steps.current_step(task)
+    if task.status != "in_progress" or current is None:
+        return None
+    following = steps.next_step(task)
+    if following is None:
+        return f"Marking “{current.name}” done finishes the task."
+    if following.review:
+        return (
+            f"Marking “{current.name}” done sends the task for review: "
+            f"a lead approves “{following.name}” before work goes on."
+        )
+    return f"Marking “{current.name}” done moves the task to “{following.name}”."
+
+
 def page_context(session: Session, task: Task, user: User) -> dict:
     """Extra context for task.html. A failure here costs only its own section."""
+    current = steps.current_step(task)
     context: dict = {
         "stages": stage_strip(task),
+        "step_name": current.name if current else steps.steps_for(task)[-1].name,
+        "step_note": step_note(task),
         "actions": workflow.available_actions(task, user),
+        "self_review": workflow.is_self_review(task, user),
+        "task_types": [(t, steps.TYPE_HINTS.get(t, "")) for t in TASK_TYPES],
+        "step_rows": steps.rows_for(task),
+        "custom_steps": steps.custom_steps(task) is not None,
+        "steps_draft": None,
+        "steps_error": None,
         "is_lead": user["role"] == "lead",
         "history": [],
         "history_error": None,

@@ -261,6 +261,24 @@
     true
   );
 
+  // Enter sends, Shift+Enter adds a new line. The Ask button still works. Other
+  // Enter combinations (Ctrl, Alt, Cmd) and Enter while an input method is composing
+  // text (event.isComposing, keyCode 229) are left alone. requestSubmit() goes through
+  // the form's normal submit event, so streaming, htmx and validation all behave
+  // exactly as when the button is clicked.
+  document.addEventListener("keydown", function (event) {
+    var field = event.target;
+    if (!field || field.id !== "coach-message") return;
+    if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+    if (event.isComposing || event.keyCode === 229) return;
+    event.preventDefault();
+    if (busy || !field.value.trim()) return;
+    var form = field.form;
+    if (!form) return;
+    if (form.requestSubmit) form.requestSubmit();
+    else form.submit();
+  });
+
   // --- the htmx path, for browsers that can't stream ---
 
   function isCoachForm(event) {
