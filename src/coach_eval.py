@@ -22,7 +22,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
-KINDS = ("lookup", "how-to", "why", "conflict", "unknown", "follow-up")
+KINDS = ("lookup", "how-to", "why", "conflict", "unknown", "follow-up", "recommend")
 DEFAULT_MAX_COST = 0.60  # dollars; the Glassroom cap is $1 per 5 hours
 DEFAULT_PAUSE = 3.0  # seconds between questions, so the run doesn't hit rate limits
 DEFAULT_RETRY_PAUSE = 20.0  # seconds before the one retry of a failed question
@@ -56,6 +56,9 @@ class Question:
     # The id of the question this one follows up: it is asked in the same chat, after
     # that question and its answer, the way a member would type it.
     after: str = ""
+    # A recommendation: asked like pressing the Recommend button after `after`, with the
+    # reference-book search and the calculator. `question` is the button's own text.
+    recommend: bool = False
 
 
 def _text_list(entry: dict, field_name: str, where: str) -> tuple[str, ...]:
@@ -115,10 +118,17 @@ def parse_questions(data: object) -> list[Question]:
         cite = entry.get("cite") or ""
         if not isinstance(cite, str):
             raise QuestionFileError(f"{where}: `cite` must be text")
+        recommend = entry.get("recommend") or False
+        if not isinstance(recommend, bool):
+            raise QuestionFileError(f"{where}: `recommend` must be true or false")
         after = entry.get("after") or ""
         if not isinstance(after, str) or (after and after not in seen_before):
             raise QuestionFileError(
                 f"{where}: `after` must be the id of a question earlier in the file"
+            )
+        if recommend and not after:
+            raise QuestionFileError(
+                f"{where}: a `recommend` question needs `after`: the answer it is about"
             )
         questions.append(
             Question(
@@ -130,6 +140,7 @@ def parse_questions(data: object) -> list[Question]:
                 cite=cite.strip(),
                 must_not=_text_list(entry, "must_not", where),
                 after=after.strip(),
+                recommend=recommend,
             )
         )
         seen_before.add(entry["id"])

@@ -653,3 +653,17 @@ def test_a_stop_after_the_last_question_is_not_reported():
         questions(1), lambda _, __=None: Outcome(answer="ok", cost=0.5), max_cost=0.40
     )
     assert last.stopped is None and [r.score for r in last.results] == [PASS]
+
+
+# --- recommendation questions ---
+
+
+def test_a_recommend_question_needs_the_question_it_follows():
+    with pytest.raises(QuestionFileError):
+        parse_questions([entry(recommend=True)])
+    with pytest.raises(QuestionFileError):
+        parse_questions([entry(id="a"), entry(id="b", after="a", recommend="yes")])
+    [first, second] = parse_questions(
+        [entry(id="a"), entry(id="b", after="a", recommend=True, kind="recommend")]
+    )
+    assert first.recommend is False and second.recommend is True

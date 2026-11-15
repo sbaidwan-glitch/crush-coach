@@ -57,6 +57,7 @@ import coach
 import coach_eval
 import db
 import llm
+import recommend as recommend_tools
 import retrieval
 from models import Task
 
@@ -137,19 +138,30 @@ def answer_question(
     question: str,
     calls: list[llm.CallRecord],
     earlier: coach_eval.Result | None = None,
+    recommend: bool = False,
 ) -> llm.CoachAnswer:
-    """Retrieval, then one streamed answer: the same two steps the web page runs."""
+    """Retrieval, then one streamed answer: the same two steps the web page runs. A
+    recommendation searches for the question it follows, as `coach.converse` does, and
+    gets the reference-book search and calculator tools."""
     from sqlmodel import Session
 
     history, previous, sources = chat_so_far(earlier)
+    asked = question
+    if recommend and earlier is not None:
+        asked, previous = earlier.question, ""
     with Session(db.engine) as session:
         found = retrieval.retrieve(
             session,
             task,
-            question,
+            asked,
             previous_question=previous,
             earlier_sources=sources,
         )
+    kit = (
+        recommend_tools.RecommendKit(found, lambda: Session(db.engine))
+        if recommend
+        else None
+    )
     run = answering.AnswerRun(
         coach.task_context(task),
         found,
@@ -157,6 +169,7 @@ def answer_question(
         history,
         today=coach.today(),
         record=calls.append,
+        recommend=kit,
     )
     return run.run()
 
@@ -172,7 +185,9 @@ def ask(
     log.addHandler(capture)
     started = time.monotonic()
     try:
-        answer = answer_question(task, question.question, calls, earlier)
+        answer = answer_question(
+            task, question.question, calls, earlier, question.recommend
+        )
     except llm.LLMError as exc:
         outcome.error, outcome.error_kind = exc.message, exc.kind
         outcome.drive_calls = None  # the count is lost when the coach raises
@@ -188,6 +203,9 @@ def ask(
         outcome.sources = answer.sources
         outcome.drive_calls = answer.tool_calls
         outcome.notes.extend(answering.notes_for(answer))
+        if answer.tools_used:
+            used = ", ".join(f"{n} x {name}" for name, n in answer.tools_used.items())
+            outcome.notes.append(f"Tools used: {used}")
     finally:
         log.removeHandler(capture)
     outcome.error_detail = capture.lines
