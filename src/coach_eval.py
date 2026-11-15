@@ -18,12 +18,12 @@ import json
 import re
 import statistics
 import time
-from collections.abc import Callable, Sequence
-from dataclasses import asdict, dataclass, field
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
-KINDS = ("lookup", "how-to", "why", "conflict", "unknown")
-DEFAULT_MAX_COST = 0.40  # dollars; the Glassroom cap is $1 per 5 hours
+KINDS = ("lookup", "how-to", "why", "conflict", "unknown", "follow-up")
+DEFAULT_MAX_COST = 0.60  # dollars; the Glassroom cap is $1 per 5 hours
 DEFAULT_PAUSE = 3.0  # seconds between questions, so the run doesn't hit rate limits
 DEFAULT_RETRY_PAUSE = 20.0  # seconds before the one retry of a failed question
 RETRYABLE = (
@@ -53,6 +53,9 @@ class Question:
     expect: tuple[str | tuple[str, ...], ...] = ()
     cite: str = ""
     must_not: tuple[str, ...] = ()
+    # The id of the question this one follows up: it is asked in the same chat, after
+    # that question and its answer, the way a member would type it.
+    after: str = ""
 
 
 def _text_list(entry: dict, field_name: str, where: str) -> tuple[str, ...]:
@@ -92,6 +95,7 @@ def parse_questions(data: object) -> list[Question]:
         raise QuestionFileError("the file must be a non-empty list of questions")
     questions: list[Question] = []
     seen: set[str] = set()
+    seen_before: set[str] = set()  # ids above the current question
     for index, entry in enumerate(data, start=1):
         label = entry.get("id") if isinstance(entry, dict) else None
         where = f"question {label!r}" if label else f"question #{index}"
@@ -111,6 +115,11 @@ def parse_questions(data: object) -> list[Question]:
         cite = entry.get("cite") or ""
         if not isinstance(cite, str):
             raise QuestionFileError(f"{where}: `cite` must be text")
+        after = entry.get("after") or ""
+        if not isinstance(after, str) or (after and after not in seen_before):
+            raise QuestionFileError(
+                f"{where}: `after` must be the id of a question earlier in the file"
+            )
         questions.append(
             Question(
                 id=entry["id"],
@@ -120,8 +129,10 @@ def parse_questions(data: object) -> list[Question]:
                 expect=_expect_list(entry, where),
                 cite=cite.strip(),
                 must_not=_text_list(entry, "must_not", where),
+                after=after.strip(),
             )
         )
+        seen_before.add(entry["id"])
     return questions
 
 
@@ -152,7 +163,16 @@ def select_questions(
     ]
     if not chosen:
         raise QuestionFileError("no questions match those filters")
-    return chosen
+    # A follow-up needs the answer it follows, so that question comes along (and is
+    # asked and scored too).
+    by_id = {q.id: q for q in questions}
+    needed = {q.id for q in chosen}
+    for q in chosen:
+        parent = q.after
+        while parent and parent not in needed:
+            needed.add(parent)
+            parent = by_id[parent].after
+    return [q for q in questions if q.id in needed]
 
 
 # --- scoring ---
@@ -249,6 +269,10 @@ class Outcome:
     error: str | None = None  # plain message if the coach failed
     error_kind: str | None = None  # budget_exceeded, rate_limited, timeout, error
     error_detail: list[str] = field(default_factory=list)  # what the server logged
+    # One line per model call: status, finish reason, tokens (reasoning tokens when the
+    # model reports them) and whether the live-read tool was called. This is what says
+    # WHY an answer was cut off or came back empty.
+    call_details: list[str] = field(default_factory=list)
     attempts: int = 1  # 2 if the question was retried after an error
 
 
@@ -345,47 +369,75 @@ def merge_attempts(first: Outcome, second: Outcome) -> Outcome:
         error=second.error,
         error_kind=second.error_kind,
         error_detail=[*first.error_detail, *second.error_detail],
+        call_details=[*first.call_details, *second.call_details],
         attempts=first.attempts + second.attempts,
     )
 
 
 def run_questions(
     questions: Sequence[Question],
-    ask: Callable[[Question], Outcome],
+    ask: Callable[[Question, Result | None], Outcome],
     max_cost: float = DEFAULT_MAX_COST,
     on_result: Callable[[Result], None] | None = None,
     pause: float = DEFAULT_PAUSE,
     retry_pause: float = DEFAULT_RETRY_PAUSE,
     sleep: Callable[[float], None] = time.sleep,
+    done: Mapping[str, Result] | None = None,
 ) -> Run:
     """Ask each question in order and score it.
+
+    `ask(question, earlier)` gets the result (question, answer, sources) of the question
+    this one follows up (`Question.after`), or None. A follow-up whose earlier question
+    failed is not asked: there is no answer to follow up.
 
     Waits `pause` seconds between questions. A question that fails with a rate limit,
     timeout or model error is retried at most once, after `retry_pause` seconds, and
     the retry's cost counts. Stops before the next question once the total cost
     passes `max_cost` (a retry is skipped if it would start past the limit), or once
     the model's budget is used up.
+
+    `done` holds results from an earlier run (`make eval RESUME=1`): those questions
+    are kept as they were, not asked again, and cost nothing here.
     """
+    kept = done or {}
     results: list[Result] = []
+    scored: dict[str, Result] = {}
     total = 0.0
     stopped: str | None = None
     asked_any = False
-    for question in questions:
+    for position, question in enumerate(questions):
+        if question.id in kept:
+            results.append(kept[question.id])
+            scored[question.id] = kept[question.id]
+            continue
         if stopped is not None:
             results.append(not_run(question, stopped))
+            continue
+        earlier = scored.get(question.after) if question.after else None
+        if question.after and (earlier is None or earlier.outcome.error is not None):
+            results.append(
+                not_run(
+                    question, f"Skipped: {question.after} has no answer to follow up."
+                )
+            )
             continue
         if asked_any:
             sleep(pause)
         asked_any = True
-        outcome = ask(question)
+        outcome = ask(question, earlier)
         if outcome.error_kind in RETRYABLE and total + outcome.cost <= max_cost:
             sleep(retry_pause)
-            outcome = merge_attempts(outcome, ask(question))
+            outcome = merge_attempts(outcome, ask(question, earlier))
         result = score_outcome(question, outcome)
         results.append(result)
+        scored[question.id] = result
         if on_result:
             on_result(result)
         total += outcome.cost
+        # Only a stop that leaves questions unasked is worth reporting.
+        more = any(later.id not in kept for later in questions[position + 1 :])
+        if not more:
+            continue
         if outcome.error_kind == "budget_exceeded":
             stopped = "Stopped: the Glassroom budget is used up."
         elif total > max_cost:
@@ -410,6 +462,9 @@ class Summary:
     max_seconds: float
     total_cost: float
     cost_complete: bool  # False if some model call had no reported cost
+    input_tokens: int = 0  # all questions that ran
+    output_tokens: int = 0
+    asked: int = 0  # questions that ran (the divisor for the per-question numbers)
 
     def line(self) -> str:
         failed = f"fail {self.failed}"
@@ -421,10 +476,17 @@ class Summary:
         cost = f"${self.total_cost:.4f}"
         if not self.cost_complete:
             cost += " (some calls reported no cost)"
-        return (
+        line = (
             f"{' / '.join(parts)} | median {self.median_seconds:.1f}s, "
             f"max {self.max_seconds:.1f}s | total cost {cost}"
         )
+        if self.asked:
+            line += (
+                f", ${self.total_cost / self.asked:.4f}/question | tokens per question "
+                f"{self.input_tokens // self.asked:,} in / "
+                f"{self.output_tokens // self.asked:,} out"
+            )
+        return line
 
 
 def summarize(results: Sequence[Result]) -> Summary:
@@ -441,6 +503,9 @@ def summarize(results: Sequence[Result]) -> Summary:
         max_seconds=max(seconds, default=0.0),
         total_cost=sum(r.outcome.cost for r in ran),
         cost_complete=all(r.outcome.cost_reported for r in ran),
+        input_tokens=sum(r.outcome.input_tokens for r in ran),
+        output_tokens=sum(r.outcome.output_tokens for r in ran),
+        asked=len(ran),
     )
 
 
@@ -448,10 +513,10 @@ def summarize(results: Sequence[Result]) -> Summary:
 
 
 def format_table(results: Sequence[Result]) -> str:
-    rows = [("id", "kind", "score", "seconds", "cost")]
+    rows = [("id", "kind", "score", "seconds", "tokens in", "tokens out", "cost")]
     for r in results:
         if r.score == NOT_RUN:
-            rows.append((r.id, r.kind, r.score, "-", "-"))
+            rows.append((r.id, r.kind, r.score, "-", "-", "-", "-"))
         else:
             rows.append(
                 (
@@ -459,10 +524,12 @@ def format_table(results: Sequence[Result]) -> str:
                     r.kind,
                     r.score,
                     f"{r.outcome.seconds:.1f}",
+                    f"{r.outcome.input_tokens:,}",
+                    f"{r.outcome.output_tokens:,}",
                     f"${r.outcome.cost:.4f}",
                 )
             )
-    widths = [max(len(row[i]) for row in rows) for i in range(5)]
+    widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
     lines = []
     for number, row in enumerate(rows):
         cells = [
@@ -488,6 +555,13 @@ def render_markdown(meta: dict, run: Run) -> str:
         f"- Model: `{meta['model']}`",
         f"- Code version: `{meta['git']}`",
         f"- Questions: {len(run.results)} ({meta['filters']})",
+    ]
+    if meta.get("resumed_from"):
+        out.append(
+            f"- Resumed from `{meta['resumed_from']}`: {meta.get('kept', 0)} answers "
+            "kept from that run"
+        )
+    out += [
         "",
         f"**{summary.line()}**",
     ]
@@ -519,6 +593,7 @@ def render_markdown(meta: dict, run: Run) -> str:
         )
         if o.task_source:
             out.append(f"- Task context from: {o.task_source}")
+        out += [f"- Model call: {line}" for line in o.call_details]
         out += [f"- Note: {note}" for note in o.notes]
         out.append("")
         if o.error:
@@ -553,3 +628,126 @@ def write_reports(
     )
     md_path.write_text(render_markdown(meta, run) + "\n", encoding="utf-8")
     return json_path, md_path
+
+
+# --- resuming a stopped run (make eval RESUME=1) ---
+
+
+def latest_report(directory: Path) -> Path | None:
+    """The newest <timestamp>.json report in `directory`, or None."""
+    found = sorted(directory.glob("*.json")) if directory.is_dir() else []
+    return found[-1] if found else None
+
+
+def _known(cls: type, data: dict) -> dict:
+    names = {f.name for f in fields(cls)}
+    return {k: v for k, v in data.items() if k in names}
+
+
+def result_from_dict(data: dict) -> Result:
+    """Rebuild a `Result` from a report's JSON (older reports lack newer fields)."""
+    outcome = Outcome(**_known(Outcome, data.get("outcome") or {}))
+    return Result(**{**_known(Result, data), "outcome": outcome})
+
+
+def results_to_keep(report: dict, questions: Sequence[Question]) -> dict[str, Result]:
+    """The results of an earlier run that RESUME keeps: every question that was asked
+    (not "not run") and has not been edited since. The rest are asked again."""
+    current = {q.id: q for q in questions}
+    kept: dict[str, Result] = {}
+    for raw in report.get("results", []):
+        result = result_from_dict(raw)
+        question = current.get(result.id)
+        if (
+            question is not None
+            and result.score != NOT_RUN
+            and result.question == question.question
+            and result.task == question.task
+        ):
+            kept[result.id] = result
+    return kept
+
+
+# --- retrieval only (make eval RETRIEVAL=1): what the coach would be shown ---
+
+CHARS_PER_TOKEN = 4  # a rough rule for English; the real count comes from the model
+
+
+@dataclass
+class ContextCheck:
+    """Whether the material given to the model could answer a question. No model."""
+
+    id: str
+    tokens: int  # estimated size of the whole prompt
+    expect_found: int
+    expect_total: int
+    missing: list[str]
+    cite_ok: bool | None
+
+
+def check_context(
+    question: Question, prompt_text: str, source_titles: Sequence[str]
+) -> ContextCheck:
+    """Which `expect` phrases and which `cite` title are in the prompt the model gets.
+
+    A proxy for retrieval: an answer can't contain a fact that was never shown, so a
+    phrase missing here is a retrieval miss, whatever the model then does.
+    """
+    text = _normalize(prompt_text)
+    missing = [
+        expect_label(item)
+        for item in question.expect
+        if not any(_contains(text, option) for option in _alternatives(item))
+    ]
+    cite_ok = None
+    if question.cite:
+        cite_ok = any(
+            _contains(_normalize(title), question.cite) for title in source_titles
+        )
+    return ContextCheck(
+        id=question.id,
+        tokens=len(prompt_text) // CHARS_PER_TOKEN,
+        expect_found=len(question.expect) - len(missing),
+        expect_total=len(question.expect),
+        missing=missing,
+        cite_ok=cite_ok,
+    )
+
+
+def format_context_table(checks: Sequence[ContextCheck]) -> str:
+    rows = [("id", "est. tokens in", "expect shown", "cite shown", "not shown")]
+    for c in checks:
+        cite = "-" if c.cite_ok is None else ("yes" if c.cite_ok else "NO")
+        rows.append(
+            (
+                c.id,
+                f"{c.tokens:,}",
+                f"{c.expect_found}/{c.expect_total}",
+                cite,
+                ", ".join(c.missing),
+            )
+        )
+    widths = [max(len(row[i]) for row in rows) for i in range(4)]
+    lines = []
+    for number, row in enumerate(rows):
+        cells = [
+            cell.ljust(widths[0]) if i == 0 else cell.rjust(widths[i])
+            for i, cell in enumerate(row[:4])
+        ]
+        lines.append(("  ".join(cells) + "  " + row[4]).rstrip())
+        if number == 0:
+            lines.append("  ".join("-" * w for w in widths))
+    return "\n".join(lines)
+
+
+def context_summary(checks: Sequence[ContextCheck]) -> str:
+    """One line for a PR: how many questions had everything they need in the prompt."""
+    full = sum(
+        c.expect_found == c.expect_total and c.cite_ok is not False for c in checks
+    )
+    tokens = sorted(c.tokens for c in checks)
+    median = tokens[len(tokens) // 2] if tokens else 0
+    return (
+        f"context complete {full} / {len(checks)} | "
+        f"estimated tokens in: median {median:,}, max {max(tokens, default=0):,}"
+    )
