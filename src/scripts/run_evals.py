@@ -171,7 +171,11 @@ def answer_question(
         record=calls.append,
         recommend=kit,
     )
-    return run.run()
+    for event in run:  # show where a slow answer is (searching, calculating...)
+        if event["type"] == "step":
+            print(f"      ... {event['text']}", flush=True)
+    assert run.answer is not None
+    return run.answer
 
 
 def ask(

@@ -552,7 +552,9 @@ def test_boost_words_nudge_but_never_outrank_the_question(session, fake):
     plain = [h.name for h in di.search(session, "latch")]
     boosted = [
         h.name
-        for h in di.search(session, "latch", boost="panels weld fillets bracket baseplate")
+        for h in di.search(
+            session, "latch", boost="panels weld fillets bracket baseplate"
+        )
     ]
 
     assert plain == ["Question answer"]  # no boost: the title echo doesn't match
@@ -1361,3 +1363,29 @@ def test_hit_for_model_always_has_the_folder_path_and_modified_date(session, fak
     bare = di.SearchHit(1, "x", "n", "doc", "", None, None, None, "", "", 0.0)
     assert di.hit_for_model(bare)["modified"] == "unknown"
     assert di.hit_for_model(bare)["folder_path"] == "unknown"
+
+
+def test_the_pdf_size_limit_can_be_raised_for_a_textbook(monkeypatch):
+    monkeypatch.delenv(di.MAX_PDF_ENV, raising=False)
+    assert di.max_pdf_bytes() == di.MAX_PDF_BYTES == 20 * 1024 * 1024
+
+    monkeypatch.setenv(di.MAX_PDF_ENV, "120")
+    assert di.max_pdf_bytes() == 120 * 1024 * 1024
+
+    for bad in ("", "0", "-5", "lots"):
+        monkeypatch.setenv(di.MAX_PDF_ENV, bad)
+        assert di.max_pdf_bytes() == di.MAX_PDF_BYTES
+
+
+def test_a_pdf_over_the_limit_is_skipped_and_the_reason_names_the_limit(monkeypatch):
+    monkeypatch.setenv(di.MAX_PDF_ENV, "50")
+    info = {
+        "drive_id": "bigbook",
+        "name": "Textbook.pdf",
+        "kind": "pdf",
+        "size": 60 * 1024 * 1024,
+    }
+
+    result = di.extract(None, info)
+
+    assert result.status == "skipped" and "60 MB, over the 50 MB limit" in result.reason
