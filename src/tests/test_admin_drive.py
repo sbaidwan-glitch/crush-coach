@@ -17,6 +17,7 @@ LEAD = {"name": "Test Lead", "email": "lead@example.edu", "role": "lead"}
 def make_client(user):
     if user is not None:
         main.app.dependency_overrides[auth.require_user] = lambda: user
+        main.app.dependency_overrides[auth.optional_user] = lambda: user
     return TestClient(main.app, follow_redirects=False)
 
 

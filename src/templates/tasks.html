@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "components/feedback.html" import notice as notice_box, empty_state, error_state %}
+{% from "components/feedback.html" import notice as notice_box, empty_state, error_state, preview_notice %}
 {% from "components/progress_bar.html" import pbar, diamond %}
 {% from "components/task_row.html" import task_row %}
 {% from "components/decision_row.html" import decision_row %}
@@ -18,14 +18,15 @@
   <div><small>Unclaimed</small><b>{{ counts.unclaimed }}</b></div>
 </div>
 {% endblock %}
-{% macro panel(g, tasks) %}
+{% macro panel(g, tasks, preview) %}
 <section class="panel panel--flush" id="{{ g.slug }}" aria-labelledby="h-{{ g.slug }}">
   <div class="panel__head"><h2 class="panel__title" id="h-{{ g.slug }}">{{ diamond(g) }}{{ g.label }}</h2><span class="meta">{{ g.done }} of {{ g.total }} done</span></div>
   {{ pbar(g) }}
-  {% for t in tasks %}{{ task_row(t, status_labels) }}{% endfor %}
+  {% for t in tasks %}{{ task_row(t, status_labels, preview) }}{% endfor %}
 </section>
 {% endmacro %}
 {% block main %}
+{% if preview %}{{ preview_notice() }}{% endif %}
 {% if notice %}{{ notice_box(notice) }}{% endif %}
 <div class="grid-tasks">
   {% if error %}
@@ -35,17 +36,18 @@
   {% elif not panels %}
   <div class="stack grid-tasks__wide">{{ empty_state("No tasks match this filter.", "/tasks", "Show all tasks") }}</div>
   {% else %}
-  <div class="stack">{% for g, tasks in left %}{{ panel(g, tasks) }}{% endfor %}</div>
-  <div class="stack">{% for g, tasks in right %}{{ panel(g, tasks) }}{% endfor %}</div>
+  <div class="stack">{% for g, tasks in left %}{{ panel(g, tasks, preview) }}{% endfor %}</div>
+  <div class="stack">{% for g, tasks in right %}{{ panel(g, tasks, preview) }}{% endfor %}</div>
   {% endif %}
 
   <div class="stack">
     <section class="panel panel--flush panel--strong" aria-labelledby="recent-decisions">
       <div class="panel__head"><h2 class="panel__title" id="recent-decisions">Recent decisions</h2><a class="meta" href="/decisions">All</a></div>
-      {% if decisions_error %}<div class="decision">{{ error_state(decisions_error) }}</div>
+      {% if preview %}<div class="decision">{{ empty_state("Sign in to read the team’s decisions.", "/login?next=%2Fdecisions", "Sign in with Google") }}</div>
+      {% elif decisions_error %}<div class="decision">{{ error_state(decisions_error) }}</div>
       {% else %}{% for d in recent_decisions %}{{ decision_row(d, decision_status_labels) }}{% else %}<div class="decision">{{ empty_state("No decisions yet.", "/decisions/new", "Propose one") }}</div>{% endfor %}{% endif %}
     </section>
-    {% if user.role == "lead" %}
+    {% if user and user.role == "lead" %}
     <section class="panel panel--flush" aria-labelledby="waiting">
       <div class="panel__head"><h2 class="panel__title" id="waiting">Waiting for review</h2><span class="meta">Leads</span></div>
       {% if review_error %}<div class="decision">{{ error_state(review_error) }}</div>

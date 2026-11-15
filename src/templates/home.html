@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "components/button.html" import button_link %}
-{% from "components/feedback.html" import empty_state, error_state %}
+{% from "components/feedback.html" import empty_state, error_state, preview_notice %}
 {% from "components/progress_bar.html" import pbar, diamond %}
 {% from "components/status.html" import status_label %}
 {% from "components/task_row.html" import claim_row %}
@@ -8,6 +8,7 @@
 {% block page_title %}Crush Build{% endblock %}
 {% block topbar_actions %}{% if task %}<a class="btn btn--primary" href="/tasks/{{ task.code }}#coach-message">Ask the coach</a>{% endif %}{% endblock %}
 {% block main %}
+{% if preview %}{{ preview_notice() }}{% endif %}
 {% if error %}{{ error_state(error, "/", "Try again") }}{% endif %}
 <div class="grid-2">
   <section class="panel" aria-labelledby="your-task">
@@ -36,6 +37,8 @@
       {% endif %}
     </div>
     {% if more_tasks %}<p class="meta">You have {{ more_tasks }} other task{{ "" if more_tasks == 1 else "s" }} in progress. <a href="/tasks?show=mine">See all yours</a>.</p>{% endif %}
+    {% elif preview %}
+    {{ empty_state("Sign in with your team Google account to claim a task and see it here.", "/login", "Sign in with Google") }}
     {% else %}
     {{ empty_state("You haven’t started a task. Pick one on the right.") }}
     {% endif %}
@@ -43,10 +46,10 @@
 
   <section class="panel" aria-labelledby="pick-up">
     <div class="panel__head">
-      <div><h2 class="panel__title" id="pick-up">Pick up a task</h2><p class="panel__sub">Unclaimed tasks you could start today.</p></div>
+      <div><h2 class="panel__title" id="pick-up">Pick up a task</h2><p class="panel__sub">{% if preview %}Open tasks on Crush. Titles are hidden until you sign in.{% else %}Unclaimed tasks you could start today.{% endif %}</p></div>
       <span class="meta">{{ unclaimed_count }} open</span>
     </div>
-    {% for t in pick_up %}{{ claim_row(t, "/") }}{% else %}
+    {% for t in pick_up %}{{ claim_row(t, "/", preview) }}{% else %}
     {{ empty_state("Every task has an owner.") }}
     {% endfor %}
   </section>

@@ -2,7 +2,8 @@
 
 Your task (the stored "Next step" from the coach, never a fresh model call), a few
 unclaimed tasks to pick up, Crush's build progress, and the render with a tag per part.
-Signed-out visitors get a sign-in panel in the same shell.
+Signed-out visitors see the same page as a read-only preview: progress is real, tasks
+are blurred stand-ins, and nothing can be claimed.
 """
 
 import logging
@@ -45,8 +46,7 @@ def my_task(tasks: list[Task], user: auth.User) -> tuple[Task | None, int]:
 @router.get("/", response_class=HTMLResponse)
 def home(request: Request, session: Annotated[Session, Depends(db.get_session)]):
     user = auth.session_user(request)
-    if user is None:
-        return templates.TemplateResponse(request, "home_signed_out.html", {"user": None})
+    preview = user is None
 
     error = None
     tasks: list[Task] = []
@@ -56,7 +56,7 @@ def home(request: Request, session: Annotated[Session, Depends(db.get_session)])
         log.error("Could not load tasks (%s)", type(exc).__name__)
         error = "Couldn't load tasks from the database right now. Try again in a moment."
 
-    current, more = my_task(tasks, user)
+    current, more = (None, 0) if preview else my_task(tasks, user)
     next_step = None
     if current is not None:
         try:
@@ -75,7 +75,12 @@ def home(request: Request, session: Annotated[Session, Depends(db.get_session)])
         "next_step": next_step,
         "stages": taskpage.stage_strip(current) if current else [],
         "status_labels": STATUS_LABELS,
-        "pick_up": unclaimed[:PICK_UP_LIMIT],
+        "pick_up": (
+            board.preview_tasks(unclaimed[:PICK_UP_LIMIT])
+            if preview
+            else unclaimed[:PICK_UP_LIMIT]
+        ),
+        "preview": preview,
         "unclaimed_count": len(unclaimed),
         "groups": groups,
         "total": progress.overall(groups),

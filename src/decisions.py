@@ -22,7 +22,7 @@ from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, col, select
 
 import db
-from auth import CurrentUser, LeadUser, User
+from auth import CurrentUser, LeadUser, MaybeUser, User, locked_page
 from models import (
     DECISION_STATUS_LABELS,
     DECISION_STATUSES,
@@ -519,10 +519,12 @@ def _decisions_with_status(
 def decision_list(
     request: Request,
     session: Annotated[Session, Depends(db.get_session)],
-    user: CurrentUser,
+    user: MaybeUser,
     subsystem: str = "",
     status: str = "",
 ):
+    if user is None:
+        return locked_page(request, "the team’s decisions")
     notices = []
     if subsystem and subsystem not in SUBSYSTEMS:
         notices.append(f"Unknown subsystem {subsystem!r}; showing every subsystem.")
@@ -567,10 +569,12 @@ def decision_list(
 def new_decision_form(
     request: Request,
     session: Annotated[Session, Depends(db.get_session)],
-    user: CurrentUser,
+    user: MaybeUser,
     task: str = "",
     subsystem: str = "",
 ):
+    if user is None:
+        return locked_page(request, "the decision form")
     form = blank_form(subsystem=subsystem if subsystem in SUBSYSTEMS else "")
     if task:
         try:
@@ -621,8 +625,10 @@ def decision_detail(
     request: Request,
     decision_id: int,
     session: Annotated[Session, Depends(db.get_session)],
-    user: CurrentUser,
+    user: MaybeUser,
 ):
+    if user is None:
+        return locked_page(request, "this decision")
     return _detail_page(request, session, user, decision_id)
 
 

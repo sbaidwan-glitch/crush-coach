@@ -3,9 +3,10 @@
 The model is called only from `ask_coach`, only when a member sends a message,
 never when a page loads. Model code itself lives in `llm.py`.
 
-Access: every route here requires Google sign-in (`auth.CurrentUser`). The
-signed-in member's verified email is the identity stored with each message and
-model call, and the key for the daily cap.
+Access: every route here requires Google sign-in (`auth.CurrentUser`); the task page
+itself shows a sign-in prompt to a signed-out visitor. The signed-in member's verified
+email is the identity stored with each message and model call, and the key for the
+daily cap.
 """
 
 import json
@@ -35,7 +36,7 @@ import decisions
 import llm
 import retrieval
 import taskpage
-from auth import CurrentUser, User
+from auth import CurrentUser, MaybeUser, User, locked_page
 from markup import render_markdown
 from models import (
     DECISION_STATUS_LABELS,
@@ -558,8 +559,10 @@ def task_page(
     request: Request,
     code: str,
     session: Annotated[Session, Depends(db.get_session)],
-    user: CurrentUser,
+    user: MaybeUser,
 ):
+    if user is None:  # signed out: no task, History or chat is read
+        return locked_page(request, "this task and its coach")
     return _render_page(request, session, user, code)
 
 

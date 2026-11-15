@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Sign in – Crush Coach{% endblock %}
+{% block page_title %}Team members only{% endblock %}
+{% block topbar_actions %}{% endblock %}
+{% block main %}
+<section class="panel" aria-labelledby="locked">
+  <h2 class="panel__title" id="locked">Sign in to see {{ what }}</h2>
+  <p class="panel__sub">This part of Crush Coach is for the MuddSub team. You can still look around: the home page and the task board show Crush’s build progress without signing in.</p>
+  <div class="actions"><a class="btn btn--primary" href="{{ login_url }}">Sign in with Google</a><a class="btn" href="/tasks">Back to the task board</a></div>
+</section>
+{% endblock %}

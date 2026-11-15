@@ -27,6 +27,7 @@ def model_is_off_limits(monkeypatch):
 @pytest.fixture
 def client():
     main.app.dependency_overrides[auth.require_user] = lambda: SAM
+    main.app.dependency_overrides[auth.optional_user] = lambda: SAM
     # Home reads the session itself, so give it a real signed-in cookie too.
     with TestClient(main.app) as c:
         yield c
@@ -55,14 +56,27 @@ def add(session, code, title="Task", subsystem="Enclosure", status="todo", owner
     return task
 
 
-def test_signed_out_visitors_get_a_sign_in_panel_in_the_same_shell(session):
+def test_signed_out_visitors_see_a_preview_with_blurred_tasks_they_cannot_claim(session):
+    add(session, "E01", "Secret enclosure bracket", status="todo", owner="Alex Example")
+    add(session, "E02", "Another real title", status="todo")
+
     with TestClient(main.app) as anonymous:
         response = anonymous.get("/")
+    html = response.text
 
     assert response.status_code == 200
-    assert 'href="/login">Sign in with Google</a>' in response.text
-    assert '<nav class="sidebar" aria-label="Main">' in response.text
-    assert "Your task" not in response.text
+    assert 'href="/login">Sign in with Google</a>' in html
+    assert '<nav class="sidebar" aria-label="Main">' in html
+    assert "You’re looking at a preview" in html
+    # Real progress is shown; real titles, owners and links to tasks are not in the page.
+    assert "Build progress" in html
+    assert "Secret enclosure bracket" not in html
+    assert "Another real title" not in html
+    assert "Alex Example" not in html
+    assert 'href="/tasks/E01"' not in html
+    assert 'class="is-blurred"' in html
+    # Claim is a disabled button, not a form that posts.
+    assert "disabled" in html and 'action="/tasks/E01/status"' not in html
 
 
 def test_your_task_is_the_members_task_in_progress_with_its_stage_strip(session, signed_in):
