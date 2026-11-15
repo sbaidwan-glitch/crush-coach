@@ -7,16 +7,15 @@ waiting for review. Every number comes from `Task.status` through `progress.py`.
 
 import logging
 from datetime import datetime
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, col, select
 
 import db
 import progress
+import shell
 from auth import CurrentUser
 from models import (
     DECISION_STATUS_LABELS,
@@ -28,7 +27,7 @@ from models import (
 )
 
 log = logging.getLogger("crush_coach")
-templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+templates = shell.templates()
 router = APIRouter()
 
 # filter key -> label, in the order the buttons show
@@ -56,11 +55,11 @@ def apply_filter(tasks: list[Task], key: str, user: dict) -> list[Task]:
 
 
 def age_text(since: datetime | None) -> str | None:
-    """"today", "1 day", "3 days": how long a task has waited."""
+    """"under a day", "1 day", "3 days": how long a task has waited."""
     if since is None:
         return None
     days = max(0, (utc_now() - since).days)
-    return "today" if days == 0 else f"{days} day{'' if days == 1 else 's'}"
+    return "under a day" if days == 0 else f"{days} day{'' if days == 1 else 's'}"
 
 
 def waiting_for_review(session: Session, tasks: list[Task]) -> list[dict]:

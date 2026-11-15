@@ -74,7 +74,8 @@ def test_your_task_is_the_members_task_in_progress_with_its_stage_strip(session,
     assert "Map out electrical enclosure" in html
     assert "Someone else&#39;s" not in html
     assert '<li class="is-current" aria-current="step">CAD</li>' in html
-    assert 'action="/tasks/E01/status"' in html and 'value="ready"' in html
+    assert 'action="/tasks/E01/status"' in html and 'value="advance"' in html
+    assert "Next step done" in html
     assert 'href="/tasks/E01"' in html
 
 

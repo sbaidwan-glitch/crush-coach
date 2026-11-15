@@ -45,6 +45,7 @@ def test_upgrade_creates_task_table(fresh_engine):
         "stage",
         "owner",
         "status",
+        "steps",
         *TRACKER_COLUMNS,
     }
     assert columns["owner"]["nullable"] is True
@@ -202,6 +203,8 @@ def test_upgrade_creates_the_task_event_table(fresh_engine):
         "from_status",
         "to_status",
         "note",
+        "kind",
+        "detail",
         "created_at",
     }
     assert columns["from_status"]["nullable"] is True

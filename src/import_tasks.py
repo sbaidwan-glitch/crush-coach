@@ -36,6 +36,7 @@ from pathlib import Path
 from sqlmodel import Session, select
 
 import db
+import steps
 from models import (
     STATUSES,
     SUBSYSTEMS,
@@ -62,8 +63,6 @@ DETAIL_FIELDS = (
 MAX_BYTES = 1_000_000
 MAX_FIELD_CHARS = 5000
 MAX_CODE_CHARS = 40
-# Where a task starts, per type (CLAUDE.md: the first stage of each flow).
-FIRST_STAGE = {"Fabricate": "drawing", "Design": "requirements", "Validate": "test plan"}
 
 FORMAT_TRACKER = "tracker"
 FORMAT_SAMPLE = "sample"
@@ -151,6 +150,10 @@ _CODE_PREFIX_SUBSYSTEM = {
     "T": "Torpedo",
 }
 _VALIDATE_WORDS = re.compile(r"\b(?:test|validat|verif|calculat)", re.IGNORECASE)
+_PRINT_WORDS = re.compile(r"\b(?:3d[- ]?print|print)", re.IGNORECASE)
+_INVESTIGATE_WORDS = re.compile(
+    r"\b(?:investigat|research|find out|decide|compare|evaluate|survey)", re.IGNORECASE
+)
 _DESIGN_WORDS = re.compile(
     r"\b(?:design|model|cad|sketch|select|choose|concept)", re.IGNORECASE
 )
@@ -167,6 +170,10 @@ def guess_subsystem(title: str, code: str = "") -> str | None:
 def guess_task_type(title: str) -> str:
     if _VALIDATE_WORDS.search(title):
         return "Validate"
+    if _PRINT_WORDS.search(title):
+        return "Print"
+    if _INVESTIGATE_WORDS.search(title):
+        return "Investigate"
     if _DESIGN_WORDS.search(title):
         return "Design"
     return "Fabricate"
@@ -576,7 +583,7 @@ def save_rows(
                     title=row.title,
                     subsystem=row.subsystem,
                     task_type=row.task_type,
-                    stage=row.stage or FIRST_STAGE[row.task_type],
+                    stage=steps.fit_stage(row.task_type, row.status, row.stage),
                     owner=row.owner,
                     status=row.status,
                     **row.details,

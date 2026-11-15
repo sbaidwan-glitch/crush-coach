@@ -459,10 +459,10 @@ def test_confirm_saves_the_fixed_rows_with_the_leads_corrections(lead, session):
     assert saved["M26"].title.startswith("Orphan")
     assert saved["M07"].title == "Example title"
     assert saved["M05"].subsystem == "Gripper"
-    assert saved["M05"].stage == "requirements"  # first stage of Design
+    assert saved["M05"].stage == "Requirements"  # first step of Design
     assert saved["M01"].subsystem == "Thrusters"
-    assert saved["M03"].stage == "test plan"
-    assert saved["M04"].stage == "drawing"
+    assert saved["M03"].stage == "Test plan"
+    assert saved["M04"].stage == "Drawing"
 
 
 def test_confirm_stores_the_tracker_fields(lead, session):

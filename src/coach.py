@@ -14,7 +14,6 @@ import os
 import re
 from collections.abc import Iterator
 from datetime import UTC, datetime, tzinfo
-from pathlib import Path
 from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
@@ -25,7 +24,6 @@ from fastapi.responses import (
     Response,
     StreamingResponse,
 )
-from fastapi.templating import Jinja2Templates
 from markupsafe import Markup, escape
 from sqlmodel import Session, func, select
 
@@ -34,6 +32,7 @@ import db
 import decisions
 import llm
 import retrieval
+import shell
 import taskpage
 from auth import CurrentUser, User
 from markup import render_markdown
@@ -49,7 +48,7 @@ from models import (
 )
 
 log = logging.getLogger("crush_coach")
-templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+templates = shell.templates()
 router = APIRouter()
 
 DEFAULT_DAILY_LIMIT = 20
@@ -250,6 +249,7 @@ def _render_page(
     *,
     error: str | None = None,
     draft: str = "",
+    extra: dict | None = None,
 ) -> Response:
     task: Task | None = None
     messages: list[dict] = []
@@ -294,6 +294,7 @@ def _render_page(
     }
     if task is not None and page_error is None:
         context.update(taskpage.page_context(session, task, user))  # presentation only
+    context.update(extra or {})
     return templates.TemplateResponse(
         request, "task.html", context, status_code=status_code
     )

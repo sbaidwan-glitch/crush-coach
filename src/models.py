@@ -29,7 +29,8 @@ SUBSYSTEMS = (
     "Gripper",
     "Torpedo",
 )
-TASK_TYPES = ("Fabricate", "Design", "Validate")
+# Each type's default steps live in steps.py.
+TASK_TYPES = ("Fabricate", "Print", "Design", "Validate", "Investigate")
 # The task flow: todo -> in_progress -> needs_review -> done (a lead sends it back
 # to in_progress). See workflow.py for who may make each move.
 STATUS_LABELS = {
@@ -91,7 +92,8 @@ class Task(SQLModel, table=True):
     code: str = Field(index=True, unique=True)  # e.g. "M04"
     title: str
     subsystem: str
-    task_type: str  # Fabricate, Design, or Validate
+    task_type: str  # one of TASK_TYPES
+    # The name of the step the task is on (see steps.py: the status always agrees).
     stage: str
     owner: str | None = None
     status: str = "todo"
@@ -104,6 +106,11 @@ class Task(SQLModel, table=True):
     people_to_ask: str | None = None
     documentation: str | None = None
     due_date: str | None = None  # text on purpose: the tracker has "Week 3", "TBD", ...
+    # A lead's own list of steps for this task: [{"name", "review"}]. None means the
+    # defaults for the task's type (steps.py).
+    steps: list[dict[str, Any]] | None = Field(
+        default=None, sa_column=Column(JSON(none_as_null=True), nullable=True)
+    )
 
 
 class TaskEvent(SQLModel, table=True):
@@ -117,6 +124,10 @@ class TaskEvent(SQLModel, table=True):
     from_status: str | None = None  # None for the first event on a task
     to_status: str
     note: str | None = None  # a lead's reason when sending a task back
+    # What kind of move: start, advance, approve, self_approve, send_back, unclaim,
+    # change_type, edit_steps. None on older rows (their text comes from the statuses).
+    kind: str | None = None
+    detail: str | None = None  # the step finished or approved, the new type, the steps
     created_at: datetime = Field(default_factory=utc_now, index=True)
 
 

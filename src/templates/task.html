@@ -41,9 +41,10 @@
         <fieldset class="ask__fields">
           <legend class="visually-hidden">Message to the coach</legend>
           <label class="visually-hidden" for="coach-message">Ask the coach about this task (asking as {{ user.name }})</label>
-          <textarea id="coach-message" name="message" required maxlength="2000" rows="2" placeholder="Ask about this task">{{ draft }}</textarea>
+          <textarea id="coach-message" name="message" required maxlength="2000" rows="2" placeholder="Ask about this task" aria-describedby="coach-hint">{{ draft }}</textarea>
           {{ button("Ask", "primary", "submit") }}
         </fieldset>
+        <p class="meta ask__hint" id="coach-hint">Press Enter to send, Shift+Enter for a new line.</p>
       </form>
 
       <form id="draft-form" method="post" action="/tasks/{{ task.code }}/decision-draft"
@@ -71,30 +72,51 @@
 
       {% if "approve" in actions %}
       <form class="review" method="post" action="/tasks/{{ task.code }}/status">
+        <input type="hidden" name="step" value="{{ step_name }}">
         <div class="field-label"><label for="review-note">Note for the owner (optional)</label></div>
         <textarea id="review-note" class="field-input" name="note" rows="2" maxlength="500"></textarea>
+        {% if self_review %}<p class="meta">This is your own task. Approving it is recorded in the History as self-approved.</p>{% endif %}
         <div class="actions">
-          <button class="btn btn--primary" type="submit" name="action" value="approve">Approve</button>
+          <button class="btn btn--primary" type="submit" name="action" value="approve">{% if self_review %}Approve (self-approve){% else %}Approve{% endif %}</button>
           <button class="btn" type="submit" name="action" value="send_back">Send back</button>
         </div>
       </form>
       {% elif actions %}
       <div class="actions">
-        {% for action, label, primary in [("start", "Start this task", True), ("ready", "Ready for review", True), ("unclaim", "Unclaim", False)] if action in actions %}
-        <form method="post" action="/tasks/{{ task.code }}/status"><input type="hidden" name="action" value="{{ action }}"><button class="btn{% if primary %} btn--primary{% endif %}" type="submit">{{ label }}</button></form>
+        {% for action, label, primary in [("start", "Start this task", True), ("advance", "Next step done", True), ("unclaim", "Unclaim", False)] if action in actions %}
+        <form method="post" action="/tasks/{{ task.code }}/status"><input type="hidden" name="action" value="{{ action }}">{% if action == "advance" %}<input type="hidden" name="step" value="{{ step_name }}">{% endif %}<button class="btn{% if primary %} btn--primary{% endif %}" type="submit">{{ label }}</button></form>
         {% endfor %}
       </div>
       {% endif %}
+      {% if step_note and "advance" in actions %}<p class="meta">{{ step_note }}</p>{% endif %}
       {% if task.status == "needs_review" and "approve" not in actions %}
       <p class="meta">Waiting for a lead to review it.</p>
       {% elif task.status == "done" %}
-      <p class="meta">A lead approved this task.</p>
+      <p class="meta">Every step is done.</p>
       {% elif task.status == "todo" and task.owner and "start" not in actions %}
       <p class="meta">{{ task.owner }} owns this task. Only they or a lead can start it.</p>
       {% elif task.status == "in_progress" and not actions %}
       <p class="meta">Only {{ task.owner or "its owner" }} or a lead can move this task.</p>
       {% endif %}
     </section>
+
+    {% if is_lead %}
+    <section class="panel" aria-labelledby="lead-heading">
+      <div class="panel__head"><h2 class="panel__title" id="lead-heading">Type and steps</h2><span class="meta">Leads</span></div>
+      <form method="post" action="/tasks/{{ task.code }}/type" class="filter">
+        <div>
+          <label class="field-label" for="task-type">Type</label>
+          <select class="field-input" id="task-type" name="task_type">
+            {% if task.task_type not in task_types | map("first") %}<option value="" selected>{{ task.task_type }} (not a current type)</option>{% endif %}
+            {% for name, hint in task_types %}<option value="{{ name }}"{% if name == task.task_type %} selected{% endif %}>{{ name }}{% if hint %} ({{ hint }}){% endif %}</option>{% endfor %}
+          </select>
+        </div>
+        <button class="btn btn--small" type="submit">Change type</button>
+      </form>
+      <p class="meta">{% if custom_steps %}This task has its own steps, so changing the type keeps them.{% else %}Changing the type switches to that type’s steps and keeps the task on a step of the same name, or starts it over.{% endif %}</p>
+      {% include "_steps_editor.html" %}
+    </section>
+    {% endif %}
 
     <section class="panel panel--strong" aria-labelledby="about-heading">
       <div class="panel__head"><h2 class="panel__title" id="about-heading">About this task</h2><span class="meta">{{ task.subsystem }} · {{ task.task_type }}</span></div>
@@ -115,7 +137,7 @@
       <div class="panel__head"><h2 class="panel__title" id="history-heading">History</h2></div>
       {% if history_error %}{{ error_state(history_error, "/tasks/" ~ task.code, "Try again") }}
       {% elif history %}
-      <ul class="history">{% for h in history %}<li><time>{{ h.date }}</time><span>{{ h.text }}{% if h.note %}<span class="task-row__meta">“{{ h.note }}”</span>{% endif %}</span></li>{% endfor %}</ul>
+      <ul class="history">{% for h in history %}<li><time>{{ h.date }}</time><span>{{ h.text }}{% if h.detail %}<span class="task-row__meta">{{ h.detail }}</span>{% endif %}{% if h.note %}<span class="task-row__meta">“{{ h.note }}”</span>{% endif %}</span></li>{% endfor %}</ul>
       {% else %}{{ empty_state("No changes yet. Starting, review and approval show up here.") }}{% endif %}
     </section>
   </div>

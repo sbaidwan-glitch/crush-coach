@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "components/feedback.html" import notice as notice_box, empty_state, error_state %}
 {% from "components/progress_bar.html" import pbar, diamond %}
-{% from "components/task_row.html" import task_row %}
+{% from "components/task_row.html" import task_row, review_row %}
 {% from "components/decision_row.html" import decision_row %}
 {% block title %}All tasks – Crush Coach{% endblock %}
 {% block heading %}
@@ -49,12 +49,7 @@
     <section class="panel panel--flush" aria-labelledby="waiting">
       <div class="panel__head"><h2 class="panel__title" id="waiting">Waiting for review</h2><span class="meta">Leads</span></div>
       {% if review_error %}<div class="decision">{{ error_state(review_error) }}</div>
-      {% else %}{% for r in review %}
-      <div class="task-row task-row--claim">
-        <span class="code">{{ r.task.code }}</span>
-        <span><a class="task-row__title" href="/tasks/{{ r.task.code }}">{{ r.task.title }}</a><span class="task-row__meta">{{ r.task.owner or "Unclaimed" }}{% if r.age %} · {{ r.age }}{% endif %}</span></span>
-        <a class="btn btn--small" href="/tasks/{{ r.task.code }}"><span>Review</span><span class="visually-hidden"> {{ r.task.code }}</span></a>
-      </div>
+      {% else %}{% for r in review %}{{ review_row(r) }}
       {% else %}<div class="decision">{{ empty_state("Nothing is waiting for review.") }}</div>{% endfor %}{% endif %}
     </section>
     {% endif %}

@@ -6,23 +6,23 @@ Signed-out visitors get a sign-in panel in the same shell.
 """
 
 import logging
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 from sqlmodel import Session
 
 import auth
 import board
 import db
 import progress
+import shell
+import steps
 import taskpage
 from models import STATUS_LABELS, Task
 
 log = logging.getLogger("crush_coach")
-templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+templates = shell.templates()
 router = APIRouter()
 
 PICK_UP_LIMIT = 4
@@ -65,6 +65,19 @@ def home(request: Request, session: Annotated[Session, Depends(db.get_session)])
             session.rollback()
             log.error("Could not load the next step (%s)", type(exc).__name__)
 
+    # The review queue loads on its own: a failure only costs that panel.
+    review: list[dict] = []
+    review_error = None
+    if user["role"] == "lead" and error:
+        review_error = "Couldn't load the review queue right now."
+    elif user["role"] == "lead":
+        try:
+            review = board.waiting_for_review(session, tasks)
+        except Exception as exc:  # noqa: BLE001
+            session.rollback()
+            log.error("Could not load the review queue (%s)", type(exc).__name__)
+            review_error = "Couldn't load the review queue right now."
+
     groups = progress.group_progress(tasks)
     unclaimed = [t for t in tasks if progress.is_unclaimed(t)]
     context = {
@@ -74,6 +87,12 @@ def home(request: Request, session: Annotated[Session, Depends(db.get_session)])
         "more_tasks": more,
         "next_step": next_step,
         "stages": taskpage.stage_strip(current) if current else [],
+        "step_name": steps.current_step(current).name
+        if current and steps.current_step(current)
+        else "",
+        "is_lead": user["role"] == "lead",
+        "review": review,
+        "review_error": review_error,
         "status_labels": STATUS_LABELS,
         "pick_up": unclaimed[:PICK_UP_LIMIT],
         "unclaimed_count": len(unclaimed),

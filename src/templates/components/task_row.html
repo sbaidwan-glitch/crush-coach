@@ -20,3 +20,13 @@
   </form>
 </div>
 {%- endmacro %}
+
+{# A task waiting for a lead: code, title with owner and how long it has waited, Review. `r` is a
+   row from board.waiting_for_review. #}
+{% macro review_row(r) -%}
+<div class="task-row task-row--claim">
+  <span class="code">{{ r.task.code }}</span>
+  <span><a class="task-row__title" href="/tasks/{{ r.task.code }}">{{ r.task.title }}</a><span class="task-row__meta"><span class="visually-hidden">Owner: </span>{{ r.task.owner or "Unclaimed" }}{% if r.age %} · waiting {{ r.age }}{% endif %}</span></span>
+  <a class="btn btn--small" href="/tasks/{{ r.task.code }}"><span>Review</span><span class="visually-hidden"> {{ r.task.code }}</span></a>
+</div>
+{%- endmacro %}

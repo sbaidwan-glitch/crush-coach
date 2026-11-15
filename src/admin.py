@@ -24,25 +24,24 @@ import os
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 from starlette.datastructures import FormData, UploadFile
 
 import db
 import drive_index
 import import_tasks as importer
+import shell
 import task_removal as removal
 from auth import LeadUser
 from models import SUBSYSTEMS, TASK_TYPES, SyncState, Task, utc_now
 
 log = logging.getLogger("crush_coach")
-templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+templates = shell.templates()
 router = APIRouter(prefix="/admin")
 
 DB_ERROR = (
