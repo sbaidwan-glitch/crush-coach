@@ -19,10 +19,11 @@ import facts
 import home
 import inbox
 import record
+import static_version
 import workflow
 
 STATIC_DIR = Path(__file__).parent / "static"
-templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+templates = static_version.add_to(Jinja2Templates(directory=Path(__file__).parent / "templates"))
 log = logging.getLogger("crush_coach")
 
 

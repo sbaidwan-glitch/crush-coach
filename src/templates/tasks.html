@@ -2,7 +2,6 @@
 {% from "components/feedback.html" import notice as notice_box, empty_state, error_state, preview_notice %}
 {% from "components/progress_bar.html" import pbar, diamond %}
 {% from "components/task_row.html" import task_row %}
-{% from "components/decision_row.html" import decision_row %}
 {% block title %}All tasks – Crush Coach{% endblock %}
 {% block heading %}
 <div class="topbar__title">
@@ -40,14 +39,8 @@
   <div class="stack">{% for g, tasks in right %}{{ panel(g, tasks, preview) }}{% endfor %}</div>
   {% endif %}
 
+  {% if user %}
   <div class="stack">
-    <section class="panel panel--flush panel--strong" aria-labelledby="recent-decisions">
-      <div class="panel__head"><h2 class="panel__title" id="recent-decisions">Recently recorded</h2><a class="meta" href="/record">Record</a></div>
-      {% if preview %}<div class="decision">{{ empty_state("Sign in to read the team’s Record.", "/login?next=%2Frecord", "Sign in with Google") }}</div>
-      {% elif decisions_error %}<div class="decision">{{ error_state(decisions_error) }}</div>
-      {% else %}{% for d in recent_decisions %}{{ decision_row(d) }}{% else %}<div class="decision">{{ empty_state("Nothing has been recorded yet.") }}</div>{% endfor %}{% endif %}
-    </section>
-    {% if user %}
     <section class="panel panel--flush" id="suggest" aria-labelledby="suggest-heading">
       <div class="panel__head"><h2 class="panel__title" id="suggest-heading">Suggest a task</h2><span class="meta">A lead adds it</span></div>
       <form class="decision" method="post" action="/task-suggestions">
@@ -58,7 +51,7 @@
         <div class="actions"><button class="btn" type="submit">Suggest this task</button></div>
       </form>
     </section>
-    {% endif %}
   </div>
+  {% endif %}
 </div>
 {% endblock %}

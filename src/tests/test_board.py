@@ -155,28 +155,19 @@ def test_unknown_filter_shows_everything_with_a_notice(session, client):
     assert "Not started" in response.text
 
 
-def test_recently_recorded_shows_the_three_newest_recorded_answers(session, client):
-    for i in range(4):
-        session.add(
-            Decision(
-                subsystem="Enclosure",
-                topic=f"Topic {i}",
-                decision=f"Answer {i}",
-                rationale="r",
-                status="proposed" if i == 3 else "confirmed",
-                proposed_by="x",
-                confirmed_at=utc_now() + timedelta(minutes=i),
-            )
+def test_the_board_has_no_recently_recorded_panel(session, client):
+    session.add(
+        Decision(
+            topic="Topic 0", subsystem="Enclosure", decision="Answer 0", rationale="r",
+            proposed_by="x", status="confirmed", confirmed_at=utc_now(),
         )
+    )
     session.commit()
 
     html = client.get("/tasks").text
 
-    assert "Recently recorded" in html and 'href="/record"' in html
-    assert "Topic 2" in html and "Topic 1" in html and "Topic 0" in html
-    assert "Answer 2" in html
-    assert "Topic 3" not in html  # only suggested, not recorded
-    assert "Recent decisions" not in html
+    assert "Recently recorded" not in html
+    assert "Topic 0" not in html  # recorded answers live on the Record page
 
 
 def test_the_board_has_no_review_queue_for_anyone(session):
@@ -249,22 +240,6 @@ def test_page_says_plainly_when_the_database_fails(monkeypatch, client):
     assert client.get("/health").status_code == 200
 
 
-def test_decisions_failing_only_hides_that_panel(session, monkeypatch, client):
-    add(session, "M01", "Still here", "Enclosure")
-
-    class Boom:
-        def __getattr__(self, name):
-            raise RuntimeError("db is down")
-
-    monkeypatch.setattr(board, "Decision", Boom())
-
-    response = client.get("/tasks")
-
-    assert response.status_code == 200
-    assert "Still here" in response.text
-    assert "Couldn&#39;t load the Record right now." in response.text
-
-
 # --- signed-out preview ---
 
 
@@ -305,7 +280,7 @@ def test_signed_out_board_does_not_read_decisions(session, anonymous):
     html = anonymous.get("/tasks").text
 
     assert "Secret topic" not in html
-    assert "Sign in to read the team’s Record" in html
+    assert "Recently recorded" not in html
     assert "Suggest a task" not in html  # signed-out visitors can't send anything
 
 

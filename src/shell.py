@@ -14,6 +14,7 @@ from sqlmodel import Session
 
 import auth
 import db
+import static_version
 
 log = logging.getLogger("crush_coach")
 
@@ -42,6 +43,8 @@ def _context(request: Request) -> dict:
 
 
 def templates() -> Jinja2Templates:
-    return Jinja2Templates(
-        directory=Path(__file__).parent / "templates", context_processors=[_context]
+    return static_version.add_to(
+        Jinja2Templates(
+            directory=Path(__file__).parent / "templates", context_processors=[_context]
+        )
     )
