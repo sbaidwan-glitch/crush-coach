@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from "components/feedback.html" import notice as notice_box, empty_state, error_state, preview_notice %}
 {% from "components/progress_bar.html" import pbar, diamond %}
-{% from "components/task_row.html" import task_row, review_row %}
+{% from "components/task_row.html" import task_row %}
 {% from "components/decision_row.html" import decision_row %}
 {% block title %}All tasks – Crush Coach{% endblock %}
 {% block heading %}
@@ -42,17 +42,21 @@
 
   <div class="stack">
     <section class="panel panel--flush panel--strong" aria-labelledby="recent-decisions">
-      <div class="panel__head"><h2 class="panel__title" id="recent-decisions">Recent decisions</h2><a class="meta" href="/decisions">All</a></div>
-      {% if preview %}<div class="decision">{{ empty_state("Sign in to read the team’s decisions.", "/login?next=%2Fdecisions", "Sign in with Google") }}</div>
+      <div class="panel__head"><h2 class="panel__title" id="recent-decisions">Recently recorded</h2><a class="meta" href="/record">Record</a></div>
+      {% if preview %}<div class="decision">{{ empty_state("Sign in to read the team’s Record.", "/login?next=%2Frecord", "Sign in with Google") }}</div>
       {% elif decisions_error %}<div class="decision">{{ error_state(decisions_error) }}</div>
-      {% else %}{% for d in recent_decisions %}{{ decision_row(d, decision_status_labels) }}{% else %}<div class="decision">{{ empty_state("No decisions yet.", "/decisions/new", "Propose one") }}</div>{% endfor %}{% endif %}
+      {% else %}{% for d in recent_decisions %}{{ decision_row(d) }}{% else %}<div class="decision">{{ empty_state("Nothing has been recorded yet.") }}</div>{% endfor %}{% endif %}
     </section>
-    {% if user and user.role == "lead" %}
-    <section class="panel panel--flush" aria-labelledby="waiting">
-      <div class="panel__head"><h2 class="panel__title" id="waiting">Waiting for review</h2><span class="meta">Leads</span></div>
-      {% if review_error %}<div class="decision">{{ error_state(review_error) }}</div>
-      {% else %}{% for r in review %}{{ review_row(r) }}
-      {% else %}<div class="decision">{{ empty_state("Nothing is waiting for review.") }}</div>{% endfor %}{% endif %}
+    {% if user %}
+    <section class="panel panel--flush" id="suggest" aria-labelledby="suggest-heading">
+      <div class="panel__head"><h2 class="panel__title" id="suggest-heading">Suggest a task</h2><span class="meta">A lead adds it</span></div>
+      <form class="decision" method="post" action="/task-suggestions">
+        <label class="field-label" for="suggest-title">Title</label>
+        <input class="field-input" id="suggest-title" name="title" maxlength="200" value="{{ draft[0] }}" required>
+        <label class="field-label" for="suggest-why">Why, and done when</label>
+        <textarea class="field-input" id="suggest-why" name="why" rows="3" maxlength="1000">{{ draft[1] }}</textarea>
+        <div class="actions"><button class="btn" type="submit">Suggest this task</button></div>
+      </form>
     </section>
     {% endif %}
   </div>

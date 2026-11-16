@@ -8,8 +8,9 @@ finishes the current step; when the next step is a review step the task becomes
 `needs_review`, and a lead's Approve moves past it (to `done` after the last step).
 Status and step always move together, so they can't disagree.
 
-Members move their own tasks: "Start this task" (which claims an unowned task), "Next
-step done", "Unclaim". Leads approve or send back; a lead may approve their own task
+Members move their own tasks: "Start" (which claims an unowned task), "Mark step done"
+(or "Ask for review" on the step before a review step), "Unclaim". Leads accept (`approve`)
+or send back, from the Inbox (`inbox.py`); a lead may accept their own task
 and the History then says "self-approved". Leads also change a task's type and edit its
 steps. The server checks every move; the page only hides buttons that wouldn't work.
 Each move is written to `task_event`, which the task page shows as History.
@@ -26,6 +27,7 @@ from fastapi.responses import RedirectResponse, Response
 from sqlmodel import Session, select
 
 import db
+import decisions
 import shell
 import steps as stepslib
 from auth import CurrentUser, User
@@ -120,8 +122,13 @@ def move(
     action: str,
     note: str | None = None,
     expected_step: str | None = None,
+    record: str | None = None,
 ) -> TaskEvent:
     """Apply one action and record it. Raises MoveError if it isn't allowed.
+
+    `record` is a lead's optional line on Accept ("Anything decided here worth
+    recording?"): saved as a recorded answer for the task's subsystem, in the same
+    commit as the move.
 
     `expected_step` is the step the person saw when they clicked; if the task has moved
     since (a double click, someone else's move), the move is refused instead of
@@ -165,6 +172,11 @@ def move(
     )
     session.add(task)
     session.add(event)
+    line = (record or "").strip()[:MAX_NOTE_CHARS]
+    if action == "approve" and line:
+        decisions.record_answer(
+            session, user, subsystem=task.subsystem, topic=task.title, answer=line, task=task
+        )
     session.commit()
     return event
 
@@ -272,17 +284,33 @@ def change_status(
     note: Annotated[str, Form()] = "",
     next: Annotated[str, Form()] = "",
     step: Annotated[str, Form()] = "",
+    record: Annotated[str, Form()] = "",
 ):
     back = _safe_next(next, f"/tasks/{code}")
+
+    def failed(message: str, status: int) -> Response:
+        if back in ("/", "/inbox"):  # a move made from Home or an Inbox card: say it there
+            session.rollback()
+            if back == "/inbox":
+                import inbox  # here, not at the top: inbox imports pages that import this module
+
+                return inbox.render_inbox(request, session, user, notice=message, status=status)
+            import home
+
+            return home.render_home(request, session, user, notice=message, status=status)
+        return _fail_page(request, session, user, code, message, status)
+
     try:
-        move(session, _load(session, code), user, action, note, expected_step=step)
+        move(
+            session, _load(session, code), user, action, note, expected_step=step, record=record
+        )
     except HTTPException:
         raise
     except MoveError as exc:
-        return _fail_page(request, session, user, code, exc.message, exc.status)
+        return failed(exc.message, exc.status)
     except Exception as exc:  # noqa: BLE001  (a DB failure must not break the page)
         log.error("Could not change task status (%s)", type(exc).__name__)
-        return _fail_page(request, session, user, code, DB_ERROR, 503)
+        return failed(DB_ERROR, 503)
     return RedirectResponse(back, status_code=303)
 
 

@@ -36,8 +36,10 @@ def test_decision_statuses_reuse_the_marks_with_their_words():
     for value, label in DECISION_STATUS_LABELS.items():
         html = str(status.status_label(value, label))
         assert f">{label}</span>" in html and "status--" in html
-    assert "status--review" in str(status.status_label("proposed", "Proposed"))
-    assert "status--done" in str(status.status_label("confirmed", "Confirmed"))
+    assert "status--review" in str(status.status_label("proposed", "Suggested"))
+    assert "status--done" in str(status.status_label("confirmed", "Recorded"))
+    assert "status--todo" in str(status.status_label("superseded", "Replaced"))
+    assert list(DECISION_STATUS_LABELS.values()) == ["Suggested", "Recorded", "Replaced"]
 
 
 def make_decision(status="confirmed", **kwargs):
@@ -53,20 +55,11 @@ def make_decision(status="confirmed", **kwargs):
     )
 
 
-def test_decision_row_links_to_the_decision_with_status_and_subsystem():
-    html = str(macros("decision_row").decision_row(make_decision(), DECISION_STATUS_LABELS))
+def test_decision_row_links_to_the_entry_with_the_answer_and_subsystem():
+    html = str(macros("decision_row").decision_row(make_decision()))
 
-    assert '<a href="/decisions/7">Latch style</a>' in html
-    assert ">D7</span>" in html
-    assert "Confirmed" in html and "Enclosure" in html
-
-
-def test_a_proposed_decision_says_it_needs_a_lead():
-    row = macros("decision_row").decision_row
-    html = str(row(make_decision("proposed"), DECISION_STATUS_LABELS, summary=True))
-
-    assert "Proposed · needs a lead" in html
-    assert "Use the cam latch." in html  # the summary, when asked for
+    assert '<a href="/decisions/7">Latch style</a>' in html  # lands on its place in the Record
+    assert "Use the cam latch." in html and "Enclosure" in html
 
 
 def test_error_notice_is_an_alert_and_a_note_is_a_status():

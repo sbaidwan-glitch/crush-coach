@@ -105,7 +105,7 @@ def owner_since(session: Session, task: Task) -> str | None:
 
 
 def step_note(task: Task) -> str | None:
-    """What "Next step done" will do, in words, for a task that is in progress."""
+    """What the main button will do, in words, for a task that is in progress."""
     current = steps.current_step(task)
     if task.status != "in_progress" or current is None:
         return None
@@ -114,21 +114,33 @@ def step_note(task: Task) -> str | None:
         return f"Marking “{current.name}” done finishes the task."
     if following.review:
         return (
-            f"Marking “{current.name}” done sends the task for review: "
-            f"a lead approves “{following.name}” before work goes on."
+            f"Asking for review sends “{current.name}” to a lead, who accepts "
+            f"“{following.name}” before work goes on."
         )
     return f"Marking “{current.name}” done moves the task to “{following.name}”."
+
+
+def main_action(task: Task, actions: list[str]) -> tuple[str, str] | None:
+    """The one main button on the task page: Start, then Mark step done (Ask for review on
+    the step before a review step). None when nothing is for this person to press."""
+    if "start" in actions:
+        return "start", "Start"
+    if "advance" in actions:
+        following = steps.next_step(task)
+        return "advance", "Ask for review" if following and following.review else "Mark step done"
+    return None
 
 
 def page_context(session: Session, task: Task, user: User) -> dict:
     """Extra context for task.html. A failure here costs only its own section."""
     current = steps.current_step(task)
+    available = workflow.available_actions(task, user)
     context: dict = {
         "stages": stage_strip(task),
         "step_name": current.name if current else steps.steps_for(task)[-1].name,
         "step_note": step_note(task),
-        "actions": workflow.available_actions(task, user),
-        "self_review": workflow.is_self_review(task, user),
+        "actions": available,
+        "main_action": main_action(task, available),
         "task_types": [(t, steps.TYPE_HINTS.get(t, "")) for t in TASK_TYPES],
         "step_rows": steps.rows_for(task),
         "custom_steps": steps.custom_steps(task) is not None,

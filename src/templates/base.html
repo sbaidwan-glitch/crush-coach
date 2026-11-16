@@ -24,8 +24,9 @@
       <nav class="sidebar" aria-label="Main">
         <a class="sidebar__logo" href="/" aria-label="Crush Coach home">{{ logo() }}</a>
         <a class="sidebar__link" href="/"{% if path == "/" %} aria-current="page"{% endif %}>{{ nav_icon("home") }}<span>Home</span></a>
-        <a class="sidebar__link" href="/tasks"{% if path.startswith("/tasks") %} aria-current="page"{% endif %}>{{ nav_icon("tasks") }}<span>Tasks</span>{% if review_waiting %}<span class="sidebar__badge" aria-hidden="true">{{ review_waiting }}</span><span class="visually-hidden">, {{ review_waiting }} waiting for review</span>{% endif %}</a>
-        <a class="sidebar__link" href="/decisions"{% if path.startswith("/decisions") %} aria-current="page"{% endif %}>{{ nav_icon("decisions") }}<span>Decisions</span></a>
+        {% if is_lead %}<a class="sidebar__link" href="/inbox"{% if path.startswith("/inbox") %} aria-current="page"{% endif %}>{{ nav_icon("inbox") }}<span>Inbox</span>{% if needs_you %}<span class="sidebar__badge" aria-hidden="true">{{ needs_you }}</span><span class="visually-hidden">, {{ needs_you }} waiting on you</span>{% endif %}</a>{% endif %}
+        <a class="sidebar__link" href="/tasks"{% if path.startswith("/tasks") %} aria-current="page"{% endif %}>{{ nav_icon("tasks") }}<span>Tasks</span></a>
+        <a class="sidebar__link" href="/record"{% if path.startswith("/record") %} aria-current="page"{% endif %}>{{ nav_icon("record") }}<span>Record</span></a>
         {% if is_lead %}
         <span class="sidebar__spacer"></span>
         <span class="sidebar__label">LEAD</span>

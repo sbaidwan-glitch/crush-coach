@@ -1,5 +1,5 @@
-{# One turn of the coach thread. `m` has role, member, content, notes and sources; `code` is the task's code (for the
-   "Propose as a decision" link).
+{# One turn of the coach thread. `m` has role, member, content, notes and sources; `code` is the task's code (for
+   the "Ask a lead to settle this" form). `m.settle` is "ask" (show the button), "asked" (a lead has it) or empty.
    The member's message is a filled box offset right; the coach's has a blue left rule,
    a ruled list of sources, and its "Next step:" in a blueprint box at the end. #}
 {% from "components/feedback.html" import notice %}
@@ -16,7 +16,6 @@
   {%- if part.kind == "conflict" %}
   <div class="conflict">
     <div class="msg-md">{{ part.text | markdown }}</div>
-    {% if code %}<a class="btn btn--small" href="/decisions/new?task={{ code | urlencode }}">Propose as a decision</a>{% endif %}
   </div>
   {%- elif part.kind == "next" %}
   <div class="next msg-md"><b>Next step:</b> {{ part.text | markdown }}</div>
@@ -30,13 +29,22 @@
     {%- for s in m.sources %}
     <li>
       {%- if s.link.startswith("/") -%}
-      <a href="{{ s.link }}">{{ s.title }}</a><span class="meta">Decision{% if s.modified %} · confirmed {{ s.modified }}{% endif %}</span>
+      <a href="{{ s.link }}">{{ s.title }}</a><span class="meta">Record{% if s.modified %} · recorded {{ s.modified }}{% endif %}</span>
       {%- else -%}
       <a href="{{ s.link }}" target="_blank" rel="noopener noreferrer">{{ s.title }}</a>{% if s.modified %}<span class="meta">Modified {{ s.modified }}</span>{% endif %}
       {%- endif -%}
     </li>
     {%- endfor %}
   </ul>
+  {%- endif %}
+  {%- if m.settle == "ask" and code %}
+  <form class="settle" method="post" action="/tasks/{{ code }}/settle">
+    <input type="hidden" name="message" value="{{ m.id }}">
+    <button class="btn btn--small" type="submit">Ask a lead to settle this</button>
+    <span class="meta">The sources disagree or don’t answer it. A lead records the answer.</span>
+  </form>
+  {%- elif m.settle == "asked" %}
+  <p class="meta settle">Sent to the leads. Their answer will appear in the Record.</p>
   {%- endif %}
 </article>
 {%- endif -%}

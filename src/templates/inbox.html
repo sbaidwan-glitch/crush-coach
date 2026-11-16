@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% from "components/feedback.html" import notice as notice_box, empty_state, error_state %}
+{% from "components/needs_you.html" import work_card, answer_card, task_card %}
+{% block title %}Inbox – Crush Coach{% endblock %}
+{% block page_title %}Inbox{% endblock %}
+{% block main %}
+<section class="panel panel--strong needs-you" id="needs-you" aria-labelledby="needs-you-heading">
+  <div class="panel__head">
+    <div><h2 class="panel__title" id="needs-you-heading">Needs you</h2><p class="panel__sub">Everything waiting on a lead. Any lead can act.</p></div>
+    <span class="meta">{{ cards | length }} waiting</span>
+  </div>
+  {% if notice %}{{ notice_box(notice, "error") }}{% endif %}
+  {% for text in errors %}{{ error_state(text, "/inbox", "Try again") }}{% endfor %}
+  <div class="inbox">
+    {% for c in cards %}
+    {% if c.kind == "work" %}{{ work_card(c, c.mine) }}
+    {% elif c.kind == "answer" %}{{ answer_card(c) }}
+    {% else %}{{ task_card(c, subsystems, task_types) }}{% endif %}
+    {% endfor %}
+  </div>
+  {% if not cards and not errors %}{{ empty_state("Nothing is waiting on you.") }}{% endif %}
+</section>
+{% endblock %}

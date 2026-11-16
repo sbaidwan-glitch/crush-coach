@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>M06 · Crush Coach</title>
+<link rel="stylesheet" href="../../src/static/styles/tokens.css"><link rel="stylesheet" href="../../src/static/styles/app.css">
+<link rel="stylesheet" href="../../src/static/styles/extras.css"><link rel="stylesheet" href="../../src/static/styles/flow.css"></head><body><div class="shell">
+<nav class="sidebar" aria-label="Main">
+<a class="sidebar__logo" href="home.html" aria-label="Crush Coach home"><svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="#1d2f3d" stroke-width="2" aria-hidden="true"><circle cx="13" cy="13" r="9"/><path d="M13 1v8M13 17v8M1 13h8M17 13h8"/></svg></a>
+<a class="sidebar__link" href="home.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 11l9-7 9 7v9h-6v-6H9v6H3z"/></svg><span>Home</span></a><a class="sidebar__link" aria-current="page" href="tasks.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6h12M9 12h12M9 18h12"/><path d="M3 6h2M3 12h2M3 18h2"/></svg><span>Tasks</span></a><a class="sidebar__link" href="#"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="18" height="18"/><path d="M8 12l3 3 5-6"/></svg><span>Record</span></a>
+<span class="sidebar__spacer"></span><span class="sidebar__label">LEAD</span><a class="sidebar__link" href="#"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></svg><span>Admin</span></a>
+</nav>
+<main class="main"><div class="topbar"><h1 class="page-title"><span class="code" style="font-size:20px;margin-right:10px">M06</span>Weld the enclosure walls</h1><a class="btn" href="#">Log today's work</a><a class="btn btn--primary" href="#">Ask the coach</a><span class="avatar">MA</span></div>
+<div class="with-panel">
+<div class="stack">
+<section class="panel" aria-labelledby="st"><div class="panel__head"><h2 class="panel__title" id="st">Progress</h2><span class="status status--in-progress">In progress</span></div>
+<div class="field-label">Steps</div><ol class="stages"><li class="is-past">Drawing</li><li class="is-past">Lead review</li><li class="is-current" aria-current="step">Shop</li><li>Inspect</li></ol>
+<div class="actions"><button class="btn btn--primary">Mark step done</button></div>
+<p class="meta" style="margin:12px 0 0">One main button at a time: Start → Mark step done → Ask for review.</p></section>
+<section class="panel" aria-labelledby="co"><div class="panel__head"><div><h2 class="panel__title" id="co">Coach</h2><p class="panel__sub">Answers from the team Drive and the record. It advises; leads decide.</p></div></div>
+<div class="coach"><div class="msg msg--member"><div class="msg__who">You</div><p>What clearance should the gasket holes have?</p></div>
+<div class="msg msg--coach"><div class="msg__who">Coach</div><p>The sources disagree.</p><div class="conflict"><b>Likely current: 0.050 in</b> (Crush Documentation, 30 Mar 2026). Older: 0.030 in (Seal Calculations, Feb 2026).</div>
+<div class="actions" style="margin-top:12px"><button class="btn btn--small btn--primary">Ask a lead to settle this</button><button class="btn btn--small">Explain this</button><button class="btn btn--small">Show the source</button></div></div></div></section>
+</div>
+
+<aside class="sidepanel" aria-label="Work log">
+<div class="sidepanel__tabs"><a href="#" aria-current="true">Log today's work</a><a href="#">My notebook</a></div>
+<div class="sidepanel__body">
+<div class="field-label" style="margin-top:0">What did you do?</div>
+<textarea rows="3">tacked the 4 walls and welded 2 corners, one warped a bit so clamped it to the fixture plate</textarea>
+<div class="field-label">Why did you do it that way? <span style="text-transform:none;letter-spacing:0;font-weight:400">(recommended)</span></div>
+<textarea rows="2">did opposite corners first so the heat pulls evenly</textarea>
+<div class="actions"><button class="btn btn--primary">Tidy my note</button></div>
+<p class="hint">The AI rewords your note. It only adds details from what you wrote, your coach chat on this task, or a linked source.</p>
+
+<div class="tidy"><h3>Tidied note · check it before posting</h3>
+<p><b>Did:</b> Tack-welded all four enclosure walls and fully welded two corners. One corner warped slightly, so it was clamped to the fixture plate before continuing.</p>
+<p><b>Why:</b> Welded opposite corners first so heat distortion pulls evenly.</p>
+<div class="ask-back"><b>One thing is missing:</b> which two corners are welded? Add it so the next person knows where to pick up.</div></div>
+<div class="actions"><button class="btn btn--primary">Post to the Crush document</button><button class="btn">Edit</button></div>
+<p class="hint">Goes under <b>Enclosure › 15 Nov 2026</b> with your name, and into your notebook. Nothing existing is changed.</p>
+
+<div style="margin-top:28px"><div class="day">Earlier in my notebook</div>
+<div class="entry"><time>12 Nov · <span class="code">M06</span></time><p>Cut and deburred the four wall panels to drawing rev C.</p><p class="why">Why: rev C moved the latch holes, so rev B panels were scrapped.</p></div>
+<div class="entry"><time>9 Nov · <span class="code">M04</span></time><p>Faced the side panel stock to 0.250 in.</p></div></div>
+</div></aside></div></main></div></body></html>

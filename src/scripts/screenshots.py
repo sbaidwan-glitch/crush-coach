@@ -5,7 +5,7 @@
 Starts the app against a throwaway SQLite database seeded with the made-up sample
 tasks, signs in with a forged session cookie for a made-up member, and saves
 /, /tasks, /tasks/E01 (a member's own task in progress), /tasks/G01 (waiting for a lead),
-the decision pages, /admin and /admin/import at 375px and 1280px into
+/tasks/G01 as a member (a conflicting coach answer with "Ask a lead to settle this"), the lead Inbox (one card of each kind), the Record, /admin and /admin/import at 375px and 1280px into
 .context/screenshots/ (gitignored).
 It never touches your real database, your .env secrets, the model or Google.
 
@@ -38,21 +38,21 @@ PAGES = (
     ("task-E01", "/tasks/E01", "member"),
     ("task-G01-lead", "/tasks/G01", "lead"),
     ("task-M04", "/tasks/M04", "member"),
-    ("decisions", "/decisions", "member"),
-    ("decision-confirmed", "/decisions/1", "member"),
-    ("decision-proposed", "/decisions/2", "member"),
-    ("decision-new", "/decisions/new?task=M04", "member"),
-    ("decision-proposed-lead", "/decisions/2", "lead"),
-    ("decision-confirmed-lead", "/decisions/1", "lead"),
+    ("task-G01-member", "/tasks/G01", "member"),
+    ("inbox", "/inbox", "lead"),
+    ("inbox-edit", "/inbox?edit=1", "lead"),
+    ("record", "/record", "member"),
+    ("record-seals", "/record?part=seals", "member"),
+    ("record-empty", "/record?part=thrusters", "member"),
     ("admin", "/admin", "lead"),
     ("admin-import", "/admin/import", "lead"),
     # Signed out: a read-only preview (the task and decision pages are a sign-in prompt, 401)
     ("home-guest", "/", "guest"),
     ("tasks-guest", "/tasks", "guest"),
     ("task-guest", "/tasks/E01", "guest"),
-    ("decisions-guest", "/decisions", "guest"),
+    ("record-guest", "/record", "guest"),
 )
-EXPECTED_STATUS = {"task-guest": 401, "decisions-guest": 401}
+EXPECTED_STATUS = {"task-guest": 401, "record-guest": 401}
 
 # Made-up values; nothing here is a real secret, person or team data.
 SESSION_SECRET = "screenshots-only-not-a-secret"
@@ -82,12 +82,14 @@ def seed() -> None:
     import db
     import import_tasks
     from models import (
+        AnswerRequest,
         CoachMessage,
         Decision,
         DecisionTask,
         SyncState,
         Task,
         TaskEvent,
+        TaskSuggestion,
         utc_now,
     )
 
@@ -191,50 +193,119 @@ def seed() -> None:
                 meta=json.dumps(meta),
             )
         )
-        # Two made-up decisions: one confirmed, one waiting for a lead.
-        latch = Decision(
-            subsystem=task.subsystem,
-            topic="Lid gasket style",
-            decision="Use a face-seal O-ring on the lid.",
-            rationale="It seals evenly under pressure and we can buy standard sizes.",
-            alternatives=[
-                {
-                    "option": "Flat gasket",
-                    "rejected_because": "Hard to keep compressed evenly across the lid.",
-                }
-            ],
+        # Made-up recorded answers (the Record): one replaces an older one.
+        old = Decision(
+            subsystem="Seals/Waterproofing",
+            topic="Baseplate gasket hole clearance",
+            decision="0.030 in",
+            rationale="",
+            status="superseded",
+            proposed_by=LEAD["name"],
+            confirmed_by=LEAD["name"],
+            confirmed_at=now - timedelta(days=9),
+        )
+        session.add(old)
+        session.flush()
+        gasket = Decision(
+            subsystem="Seals/Waterproofing",
+            topic="Baseplate gasket hole clearance",
+            decision="0.050 in",
+            rationale="From Crush Documentation, 2026-03-30.",
             sources=[
                 {
-                    "title": "O-ring groove notes (example)",
+                    "title": "Crush Documentation (example)",
                     "link": "https://docs.google.com/document/d/example",
-                    "folder": "Crush / Seals",
-                    "year": 2026,
+                    "folder": "",
+                    "year": None,
                 }
             ],
             status="confirmed",
-            proposed_by=MEMBER["email"],
-            confirmed_by=LEAD["email"],
-            confirmed_at=utc_now(),
+            proposed_by=LEAD["name"],
+            confirmed_by=LEAD["name"],
+            confirmed_at=now,
         )
-        proposal = Decision(
+        latch = Decision(
             subsystem=task.subsystem,
-            topic="Lid latch style",
-            decision="Use two cam latches on the long sides.",
-            rationale="Toggle latches loosen under vibration.",
-            alternatives=[
-                {
-                    "option": "Toggle latch",
-                    "rejected_because": "Loosens under vibration.",
-                }
-            ],
-            sources=[],
-            status="proposed",
-            proposed_by=MEMBER["email"],
+            topic="Lid latch",
+            decision="McMaster 6082A12 draw latches.",
+            rationale="Alfie's latches don't fit Crush's corner radius.",
+            status="confirmed",
+            proposed_by=LEAD["name"],
+            confirmed_by=LEAD["name"],
+            confirmed_at=now - timedelta(days=3),
         )
-        session.add_all([latch, proposal])
+        session.add_all([gasket, latch])
         session.flush()
+        old.superseded_by_id = gasket.id
         session.add(DecisionTask(decision_id=latch.id, task_id=task.id))
-        session.add(DecisionTask(decision_id=proposal.id, task_id=task.id))
+        # What waits on a lead: one answer to settle with options, one nothing answers,
+        # and a suggested task. (G01 above is the work to check.)
+        session.add_all(
+            [
+                AnswerRequest(
+                    task_id=task.id,
+                    task_code=task.code,
+                    subsystem="Seals/Waterproofing",
+                    question="Baseplate gasket hole clearance",
+                    asked_by=MEMBER["name"],
+                    kind="conflict",
+                    options=[
+                        {
+                            "value": "0.050 in",
+                            "source": "Crush Documentation",
+                            "link": "https://docs.google.com/document/d/example",
+                            "date": "2026-03-30",
+                        },
+                        {
+                            "value": "0.030 in",
+                            "source": "Seal Calculations",
+                            "link": "https://docs.google.com/document/d/example2",
+                            "date": "2026-02-10",
+                        },
+                    ],
+                    suggested=0,
+                    created_at=now - timedelta(days=1),
+                ),
+                AnswerRequest(
+                    task_id=mine.id,
+                    task_code=mine.code,
+                    subsystem="Electronics Mounts",
+                    question="O-ring lubricant for the window seal",
+                    asked_by=MEMBER["name"],
+                    kind="none",
+                    suggestion="check the Parker handbook, p. 3-15 (a reference, not a team source).",
+                    created_at=now - timedelta(hours=5),
+                ),
+                TaskSuggestion(
+                    title="Make a drill jig for the lid latch holes",
+                    why="Done when: the jig locates all 8 latch hole pairs from the lid edge.",
+                    suggested_by=MEMBER["name"],
+                    created_at=now - timedelta(hours=2),
+                ),
+            ]
+        )
+        # A coach answer whose sources disagree, so M04 shows "Ask a lead to settle this".
+        session.add_all(
+            [
+                CoachMessage(
+                    task_id=waiting.id,
+                    member=MEMBER["email"],
+                    role="user",
+                    content="What jaw spacing should the gripper use?",
+                ),
+                CoachMessage(
+                    task_id=waiting.id,
+                    member="coach",
+                    role="assistant",
+                    content=(
+                        "**Likely current: 42 mm** from Gripper design notes (2026-10-04). "
+                        "The older sheet says 38 mm. A lead should confirm.\n\n"
+                        "Next step: ask a lead to confirm the spacing."
+                    ),
+                    meta=json.dumps({"sources": [], "notes": []}),
+                ),
+            ]
+        )
         # A made-up Drive sync state, so /admin shows real-looking numbers.
         session.add(
             SyncState(

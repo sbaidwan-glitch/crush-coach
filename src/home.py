@@ -44,8 +44,23 @@ def my_task(tasks: list[Task], user: auth.User) -> tuple[Task | None, int]:
 
 
 @router.get("/", response_class=HTMLResponse)
-def home(request: Request, session: Annotated[Session, Depends(db.get_session)]):
-    user = auth.session_user(request)
+def home(
+    request: Request,
+    session: Annotated[Session, Depends(db.get_session)],
+):
+    return render_home(request, session, auth.session_user(request))
+
+
+def render_home(
+    request: Request,
+    session: Session,
+    user: auth.User | None,
+    *,
+    notice: str | None = None,
+    status: int | None = None,
+) -> HTMLResponse:
+    """The Home page. `notice` says what went wrong with a move made from here (the
+    rest of the page still shows)."""
     preview = user is None
 
     error = None
@@ -65,20 +80,6 @@ def home(request: Request, session: Annotated[Session, Depends(db.get_session)])
             session.rollback()
             log.error("Could not load the next step (%s)", type(exc).__name__)
 
-    # The review queue loads on its own: a failure only costs that panel.
-    review: list[dict] = []
-    review_error = None
-    is_lead = not preview and user["role"] == "lead"  # signed-out visitors see no queue
-    if is_lead and error:
-        review_error = "Couldn't load the review queue right now."
-    elif is_lead:
-        try:
-            review = board.waiting_for_review(session, tasks)
-        except Exception as exc:  # noqa: BLE001
-            session.rollback()
-            log.error("Could not load the review queue (%s)", type(exc).__name__)
-            review_error = "Couldn't load the review queue right now."
-
     groups = progress.group_progress(tasks)
     unclaimed = [t for t in tasks if progress.is_unclaimed(t)]
     context = {
@@ -91,9 +92,10 @@ def home(request: Request, session: Annotated[Session, Depends(db.get_session)])
         "step_name": steps.current_step(current).name
         if current and steps.current_step(current)
         else "",
-        "is_lead": is_lead,
-        "review": review,
-        "review_error": review_error,
+        "main_action": taskpage.main_action(current, ["advance"])
+        if current and current.status == "in_progress"
+        else None,
+        "notice": notice,
         "status_labels": STATUS_LABELS,
         "pick_up": (
             board.preview_tasks(unclaimed[:PICK_UP_LIMIT])
@@ -105,6 +107,6 @@ def home(request: Request, session: Annotated[Session, Depends(db.get_session)])
         "groups": groups,
         "total": progress.overall(groups),
     }
-    return templates.TemplateResponse(
-        request, "home.html", context, status_code=503 if error else 200
-    )
+    if status is None:
+        status = 503 if error else 200
+    return templates.TemplateResponse(request, "home.html", context, status_code=status)

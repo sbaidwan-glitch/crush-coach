@@ -203,7 +203,7 @@ def _register_decisions(
 ) -> None:
     for d in found:
         known[d["link"]] = {
-            "title": f"Decision D{d['id']}: {d['topic']}",
+            "title": f"Record: {d['topic']}",
             "link": d["link"],
             "modified": d.get("confirmed", ""),
         }

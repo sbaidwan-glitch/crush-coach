@@ -155,29 +155,31 @@ def test_unknown_filter_shows_everything_with_a_notice(session, client):
     assert "Not started" in response.text
 
 
-def test_recent_decisions_show_three_newest_and_mark_proposed_ones(session, client):
+def test_recently_recorded_shows_the_three_newest_recorded_answers(session, client):
     for i in range(4):
         session.add(
             Decision(
                 subsystem="Enclosure",
                 topic=f"Topic {i}",
-                decision="d",
+                decision=f"Answer {i}",
                 rationale="r",
                 status="proposed" if i == 3 else "confirmed",
                 proposed_by="x",
-                created_at=utc_now() + timedelta(minutes=i),
+                confirmed_at=utc_now() + timedelta(minutes=i),
             )
         )
     session.commit()
 
     html = client.get("/tasks").text
 
-    assert "Topic 3" in html and "Topic 2" in html and "Topic 1" in html
-    assert "Topic 0" not in html
-    assert "Proposed · needs a lead" in html
+    assert "Recently recorded" in html and 'href="/record"' in html
+    assert "Topic 2" in html and "Topic 1" in html and "Topic 0" in html
+    assert "Answer 2" in html
+    assert "Topic 3" not in html  # only suggested, not recorded
+    assert "Recent decisions" not in html
 
 
-def test_waiting_for_review_is_for_leads_only(session):
+def test_the_board_has_no_review_queue_for_anyone(session):
     task = add(session, "M03", "Confirm seal", "Seals/Waterproofing", "needs_review", "Member B")
     session.add(
         TaskEvent(
@@ -191,13 +193,21 @@ def test_waiting_for_review_is_for_leads_only(session):
     session.commit()
 
     with sign_in_as(MEMBER) as member:
-        assert "Waiting for review" not in member.get("/tasks").text
+        member_html = member.get("/tasks").text
     with sign_in_as(LEAD) as lead:
-        html = lead.get("/tasks").text
+        lead_html = lead.get("/tasks").text
     main.app.dependency_overrides.clear()
-    assert "Waiting for review" in html
-    assert "Member B · waiting 2 days" in html
-    assert 'href="/tasks/M03"' in html
+
+    for html in (member_html, lead_html):
+        assert "Waiting for review" not in html and "waiting 2 days" not in html
+    assert "Confirm seal" in lead_html  # still listed with the other tasks
+
+
+def test_signed_in_people_can_suggest_a_task_from_the_board(session, client):
+    html = client.get("/tasks").text
+
+    assert "Suggest a task" in html and 'action="/task-suggestions"' in html
+    assert 'name="title"' in html and 'name="why"' in html
 
 
 def test_task_text_is_escaped(session, client):
@@ -252,7 +262,7 @@ def test_decisions_failing_only_hides_that_panel(session, monkeypatch, client):
 
     assert response.status_code == 200
     assert "Still here" in response.text
-    assert "Couldn&#39;t load decisions right now." in response.text
+    assert "Couldn&#39;t load the Record right now." in response.text
 
 
 # --- signed-out preview ---
@@ -285,14 +295,18 @@ def test_signed_out_board_shows_real_counts_but_only_stand_in_rows(session, anon
 
 def test_signed_out_board_does_not_read_decisions(session, anonymous):
     session.add(
-        Decision(topic="Secret topic", subsystem="Enclosure", decision="d", rationale="r", proposed_by="x")
+        Decision(
+            topic="Secret topic", subsystem="Enclosure", decision="d", rationale="r",
+            proposed_by="x", status="confirmed",
+        )
     )
     session.commit()
 
     html = anonymous.get("/tasks").text
 
     assert "Secret topic" not in html
-    assert "Sign in to read the team’s decisions" in html
+    assert "Sign in to read the team’s Record" in html
+    assert "Suggest a task" not in html  # signed-out visitors can't send anything
 
 
 def test_signed_out_visitors_cannot_claim_a_task(session, anonymous):

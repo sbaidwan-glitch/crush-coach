@@ -1,0 +1,87 @@
+{# The three kinds of card in a lead's Inbox ("Needs you"; docs/workflows.md, docs/concepts/home-lead.html).
+   Each card is one form laid out as: its kind (with its own mark: square, diamond, circle), the
+   details, then the buttons. The server checks that the person is a lead on every post; these
+   are only shown to leads. #}
+
+{# Work to check: Accept or Send back. `c` is a card from inbox.work_cards. #}
+{% macro work_card(c, mine=False) -%}
+{% set t = c.task %}
+<form class="card card--work" method="post" action="/tasks/{{ t.code }}/status" aria-labelledby="work-{{ t.id }}">
+  <input type="hidden" name="next" value="/inbox"><input type="hidden" name="step" value="{{ c.step }}">
+  <span class="card__kind status status--review">Work to check</span>
+  <div>
+    <p class="card__title" id="work-{{ t.id }}"><span class="code">{{ t.code }}</span>&nbsp; {{ t.title }}</p>
+    <p class="card__body">{{ t.owner or "Nobody" }}{% if c.finished %} finished <b>{{ c.finished }}</b> and{% endif %} asked for review{% if c.age %} · waiting {{ c.age }}{% endif %} · <a href="/tasks/{{ t.code }}">open task</a>{% if c.docs_link %} · <a href="{{ c.docs_link }}" target="_blank" rel="noopener noreferrer">open documentation</a>{% endif %}</p>
+    {% if mine %}<p class="hint">This is your own task. Accepting it is recorded as self-approved.</p>{% endif %}
+    <div class="record-line"><label class="visually-hidden" for="record-{{ t.id }}">Anything decided here worth recording?</label><input id="record-{{ t.id }}" name="record" maxlength="500" placeholder="Anything decided here worth recording? (optional)"></div>
+  </div>
+  <div class="card__actions"><button class="btn btn--small btn--primary" type="submit" name="action" value="approve">Accept</button><button class="btn btn--small" type="submit" name="action" value="send_back">Send back</button></div>
+</form>
+{%- endmacro %}
+
+{# Answer to settle: pick an option, type another, or (with no options) type one. `c` is from inbox.answer_cards. #}
+{% macro answer_card(c) -%}
+{% set r = c.request %}
+<form class="card card--answer" method="post" action="/answers/{{ r.id }}/record" aria-labelledby="answer-{{ r.id }}">
+  <span class="card__kind status">Answer to settle</span>
+  <div>
+    <p class="card__title" id="answer-{{ r.id }}">{{ r.question }}</p>
+    <p class="card__body">Asked by {{ r.asked_by }} on <span class="code">{{ r.task_code }}</span>.
+      {%- if r.kind == "conflict" %} The sources disagree.
+      {%- else %} Nothing in the Drive answers it.{% if r.suggestion %} <b>Coach suggests</b> {{ r.suggestion }}{% endif %}{% endif %}</p>
+    {% if r.options %}
+    <div class="choice">
+      {% for o in r.options %}
+      <label{% if r.suggested == loop.index0 %} class="is-suggested"{% endif %}><input type="radio" name="choice" value="{{ loop.index0 }}"{% if r.suggested == loop.index0 %} checked{% endif %}> {{ o.value }}
+        <small>{% if r.suggested == loop.index0 %}Coach suggests{% if o.source %} · {% endif %}{% endif %}{% if o.link %}<a href="{{ o.link }}" target="_blank" rel="noopener noreferrer">{{ o.source }}</a>{% else %}{{ o.source }}{% endif %}{% if o.date %}, {{ o.date }}{% endif %}</small></label>
+      {% endfor %}
+      <label>Something else <input class="field-input" name="typed" maxlength="500" aria-label="Another answer" placeholder="Type another answer"></label>
+    </div>
+    {% else %}
+    {% if r.kind == "conflict" %}
+    <div class="card__answer msg-md">{{ r.answer_text | markdown }}</div>
+    {% endif %}
+    <div class="record-line"><label class="visually-hidden" for="typed-{{ r.id }}">Your answer</label><input id="typed-{{ r.id }}" name="typed" maxlength="500" placeholder="Type the answer to record"></div>
+    {% endif %}
+  </div>
+  <div class="card__actions"><button class="btn btn--small btn--primary" type="submit">Record answer</button><button class="btn btn--small" type="submit" formaction="/answers/{{ r.id }}/later" formnovalidate>Not now</button></div>
+</form>
+{%- endmacro %}
+
+{# New task: Add task, Edit, Dismiss. `c` is from inbox.task_cards. While editing (or when the
+   subsystem can't be guessed) the details are fields. #}
+{% macro task_card(c, subsystems, task_types) -%}
+{% set s = c.suggestion %}
+<form class="card card--task" method="post" action="/task-suggestions/{{ s.id }}/add" aria-labelledby="new-{{ s.id }}">
+  <span class="card__kind status status--todo">New task</span>
+  <div>
+    {% if c.editing %}
+    <p class="card__title" id="new-{{ s.id }}">Suggested by {{ s.suggested_by }}</p>
+    <div class="form-row">
+      <label class="field-label" for="new-title-{{ s.id }}">Title</label>
+      <input class="field-input" id="new-title-{{ s.id }}" name="title" maxlength="200" value="{{ s.title }}" required>
+      <label class="field-label" for="new-sub-{{ s.id }}">Subsystem</label>
+      <select class="field-input" id="new-sub-{{ s.id }}" name="subsystem" required>
+        {% if not c.subsystem %}<option value="" selected>Choose a subsystem</option>{% endif %}
+        {% for name in subsystems %}<option value="{{ name }}"{% if name == c.subsystem %} selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select>
+      <label class="field-label" for="new-type-{{ s.id }}">Type</label>
+      <select class="field-input" id="new-type-{{ s.id }}" name="task_type">
+        {% for name in task_types %}<option value="{{ name }}"{% if name == c.task_type %} selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select>
+      <label class="field-label" for="new-why-{{ s.id }}">Why, and done when</label>
+      <textarea class="field-input" id="new-why-{{ s.id }}" name="why" rows="3" maxlength="1000">{{ s.why }}</textarea>
+    </div>
+    {% else %}
+    <p class="card__title" id="new-{{ s.id }}">{{ s.title }}</p>
+    <p class="card__body">Suggested by {{ s.suggested_by }} · {{ c.subsystem }} · {{ c.task_type }}.{% if s.why %} {{ s.why }}{% endif %}</p>
+    <input type="hidden" name="title" value="{{ s.title }}"><input type="hidden" name="subsystem" value="{{ c.subsystem }}"><input type="hidden" name="task_type" value="{{ c.task_type }}"><input type="hidden" name="why" value="{{ s.why }}">
+    {% endif %}
+  </div>
+  <div class="card__actions">
+    <button class="btn btn--small btn--primary" type="submit">Add task</button>
+    {% if c.editing and c.subsystem %}<a class="btn btn--small" href="/inbox">Cancel</a>{% elif not c.editing %}<a class="btn btn--small" href="/inbox?edit={{ s.id }}#new-{{ s.id }}">Edit</a>{% endif %}
+    <button class="btn btn--small" type="submit" formaction="/task-suggestions/{{ s.id }}/dismiss" formnovalidate>Dismiss</button>
+  </div>
+</form>
+{%- endmacro %}

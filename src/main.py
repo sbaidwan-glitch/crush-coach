@@ -15,9 +15,10 @@ import auth
 import board
 import coach
 import db
-import decisions
 import facts
 import home
+import inbox
+import record
 import workflow
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -55,7 +56,8 @@ app.include_router(home.router)
 app.include_router(board.router)
 app.include_router(workflow.router)
 app.include_router(coach.router)
-app.include_router(decisions.router)
+app.include_router(inbox.router)
+app.include_router(record.router)
 app.include_router(admin.router)
 app.include_router(facts.router)
 

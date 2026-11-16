@@ -12,6 +12,7 @@ import db
 import main
 import task_removal
 from models import (
+    AnswerRequest,
     CoachMessage,
     Decision,
     DecisionTask,
@@ -361,3 +362,26 @@ def test_the_fingerprint_changes_with_the_counts(session):
     add_history(session, task, messages=0, calls=1)
 
     assert task_removal.preview(session, ["M01"]).fingerprint != before
+
+
+def test_removing_a_task_keeps_a_question_a_lead_has_not_settled(session):
+    task = add_task(session, "G01")
+    message = CoachMessage(task_id=task.id, member="Coach", role="assistant", content="a")
+    session.add(message)
+    session.commit()
+    session.add(
+        AnswerRequest(
+            task_id=task.id, task_code="G01", message_id=message.id, subsystem="Gripper",
+            question="Claw angle?", asked_by="Test Member", kind="none",
+        )
+    )
+    session.commit()
+
+    plan = task_removal.preview(session, ["G01"])
+
+    task_removal.remove(session, ["G01"], "lead@example.edu", plan.fingerprint)
+
+    session.expire_all()
+    (request,) = session.exec(select(AnswerRequest)).all()
+    assert request.task_id is None and request.message_id is None
+    assert request.task_code == "G01" and request.status == "open"  # a lead can still settle it
