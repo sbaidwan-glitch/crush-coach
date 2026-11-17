@@ -21,7 +21,6 @@ import shell
 from auth import MaybeUser
 from models import (
     STATUS_LABELS,
-    Decision,
     Task,
     TaskEvent,
     utc_now,
@@ -38,7 +37,6 @@ FILTERS = {
     "unclaimed": "Unclaimed",
     "review": "Needs review",
 }
-RECENT_DECISIONS = 3
 
 
 # Made-up titles of different lengths. A signed-out visitor sees these (blurred) instead of
@@ -178,24 +176,6 @@ def render_board(
         # Counts and rulers above came from the real tasks; only the rows are replaced.
         panels = [(g, preview_tasks(rows)) for g, rows in panels]
 
-    # Recorded answers load on their own: a failure only hides that panel.
-    recent: list[Decision] = []
-    decisions_error = None
-    try:
-        # They are team content: a signed-out visitor gets a sign-in prompt instead.
-        recent = [] if preview else list(
-            session.exec(
-                select(Decision)
-                .where(Decision.status == "confirmed")
-                .order_by(col(Decision.confirmed_at).desc(), col(Decision.id).desc())
-                .limit(RECENT_DECISIONS)
-            ).all()
-        )
-    except Exception as exc:  # noqa: BLE001
-        session.rollback()
-        log.error("Could not load recent recorded answers (%s)", type(exc).__name__)
-        decisions_error = "Couldn't load the Record right now."
-
     context = {
         "panels": panels,
         "left": panels[0::2],
@@ -206,8 +186,6 @@ def render_board(
         "shown_count": len(shown),
         "total_count": len(tasks),
         "status_labels": STATUS_LABELS,
-        "recent_decisions": recent,
-        "decisions_error": decisions_error,
         "notice": notice,
         "draft": draft,
         "error": error,

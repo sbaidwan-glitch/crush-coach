@@ -13,8 +13,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+import static_version
+
 log = logging.getLogger("crush_coach")
-templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+templates = static_version.add_to(Jinja2Templates(directory=Path(__file__).parent / "templates"))
 router = APIRouter()
 
 oauth = OAuth()

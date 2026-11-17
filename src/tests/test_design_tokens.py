@@ -106,5 +106,5 @@ def test_the_old_stylesheet_is_gone_and_pages_link_the_new_ones():
     assert not (STATIC / "style.css").exists()
     base = (TEMPLATES / "base.html").read_text()
     for name in ("tokens.css", "app.css", "extras.css"):
-        assert f"/static/styles/{name}" in base
+        assert f"static_url('styles/{name}')" in base
     assert "style.css" not in base
