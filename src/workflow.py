@@ -20,7 +20,7 @@ Each move is written to `task_event`, which the task page shows as History.
 
 import logging
 from typing import Annotated
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
@@ -173,11 +173,14 @@ def move(
     session.add(task)
     session.add(event)
     line = (record or "").strip()[:MAX_NOTE_CHARS]
+    recorded = None
     if action == "approve" and line:
-        decisions.record_answer(
+        recorded = decisions.record_answer(
             session, user, subsystem=task.subsystem, topic=task.title, answer=line, task=task
         )
     session.commit()
+    if recorded is not None:  # after the commit: the answer is saved whatever Google does
+        decisions.write_to_drive(session, recorded.id)
     return event
 
 
@@ -249,6 +252,14 @@ def _safe_next(value: str, fallback: str) -> str:
     return fallback
 
 
+def worklog_url(url: str, code: str) -> str:
+    """The page to return to, with `?log=CODE`: the work log opens on that task when it
+    loads, and drops the parameter so a reload doesn't open it again."""
+    parts = urlsplit(url)
+    query = [(k, v) for k, v in parse_qsl(parts.query) if k != "log"] + [("log", code)]
+    return urlunsplit(("", "", parts.path, urlencode(query), parts.fragment))
+
+
 def _load(session: Session, code: str) -> Task:
     task = session.exec(select(Task).where(Task.code == code)).first()
     if task is None:
@@ -311,6 +322,8 @@ def change_status(
     except Exception as exc:  # noqa: BLE001  (a DB failure must not break the page)
         log.error("Could not change task status (%s)", type(exc).__name__)
         return failed(DB_ERROR, 503)
+    if action == "advance":  # "Mark step done" opens the work log (worklog.js) on the task
+        back = worklog_url(back, code)
     return RedirectResponse(back, status_code=303)
 
 

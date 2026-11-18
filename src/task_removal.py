@@ -5,7 +5,8 @@ counts what would go with each task:
 
 * its coach messages and its History (status moves) are deleted,
 * its links to decisions are deleted (the decisions themselves stay),
-* its model calls (`llm_call`) stay for the cost analysis but lose their task.
+* its model calls (`llm_call`) stay for the cost analysis but lose their task,
+* its work notes stay in members' notebooks, with the task code as text.
 
 `remove` does all of it in one transaction, and writes one `TaskRemoval` row per
 task saying who removed it and what went with it.
@@ -32,6 +33,7 @@ from models import (
     Task,
     TaskEvent,
     TaskRemoval,
+    WorkNote,
 )
 
 RECENT_REMOVALS = 10
@@ -187,6 +189,11 @@ def remove(
         update(AnswerRequest)
         .where(col(AnswerRequest.task_id).in_(ids))
         .values(task_id=None, message_id=None)
+    )
+    # Work notes belong to the member's notebook (and are already in the Crush document):
+    # they stay, with their task code as text.
+    session.exec(
+        update(WorkNote).where(col(WorkNote.task_id).in_(ids)).values(task_id=None)
     )
     session.exec(delete(Task).where(col(Task.id).in_(ids)))
     session.commit()

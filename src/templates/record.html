@@ -1,35 +1,56 @@
 {% extends "base.html" %}
 {% from "components/feedback.html" import notice as notice_box, empty_state, error_state %}
+{% set keep = ("&amp;notes=1" if show_notes else "") %}
 {% block title %}Record – Crush Coach{% endblock %}
 {% block heading %}
 <div class="topbar__title">
   <h1 class="page-title">Record</h1>
   <p class="page-sub">What the team has settled, by date.</p>
   <nav class="segmented" aria-label="Part of Crush">
-    {% for slug, name in parts %}<a href="/record?part={{ slug }}{% if q %}&amp;q={{ q | urlencode }}{% endif %}"{% if slug == part %} aria-current="true"{% endif %}>{{ name }}</a>{% endfor %}
+    {% for slug, name in parts %}<a href="/record?part={{ slug }}{% if q %}&amp;q={{ q | urlencode }}{% endif %}{{ keep | safe }}"{% if slug == part %} aria-current="true"{% endif %}>{{ name }}</a>{% endfor %}
   </nav>
 </div>
 <form class="search" method="get" action="/record" role="search">
   <input type="hidden" name="part" value="{{ part }}">
+  {% if show_notes %}<input type="hidden" name="notes" value="1">{% endif %}
   <label class="visually-hidden" for="record-search">Search the record</label>
   <input id="record-search" type="search" name="q" value="{{ q }}" placeholder="Search the record" maxlength="100">
 </form>
 {% endblock %}
+{#- Whether an entry reached the Crush document, with a link to it once it has, or why not
+    and a retry. A note's retry belongs to its author (their notebook); an answer's to a lead. -#}
+{% macro write_line(e, retry=False) %}
+<p class="why write write--{{ e.write.status }}">{{ e.write.text }}{% if e.write.link %} <a href="{{ e.write.link }}" target="_blank" rel="noopener noreferrer">Open that tab</a>{% endif %}</p>
+{% if e.write.status != "written" and retry %}
+<form method="post" action="/worklog/answers/{{ e.id }}/retry"><input type="hidden" name="part" value="{{ part }}"><button class="btn btn--small" type="submit">Retry write to Drive</button></form>
+{% endif %}
+{% endmacro %}
 {% block main %}
 {% if notice %}{{ notice_box(notice) }}{% endif %}
 <section class="panel panel--strong" aria-labelledby="record-heading">
-  <div class="panel__head">
+  <div class="panel__head panel__head--wrap">
     <h2 class="panel__title" id="record-heading">{{ label }}</h2>
-    {% if has_notes %}<span class="meta"><label><input type="checkbox" checked> Show work notes</label></span>{% endif %}
+    <span class="meta">
+      {% if has_notes %}<a href="/record?part={{ part }}{% if q %}&amp;q={{ q | urlencode }}{% endif %}{% if not show_notes %}&amp;notes=1{% endif %}" aria-pressed="{{ 'true' if show_notes else 'false' }}">{{ "Hide work notes" if show_notes else "Show work notes" }}</a>{% endif %}
+      {% if has_notes and doc_link %} · {% endif %}
+      {% if doc_link %}<a href="{{ doc_link }}" target="_blank" rel="noopener noreferrer">Open the Crush document</a>{% endif %}
+    </span>
   </div>
   {% if error %}{{ error_state(error, "/record?part=" ~ part, "Try again") }}
   {% elif not days %}
   {% if q %}{{ empty_state("Nothing in " ~ label ~ " matches “" ~ q ~ "”.", "/record?part=" ~ part, "Clear the search") }}
-  {% else %}{{ empty_state("Nothing has been recorded for " ~ label ~ " yet. A lead records an answer from Home when a question is settled.") }}{% endif %}
+  {% else %}{{ empty_state("Nothing has been recorded for " ~ label ~ " yet. A lead records an answer from the Inbox when a question is settled.") }}{% endif %}
   {% endif %}
   {% for day, entries in days %}
   <h3 class="day">{{ day.day }} {{ day.strftime("%b %Y") }}</h3>
   {% for e in entries %}
+  {% if e.kind == "note" %}
+  <div class="entry" id="note-{{ e.id }}">
+    <p><span class="tag tag--note">Note</span>{{ e.who }} · <a class="code" href="/tasks/{{ e.task_code }}">{{ e.task_code }}</a>: {{ e.did }}</p>
+    {% if e.why %}<p class="why">Why: {{ e.why }}</p>{% endif %}
+    {{ write_line(e) }}
+  </div>
+  {% else %}
   <div class="entry" id="answer-{{ e.id }}">
     <p><span class="tag tag--answer">Answer</span><b>{{ e.topic }}:</b> {{ e.answer }}</p>
     <p class="why">
@@ -39,7 +60,9 @@
       {%- for code in e.tasks %} · <a class="code" href="/tasks/{{ code }}">{{ code }}</a>{% endfor -%}
       {%- for s in e.sources if s.link %} · <a href="{{ s.link }}" target="_blank" rel="noopener noreferrer">{{ s.title }}</a>{% endfor %}
     </p>
+    {{ write_line(e, retry=is_lead) }}
   </div>
+  {% endif %}
   {% endfor %}
   {% endfor %}
 </section>

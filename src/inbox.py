@@ -284,6 +284,7 @@ def record_request(
     req.decision_id = decision.id
     session.add(req)
     session.commit()
+    decisions.write_to_drive(session, req.decision_id)  # after the commit: it is saved anyway
     return req
 
 

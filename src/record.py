@@ -1,7 +1,8 @@
 """Record (`/record`): what the team has settled, by part of Crush, newest first.
 
-Read-only. Answers only for now (recorded by a lead from Home: `inbox.py`); work notes
-get a "Show work notes" toggle when they exist. The old `/decisions` addresses still
+Answers (recorded by a lead from the Inbox: `inbox.py`) and, behind a "Show work notes"
+toggle, members' work notes (`worklog.py`), each with whether it reached the Crush document.
+Nothing here changes data except the Retry write button on an answer. The old `/decisions` addresses still
 work: the coach's saved answers link to `/decisions/12`, which lands on that entry.
 """
 
@@ -16,8 +17,10 @@ from sqlmodel import Session
 
 import db
 import decisions
+import drive_write
 import progress
 import shell
+import worklog
 from auth import MaybeUser, locked_page
 
 log = logging.getLogger("crush_coach")
@@ -33,6 +36,13 @@ def _by_day(entries: list[dict[str, Any]]) -> list[tuple[date, list[dict[str, An
     return [(day, list(rows)) for day, rows in groupby(entries, key=lambda e: e["date"])]
 
 
+def _add_answer_writes(session: Session, entries: list[dict[str, Any]]) -> None:
+    """Say on each answer whether it reached the Crush document."""
+    writes = worklog.writes_for(session, "answer", [e["id"] for e in entries])
+    for entry in entries:
+        entry["write"] = worklog.write_state(writes.get(entry["id"]), entry["subsystem"])
+
+
 @router.get("/record", response_class=HTMLResponse)
 def record_page(
     request: Request,
@@ -40,6 +50,7 @@ def record_page(
     user: MaybeUser,
     part: str = "",
     q: str = "",
+    notes: str = "",
 ):
     if user is None:  # signed out: nothing is read
         return locked_page(request, "the team’s Record")
@@ -50,9 +61,17 @@ def record_page(
     q = " ".join(q.split())[:MAX_QUERY_CHARS]
 
     error = None
+    show_notes = notes == "1"
     days: list[tuple[date, list[dict[str, Any]]]] = []
+    notes_exist = False
     try:
-        days = _by_day(decisions.recorded_entries(session, spec["subsystems"], q))
+        entries = decisions.recorded_entries(session, spec["subsystems"], q)
+        _add_answer_writes(session, entries)
+        notes_exist = worklog.has_notes(session, spec["subsystems"])
+        if show_notes and notes_exist:
+            entries += worklog.note_entries(session, spec["subsystems"], q)
+            entries.sort(key=lambda e: e["when"], reverse=True)
+        days = _by_day(entries)
     except Exception as exc:  # noqa: BLE001  (a DB failure must not break the page)
         session.rollback()
         log.error("Could not load the Record (%s)", type(exc).__name__)
@@ -67,8 +86,11 @@ def record_page(
         "days": days,
         "notice": notice,
         "error": error,
-        # Work notes arrive with the work log; until some exist the toggle isn't shown.
-        "has_notes": False,
+        # The toggle is shown once a note exists for this part of Crush.
+        "has_notes": notes_exist,
+        "show_notes": show_notes and notes_exist,
+        "doc_link": drive_write.doc_link(),
+        "is_lead": user["role"] == "lead",
     }
     return templates.TemplateResponse(
         request, "record.html", context, status_code=503 if error else 200
