@@ -10,6 +10,12 @@ without a deploy. Matching is case-insensitive; `*` and `?` are wildcards.
     file: *.log         a file whose name matches
     mime: image/*       a file whose Google/Drive MIME type matches
 
+One rule is always on and isn't in the file: the Crush document (the one in
+DECISIONS_DOC_ID, where work notes and recorded answers are written, see drive_write.py)
+is never indexed. The app already holds what is written there; indexing it would let
+an answer's own entry in the document count as new Drive evidence against the recorded
+answer it came from (its "Replaces:" line even repeats the old value).
+
 An excluded item is not indexed at all: no row, no name, no text. A full sync
 also removes rows that a new rule now excludes; an incremental sync only applies
 rules to what changed.
@@ -25,13 +31,14 @@ from pathlib import Path
 log = logging.getLogger("crush_coach")
 
 ENV_VAR = "DRIVE_INDEX_EXCLUDE"
+CRUSH_DOC_ENV_VAR = "DECISIONS_DOC_ID"  # the Crush document: written to, never indexed
 DEFAULT_FILE = Path(__file__).parent / "drive_index_exclude.txt"
 
 
 @dataclass(frozen=True)
 class Rule:
     text: str  # as written, for reports
-    kind: str  # "folder", "file" or "mime"
+    kind: str  # "folder", "file", "mime" or "id" (the Crush document, matched exactly)
     parts: tuple[str, ...]  # folder: the path segments; file/mime: the one pattern
 
 
@@ -53,6 +60,7 @@ class ExcludeRules:
         name: str,
         mime_type: str,
         is_folder: bool,
+        drive_id: str = "",
     ) -> Rule | None:
         """The first rule that excludes this item, or None.
 
@@ -63,7 +71,10 @@ class ExcludeRules:
         if is_folder:
             chain.append(name.casefold())
         for rule in self.rules:
-            if rule.kind == "folder":
+            if rule.kind == "id":
+                if drive_id and drive_id == rule.parts[0]:
+                    return rule
+            elif rule.kind == "folder":
                 if _contains_run(chain, rule.parts):
                     return rule
             elif is_folder:
@@ -132,4 +143,8 @@ def load_rules(
             )
     extra = environ.get(ENV_VAR, "")
     lines.extend(part for chunk in extra.splitlines() for part in chunk.split(";"))
-    return parse_rules(lines)
+    parsed = parse_rules(lines)
+    crush_doc = environ.get(CRUSH_DOC_ENV_VAR, "").strip()
+    if crush_doc:
+        parsed = ExcludeRules([*parsed.rules, Rule("the Crush document", "id", (crush_doc,))])
+    return parsed

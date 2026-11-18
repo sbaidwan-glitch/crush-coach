@@ -14,9 +14,7 @@ import logging
 import os
 import re
 from collections.abc import Iterator
-from datetime import UTC, datetime, tzinfo
 from typing import Annotated, Any
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Form, Header, HTTPException, Request
 from fastapi.responses import (
@@ -33,6 +31,7 @@ import db
 import decisions
 import inbox
 import llm
+import localtime
 import recommend as recommend_tools
 import retrieval
 import shell
@@ -55,7 +54,6 @@ templates = shell.templates()
 router = APIRouter()
 
 DEFAULT_DAILY_LIMIT = 20
-DEFAULT_TIMEZONE = "America/Los_Angeles"
 HISTORY_TURNS = 10  # earlier messages sent to the model
 MAX_MESSAGE_CHARS = 2000
 MAX_CONTEXT_FIELD_CHARS = 1500  # per tracker field sent to the model
@@ -99,20 +97,6 @@ def daily_limit() -> int:
         return max(0, int(os.environ.get("COACH_DAILY_LIMIT") or DEFAULT_DAILY_LIMIT))
     except ValueError:
         return DEFAULT_DAILY_LIMIT
-
-
-def _timezone() -> tzinfo:
-    try:
-        return ZoneInfo(os.environ.get("COACH_TIMEZONE") or DEFAULT_TIMEZONE)
-    except Exception:  # noqa: BLE001  (bad name or no tz database: fall back to UTC)
-        return UTC
-
-
-def day_start_utc() -> datetime:
-    """Start of the current local day, as naive UTC (how created_at is stored)."""
-    local_now = datetime.now(_timezone())
-    start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
-    return start.astimezone(UTC).replace(tzinfo=None)
 
 
 # --- helpers ---
@@ -259,7 +243,7 @@ def messages_today(session: Session, member: str) -> int:
         .where(
             CoachMessage.role == "user",
             func.lower(CoachMessage.member) == member.casefold(),
-            CoachMessage.created_at >= day_start_utc(),
+            CoachMessage.created_at >= localtime.day_start_utc(),
         )
     ).one()
 
@@ -395,7 +379,7 @@ DROPPED = "The connection dropped before the answer finished."
 
 
 def today() -> str:
-    return datetime.now(_timezone()).date().isoformat()
+    return localtime.today().isoformat()
 
 
 def _save_failure(

@@ -20,6 +20,7 @@ import progress
 import shell
 import steps
 import taskpage
+import worklog
 from models import STATUS_LABELS, Task
 
 log = logging.getLogger("crush_coach")
@@ -80,6 +81,14 @@ def render_home(
             session.rollback()
             log.error("Could not load the next step (%s)", type(exc).__name__)
 
+    log_banner = None
+    if not preview:
+        try:
+            log_banner = worklog.banner(session, request, user)
+        except Exception as exc:  # noqa: BLE001  (the rest of the page still works)
+            session.rollback()
+            log.error("Could not check the work log banner (%s)", type(exc).__name__)
+
     groups = progress.group_progress(tasks)
     unclaimed = [t for t in tasks if progress.is_unclaimed(t)]
     context = {
@@ -96,6 +105,7 @@ def render_home(
         if current and current.status == "in_progress"
         else None,
         "notice": notice,
+        "log_banner": log_banner,
         "status_labels": STATUS_LABELS,
         "pick_up": (
             board.preview_tasks(unclaimed[:PICK_UP_LIMIT])
