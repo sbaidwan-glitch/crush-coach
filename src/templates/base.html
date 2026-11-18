@@ -16,6 +16,7 @@
     <link rel="stylesheet" href="{{ static_url('styles/extras.css') }}">
     <script src="{{ static_url('htmx.min.js') }}" defer></script>
     <script src="{{ static_url('coach.js') }}" defer></script>
+    {% if user %}<script src="{{ static_url('worklog.js') }}" defer></script>{% endif %}
     {% block head_extra %}{% endblock %}
   </head>
   <body>
@@ -36,6 +37,7 @@
       <main class="main" id="main">
         <div class="topbar">
           {% block heading %}<h1 class="page-title">{% block page_title %}Crush Coach{% endblock %}</h1>{% endblock %}
+          {% if user %}<a class="btn" href="/worklog?tab=log{% if worklog_task %}&amp;task={{ worklog_task }}{% endif %}" data-worklog-open data-panel-url="/worklog/panel?tab=log{% if worklog_task %}&amp;task={{ worklog_task }}{% endif %}">Log today’s work</a>{% endif %}
           {% block topbar_actions %}{% endblock %}
           {% if user %}
           <span class="avatar" title="{{ user.name }}{% if is_lead %} (lead){% endif %}" aria-hidden="true">{{ user.name.split() | map("first") | map("upper") | join("") | truncate(2, True, "") }}</span>
@@ -48,5 +50,16 @@
         {% block main %}{% endblock %}
       </main>
     </div>
+    {% block worklog_dialog %}{% if user %}
+    {#- The work log side panel. worklog.js fills #worklog-body from /worklog/panel and opens
+        it; Esc or Close shuts it. `log` in the address (after "Mark step done") opens it on load. -#}
+    <dialog id="worklog" class="sidepanel sidepanel--drawer" aria-labelledby="worklog-title"{% if worklog_open %} data-open-url="/worklog/panel?tab=log&amp;task={{ worklog_open }}"{% endif %}>
+      <div class="sidepanel__bar">
+        <h2 class="panel__title" id="worklog-title" tabindex="-1">Work log</h2>
+        <form method="dialog"><button class="btn btn--small" type="submit">Close</button></form>
+      </div>
+      <div id="worklog-body"><p class="meta sidepanel__body">Loading…</p></div>
+    </dialog>
+    {% endif %}{% endblock %}
   </body>
 </html>

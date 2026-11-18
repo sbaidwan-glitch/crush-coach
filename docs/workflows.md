@@ -28,13 +28,14 @@ Nothing a lead must act on lives anywhere else. Empty state: "Nothing is waiting
 
 ## Work log (`docs/concepts/task-log.html`)
 
-- Open from "Log today's work" (top bar, every page), from the Home banner ("You worked on M06 today…", shown when the member was active today and hasn't logged; "Not today" hides it until tomorrow), or after "Mark step done".
+- Open from "Log today's work" (top bar, every page), from the Home banner ("You worked on M06 today…", shown when the member was active today (moved a task or asked its coach) and hasn't logged that task; "Not today" hides it until tomorrow), or after "Mark step done".
 - A side panel with two tabs: **Log today's work** and **My notebook**.
 - Two boxes: "What did you do?" and "Why did you do it that way? (recommended)".
 - **Tidy my note** (one model call, on the button): rewrites for clarity. It may add specifics only from the member's text, their coach chat on that task, or a linked source. Never invents a number, part or name. If a detail is missing it asks one question in a box ("which two corners?") instead of guessing.
-- The member sees the tidied note, can edit, then **Post to the Crush document**. Nothing is written before that.
-- It is appended to the Crush document: subsystem tab → that day's date heading → "Name · CODE: what. Why: …". Append-only.
-- It also appears in the member's notebook, the task's History and the Record (as a Note).
+- The member sees the tidied note in the two boxes, can edit, then **Post to the Crush document**. Nothing is saved before that. Tidy can be skipped ("Post as written"). The member's own words are kept with the note.
+- It is appended to the Crush document: subsystem tab (or "General", and it says so) → that day's date heading (created if missing) → "Name · CODE: what. Why: …". Append-only, once (`DriveWrite`). If Google fails the note stays in the notebook with **Retry write to Drive**.
+- It also appears in the member's notebook, the task's History and the Record (as a Note, behind "Show work notes").
+- Recorded answers are written to the same document when a lead records them: bold statement, why, what it replaces, sources, who recorded it. Set-up and behaviour: `docs/crush-document.md`.
 
 ## Record (`docs/concepts/record.html`)
 

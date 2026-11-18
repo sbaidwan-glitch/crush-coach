@@ -44,6 +44,11 @@ PAGES = (
     ("record", "/record", "member"),
     ("record-seals", "/record?part=seals", "member"),
     ("record-empty", "/record?part=thrusters", "member"),
+    ("record-notes", "/record?notes=1", "member"),
+    ("record-notes-lead", "/record?notes=1", "lead"),
+    # The work log as a page (the side panel shows the same content; see DRAWERS)
+    ("worklog", "/worklog?task=E01", "member"),
+    ("worklog-notebook", "/worklog?tab=notebook", "member"),
     ("admin", "/admin", "lead"),
     ("admin-import", "/admin/import", "lead"),
     # Signed out: a read-only preview (the task and decision pages are a sign-in prompt, 401)
@@ -53,6 +58,8 @@ PAGES = (
     ("record-guest", "/record", "guest"),
 )
 EXPECTED_STATUS = {"task-guest": 401, "record-guest": 401}
+# Pages where the work log button is pressed, and the panel (a drawer) is photographed open.
+DRAWERS = (("drawer-task", "/tasks/E01"), ("drawer-home", "/"))
 
 # Made-up values; nothing here is a real secret, person or team data.
 SESSION_SECRET = "screenshots-only-not-a-secret"
@@ -86,10 +93,12 @@ def seed() -> None:
         CoachMessage,
         Decision,
         DecisionTask,
+        DriveWrite,
         SyncState,
         Task,
         TaskEvent,
         TaskSuggestion,
+        WorkNote,
         utc_now,
     )
 
@@ -306,6 +315,44 @@ def seed() -> None:
                 ),
             ]
         )
+        # Made-up work notes (the notebook, History, the Record) and whether each reached the
+        # Crush document; one write failed, so "Retry write to Drive" shows.
+        notes = [
+            WorkNote(
+                member=MEMBER["email"], member_name=MEMBER["name"], task_id=mine.id,
+                task_code=mine.code, subsystem=mine.subsystem,
+                did="Fitted the tray to the sled and marked the four mounting holes.",
+                why="Marking in place keeps the holes aligned with the sled rails.",
+                original="fitted tray to sled, marked 4 holes", posted_at=now - timedelta(hours=3),
+            ),
+            WorkNote(
+                member=MEMBER["email"], member_name=MEMBER["name"], task_id=task.id,
+                task_code=task.code, subsystem=task.subsystem,
+                did="Faced both lid edges and deburred them.",
+                original="faced both lid edges and deburred them", posted_at=now - timedelta(days=2),
+            ),
+            WorkNote(
+                member="jordan@example.edu", member_name="Jordan Demo", task_id=task.id,
+                task_code=task.code, subsystem=task.subsystem,
+                did="Cut four wall panels to drawing rev C.", why="Rev C moved the latch holes.",
+                original="cut four wall panels", posted_at=now - timedelta(days=4),
+            ),
+        ]
+        session.add_all(notes)
+        session.flush()
+        session.add_all(
+            [
+                DriveWrite(kind="note", ref_id=notes[0].id, status="written",
+                           tab_title="Enclosure", tab_id="t.0", written_at=now),
+                DriveWrite(kind="note", ref_id=notes[1].id, status="failed", attempts=1,
+                           error="Google wouldn't let the app write to the Crush document. "
+                                 "Share it with the app's service account as an editor."),
+                DriveWrite(kind="note", ref_id=notes[2].id, status="written",
+                           tab_title="General", tab_id="t.4", used_general=True, written_at=now),
+                DriveWrite(kind="answer", ref_id=latch.id, status="written",
+                           tab_title="Enclosure", tab_id="t.0", written_at=now),
+            ]
+        )
         # A made-up Drive sync state, so /admin shows real-looking numbers.
         session.add(
             SyncState(
@@ -351,6 +398,8 @@ def main() -> int:
             ALLOWED_EMAILS=f"{MEMBER['email']},{LEAD['email']}",
             ALLOWED_DOMAIN="",
             LEAD_EMAILS=LEAD["email"],
+            # A placeholder, not a document: only the links on the Record use it.
+            DECISIONS_DOC_ID="screenshots-placeholder-document",
         )
         seed()
 
@@ -405,6 +454,17 @@ def main() -> int:
                             problems.append(
                                 f"{path} scrolls sideways by {overflow}px at {width}px"
                             )
+                        page.close()
+                    # The side panel, open: press the top bar button on a task page and on Home.
+                    for name, path in DRAWERS:
+                        page = contexts["member"].new_page()
+                        page.goto(f"{base}{path}")
+                        page.wait_for_load_state("networkidle")
+                        page.click("[data-worklog-open]")
+                        page.wait_for_selector("#worklog[open] textarea")
+                        target = OUT / f"{name}-{width}.png"
+                        page.screenshot(path=str(target))
+                        print(f"opened the work log on {path} at {width}px -> {target.relative_to(ROOT)}")
                         page.close()
                     for context in contexts.values():
                         context.close()

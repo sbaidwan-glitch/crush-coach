@@ -27,7 +27,9 @@ Railway shell session or a web request: both die when the connection or request 
      (one command, no `&&`: with a Dockerfile the start command has no shell)
    - Cron schedule: `*/30 * * * *`
    - Variables: `DATABASE_URL` (reference the Postgres service's variable),
-     `GOOGLE_SERVICE_ACCOUNT_JSON`, and optionally `DRIVE_INDEX_EXCLUDE`.
+     `GOOGLE_SERVICE_ACCOUNT_JSON`, `DECISIONS_DOC_ID` (the same value as the web
+     service: the sync must never index the Crush document, see
+     `docs/crush-document.md`), and optionally `DRIVE_INDEX_EXCLUDE`.
      Never put these in a file.
 3. **The first load.** Nothing to do: until one full sync has finished, an
    `--incremental` run does a full one. So the first cron tick starts the load.

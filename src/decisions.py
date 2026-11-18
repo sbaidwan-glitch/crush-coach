@@ -11,12 +11,15 @@ first (`search_confirmed`, called through `coach.py`). The helpers here take pla
 and a Session, not a Request, so tests and the coach can use them directly.
 """
 
+import logging
 import re
 from datetime import datetime
 from typing import Any
 
 from sqlmodel import Session, col, select
 
+import drive_write
+import localtime
 from auth import User
 from models import (
     SUBSYSTEMS,
@@ -26,6 +29,7 @@ from models import (
     utc_now,
 )
 
+log = logging.getLogger("crush_coach")
 _SEARCH_TERM = re.compile(r"[a-z0-9][a-z0-9/-]+")
 # Recorded answers come first: they are the ones people build from.
 _STATUS_ORDER = {"confirmed": 0, "proposed": 1, "superseded": 2}
@@ -171,6 +175,22 @@ def record_answer(
     return decision
 
 
+def write_to_drive(session: Session, decision_id: int) -> None:
+    """Add a just-recorded answer to the Crush document (`drive_write.py`).
+
+    Call it after the commit that recorded the answer, so the answer is saved whatever
+    Google does. A failed write is kept on the entry (`DriveWrite`) for "Retry write to
+    Drive"; this never raises, so recording never breaks on it.
+    """
+    try:
+        decision = session.get(Decision, decision_id)
+        if decision is not None and decision.status == "confirmed":
+            drive_write.write_answer(session, decision)
+    except Exception as exc:  # noqa: BLE001  (the answer is recorded; the write can be retried)
+        session.rollback()
+        log.error("Could not write a recorded answer to the Crush document (%s)", type(exc).__name__)
+
+
 # --- the Record page ------------------------------------------------------------
 
 
@@ -202,8 +222,11 @@ def recorded_entries(
         when = d.confirmed_at or d.created_at
         entries.append(
             {
+                "kind": "answer",
                 "id": d.id,
-                "date": when.date(),
+                "when": when,
+                "subsystem": d.subsystem,
+                "date": localtime.local_date(when),
                 "topic": d.topic,
                 "answer": d.decision,
                 "why": d.rationale,

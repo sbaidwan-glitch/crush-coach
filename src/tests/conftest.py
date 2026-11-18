@@ -44,6 +44,7 @@ def session():
         DecisionTask,
         DriveChunk,
         DriveFile,
+        DriveWrite,
         LlmCall,
         SyncState,
         Task,
@@ -51,11 +52,14 @@ def session():
         TaskRemoval,
         TaskSuggestion,
         TeamFact,
+        WorkNote,
     )
 
     def clear(s):
         # Children first: they all point at task (or at decision, or at a file).
         for table in (
+            DriveWrite,
+            WorkNote,
             AnswerRequest,
             TaskSuggestion,
             DecisionTask,
