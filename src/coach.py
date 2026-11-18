@@ -198,12 +198,9 @@ def _views(
             retry_id = _meta(message).get("retry_of")
         view = _view(message, user, retry_id, asked)
         # "Recommend" is offered under the latest answer, once: not under a
-        # recommendation itself, a drafted decision, or anything older.
+        # recommendation itself, or anything older.
         view["can_recommend"] = bool(
-            last
-            and message.role == "assistant"
-            and not view["recommendation"]
-            and not message.content.startswith("Drafted a decision")
+            last and message.role == "assistant" and not view["recommendation"]
         )
         views.append(view)
     return views
@@ -430,11 +427,9 @@ def _save_failure(
 
 def _design_question(chat: list[CoachMessage]) -> tuple[str, str]:
     """(the member's latest real question, the one before it): what a recommendation is
-    about. The Recommend button's own message and a decision draft request don't count."""
+    about. The Recommend button's own message doesn't count."""
     asked = [
-        m.content
-        for m in chat
-        if m.role == "user" and m.content not in (RECOMMEND_REQUEST, DRAFT_REQUEST_TEXT)
+        m.content for m in chat if m.role == "user" and m.content != RECOMMEND_REQUEST
     ]
     return (asked[-1] if asked else ""), (asked[-2] if len(asked) > 1 else "")
 
@@ -791,18 +786,27 @@ def ask_a_lead(
         answer = session.get(CoachMessage, int(message)) if message.isdigit() else None
         if answer is None or answer.task_id != task.id or answer.role != "assistant":
             return _render_page(
-                request, session, user, code,
+                request,
+                session,
+                user,
+                code,
                 error="That answer isn't in this task's conversation.",
             )
         if inbox.open_request_for(session, answer.id) is not None:
             return RedirectResponse(f"/tasks/{code}#coach-log", status_code=303)
         thread = _history(session, task.id)
         question = next(
-            (m.content for m in reversed(thread) if m.role == "user" and m.id < answer.id),
+            (
+                m.content
+                for m in reversed(thread)
+                if m.role == "user" and m.id < answer.id
+            ),
             "",
         )
         sources = _meta(answer).get("sources", [])
-        conflict = any(p["kind"] == "conflict" for p in taskpage.message_parts(answer.content))
+        conflict = any(
+            p["kind"] == "conflict" for p in taskpage.message_parts(answer.content)
+        )
         within_cap = messages_today(session, user["email"]) < daily_limit()
         context = task_context(task)
         task_id = task.id
@@ -824,7 +828,9 @@ def ask_a_lead(
         except llm.LLMError:
             pass  # the lead reads the answer and types the value
         except Exception as exc:  # noqa: BLE001  (never let the model break the page)
-            log.error("Listing the options failed unexpectedly (%s)", type(exc).__name__)
+            log.error(
+                "Listing the options failed unexpectedly (%s)", type(exc).__name__
+            )
     try:
         _add_llm_calls(session, task_id, user["email"], calls)
         inbox.create_answer_request(
