@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{#- The work log as a whole page: the same content as the side panel, for browsers
+    without JavaScript. The panel's own dialog is left out so the ids stay unique. -#}
+{% block title %}Work log – Crush Coach{% endblock %}
+{% block page_title %}Work log{% endblock %}
+{% block worklog_dialog %}{% endblock %}
+{% block main %}
+<section class="panel panel--strong sidepanel sidepanel--page" aria-label="Work log">
+  <div id="worklog-body">{% include "_worklog_panel.html" %}</div>
+</section>
+{% endblock %}

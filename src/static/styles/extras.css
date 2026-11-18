@@ -172,3 +172,47 @@ input[type="radio"] { accent-color: var(--color-ink); }
   .card__actions { justify-content: flex-start; }
   .record-line { flex-wrap: wrap; }
 }
+
+/* ---------- Work log: side panel, tidy and ask-back boxes ----------
+   Folded in from docs/concepts' flow.css (task-log.html), converted to tokens. The panel
+   is a <dialog> drawer on the right (worklog.js), or a plain panel on /worklog. */
+.sidepanel { background: var(--color-sheet); border: 1px solid var(--color-rule); border-top: var(--panel-rule) solid var(--color-ink); padding: 0; color: var(--color-ink); }
+.sidepanel--drawer { position: fixed; inset: 0 0 0 auto; margin: 0; width: calc(var(--space-10) * 11); max-width: 100%; height: 100%; max-height: none; overflow-y: auto; }
+.sidepanel--drawer::backdrop { background: color-mix(in srgb, var(--color-ink) 45%, transparent); }
+.sidepanel--page { max-width: calc(var(--space-10) * 14); }
+.sidepanel__bar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-5); border-bottom: 1px solid var(--color-rule); }
+.sidepanel__bar .panel__title { margin: 0; }
+.sidepanel__bar form { margin: 0; }
+.sidepanel__tabs { display: flex; border-bottom: 1px solid var(--color-rule); }
+.sidepanel__tabs a { flex: 1; text-align: center; padding: var(--space-3); font-weight: var(--weight-semibold); font-size: var(--text-sm); text-decoration: none; color: var(--color-muted); border-bottom: var(--panel-rule) solid transparent; }
+.sidepanel__tabs a[aria-current="true"] { color: var(--color-ink); border-bottom-color: var(--color-ink); }
+.sidepanel__body { padding: var(--space-5); }
+.worklog-form .field-label:first-child, .worklog-form legend + .field-label { margin-top: 0; }
+.worklog-form textarea.field-input { min-height: calc(var(--space-10) * 2); }
+.optional { text-transform: none; letter-spacing: 0; font-weight: var(--weight-regular); }
+.tidy { border: 1px solid var(--color-accent); border-left-width: var(--panel-rule); padding: var(--space-3) var(--space-4); margin-top: var(--space-4); background: var(--color-sheet); }
+.tidy h3 { font-size: var(--text-sm); margin: 0 0 var(--space-2); font-weight: var(--weight-semibold); }
+.tidy p { margin: 0 0 var(--space-2); font-size: var(--text-sm); }
+.tidy .notice { margin: var(--space-2) 0 0; }
+.ask-back { background: var(--color-field); border: 1px solid var(--color-review); padding: var(--space-2) var(--space-3); font-size: var(--text-sm); margin-top: var(--space-3); }
+.ask-back p { margin: 0 0 var(--space-2); }
+.worklog-original { margin-top: var(--space-3); font-size: var(--text-sm); }
+.worklog-original summary { cursor: pointer; padding: var(--space-1) 0; }
+.worklog-original p { margin: var(--space-1) 0 0; overflow-wrap: anywhere; }
+.worklog-form .actions { align-items: center; }
+.sidepanel .entry form { margin: var(--space-2) 0 0; }
+.sidepanel .day:first-child { margin-top: 0; }
+
+/* Home banner: "You worked on M06 today..." */
+.banner { display: flex; align-items: center; gap: var(--space-4); background: var(--color-blueprint); border: 1px solid var(--color-rule); border-left: var(--panel-rule) solid var(--color-accent); padding: var(--space-3) var(--space-4); margin-bottom: var(--space-5); }
+.banner p { margin: 0; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.banner form { margin: 0; }
+.banner__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+@media (max-width: 900px) { .banner { flex-direction: column; align-items: flex-start; } }
+
+/* Record: a work note's line about the Crush document, and the notes toggle */
+.panel__head--wrap { flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
+.panel__head--wrap > .meta { white-space: normal; }
+.entry .write { margin-top: var(--space-1); }
+.entry .write--failed { color: var(--color-danger); }
+.entry form { margin: var(--space-2) 0 0; }

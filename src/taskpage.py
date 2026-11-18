@@ -20,6 +20,7 @@ from models import (
     CoachMessage,
     Task,
     TaskEvent,
+    WorkNote,
 )
 
 log = logging.getLogger("crush_coach")
@@ -70,22 +71,47 @@ def event_text(event: TaskEvent) -> str:
     return f"{who} changed the status"
 
 
+def note_text(note: WorkNote) -> str:
+    """One History line for a work note: who logged work."""
+    return f"{note.member_name} logged work"
+
+
 def history(session: Session, task_id: int) -> list[dict]:
-    events = session.exec(
-        select(TaskEvent)
-        .where(TaskEvent.task_id == task_id)
-        .order_by(col(TaskEvent.created_at).desc(), col(TaskEvent.id).desc())
-    ).all()
-    return [
-        {
-            "date": short_date(e.created_at),
-            "text": event_text(e),
-            "note": e.note,
-            # The new list of steps, as a second line (the other details are in the text).
-            "detail": e.detail if e.kind == "edit_steps" else None,
-        }
+    """The task's moves and the work notes members logged on it, newest first."""
+    events = session.exec(select(TaskEvent).where(TaskEvent.task_id == task_id)).all()
+    notes = session.exec(select(WorkNote).where(WorkNote.task_id == task_id)).all()
+    rows: list[tuple[datetime, int, int, dict]] = [
+        (
+            e.created_at,
+            0,
+            e.id or 0,
+            {
+                "date": short_date(e.created_at),
+                "text": event_text(e),
+                "note": e.note,
+                # The new list of steps, as a second line (the other details are in the text).
+                "detail": e.detail if e.kind == "edit_steps" else None,
+            },
+        )
         for e in events
     ]
+    rows.extend(
+        (
+            n.posted_at,
+            1,
+            n.id or 0,
+            {
+                "date": short_date(n.posted_at),
+                "text": note_text(n),
+                "note": None,
+                # What they did, and why: the same words the Crush document gets.
+                "detail": n.did + (f" Why: {n.why}" if n.why else ""),
+            },
+        )
+        for n in notes
+    )
+    rows.sort(key=lambda row: row[:3], reverse=True)
+    return [row[3] for row in rows]
 
 
 def owner_since(session: Session, task: Task) -> str | None:
