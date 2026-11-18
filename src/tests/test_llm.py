@@ -272,15 +272,21 @@ def test_a_second_read_is_never_run(monkeypatch):
         reads.append(file_id)
         return "{}"
 
-    stream, _, _, client = run(
-        [fake.tool_request(read_call()), fake.tool_request(read_call("r2"))],
+    stream, _, records, client = run(
+        [
+            fake.tool_request(read_call()),
+            fake.tool_request(read_call("r2")),
+            fake.reply("Recovered."),
+        ],
         monkeypatch,
         read_file=read_file,
     )
 
-    assert reads == ["1AbCdEfGhIjKlMnOp"]
-    assert stream.text == ""  # the model ignored tool_choice; there is no answer
-    assert len(client.requests) == 2
+    assert reads == ["1AbCdEfGhIjKlMnOp"]  # the second request was never run
+    # The model ignored tool_choice and wrote nothing, so there was one more try.
+    assert [r.status for r in records] == ["ok", "empty", "ok"]
+    assert stream.text == "Recovered."
+    assert len(client.requests) == 3
 
 
 def test_a_failed_read_is_reported_and_the_answer_goes_on(monkeypatch):
@@ -315,10 +321,13 @@ def test_bad_tool_arguments_count_as_a_failed_read(monkeypatch):
 
 def test_a_tool_request_is_ignored_when_no_reader_was_given(monkeypatch):
     stream, _, _, client = run(
-        [fake.tool_request(read_call())], monkeypatch, read_file=None
+        [fake.tool_request(read_call()), fake.reply("From the passages.")],
+        monkeypatch,
+        read_file=None,
     )
 
-    assert stream.reads == 0 and len(client.requests) == 1
+    assert stream.reads == 0 and stream.text == "From the passages."
+    assert len(client.requests) == 2  # the tool request counted as an empty call
 
 
 # --- checks on the finished answer ---
@@ -414,7 +423,7 @@ def test_a_decision_link_is_not_mistaken_for_a_longer_one():
     [
         # shape: answer first, sources as links, then a next step
         "in 1-3 sentences",
-        "do not add a separate \"Sources\" list",
+        'do not add a separate "Sources" list',
         "**Likely current: …**",
         "Next step:",
         # the team facts answer season and vehicle questions
@@ -536,6 +545,114 @@ def test_settle_options_model_failure_is_logged_and_raised(monkeypatch):
 
     assert error.value.kind == "timeout"
     assert [r.status for r in records] == ["timeout"]
+
+
+# --- why an answer ends: finish reason, the output cap, empty answers ---
+
+
+def test_each_call_records_why_it_ended_and_how_many_thinking_tokens(monkeypatch):
+    _, _, records, _ = run(
+        [fake.reply("Done.", output_tokens=300, reasoning_tokens=250)], monkeypatch
+    )
+
+    call = records[0]
+    assert call.finish_reason == "stop" and call.reasoning_tokens == 250
+    assert call.tool_called is False
+    assert "finish reason stop" in call.describe(1)
+    assert "250 of them reasoning" in call.describe(1)
+
+
+def test_a_tool_call_is_recorded_as_such(monkeypatch):
+    _, _, records, _ = run(
+        [fake.tool_request(read_call()), fake.reply("From the doc.")],
+        monkeypatch,
+        read_file=lambda file_id, seconds_left: "{}",
+    )
+
+    assert [r.tool_called for r in records] == [True, False]
+    assert records[0].finish_reason == "tool_calls"
+
+
+def test_the_output_cap_leaves_room_for_thinking_tokens(monkeypatch):
+    _, _, _, client = run([fake.reply("Short.")], monkeypatch)
+
+    assert client.requests[0]["max_tokens"] == llm.MAX_ANSWER_TOKENS >= 2000
+
+
+def test_an_answer_that_hit_the_cap_is_marked_truncated(monkeypatch):
+    stream, _, records, _ = run(
+        [fake.reply("The lid uses the draw latch in the", finish_reason="length")],
+        monkeypatch,
+    )
+
+    assert stream.truncated is True and stream.cut_short is False
+    assert records[0].finish_reason == "length" and records[0].status == "ok"
+
+
+def test_a_normal_answer_is_not_truncated(monkeypatch):
+    stream, _, _, _ = run([fake.reply("All of it.")], monkeypatch)
+
+    assert stream.truncated is False
+
+
+def test_an_empty_call_is_tried_once_more_with_more_room_and_no_tool(monkeypatch):
+    stream, _, records, client = run(
+        [
+            fake.reply("", output_tokens=900, finish_reason="length"),
+            fake.reply("Here is the explanation."),
+        ],
+        monkeypatch,
+        read_file=lambda file_id, seconds_left: "{}",
+    )
+
+    assert stream.text == "Here is the explanation."
+    assert [r.status for r in records] == ["empty", "ok"]
+    assert records[0].finish_reason == "length" and records[0].cost is not None
+    retry = client.requests[1]
+    assert retry["max_tokens"] == llm.RETRY_ANSWER_TOKENS
+    assert retry["tool_choice"] == "none"
+
+
+def test_two_empty_calls_are_an_empty_error_with_the_reason_logged(monkeypatch):
+    client = use_client(
+        monkeypatch,
+        [
+            fake.reply(
+                "", output_tokens=2000, finish_reason="length", reasoning_tokens=2000
+            ),
+            fake.reply(
+                "", output_tokens=4000, finish_reason="length", reasoning_tokens=4000
+            ),
+        ],
+    )
+    records = []
+    stream = llm.CoachStream("SYSTEM", [], "Explain.", record=records.append)
+
+    with pytest.raises(llm.LLMError) as caught:
+        list(stream)
+
+    assert caught.value.kind == "empty"
+    assert "Try again" in caught.value.message
+    assert [r.status for r in records] == ["empty", "empty"]
+    assert [r.reasoning_tokens for r in records] == [2000, 4000]
+    assert len(client.requests) == 2
+
+
+def test_an_invented_markdown_link_keeps_its_title_and_leaves_no_fragment():
+    """It used to leave "[Screw]((link removed: not one of the sources)" in the answer."""
+    known = {DOC_LINK: {"title": "Doc"}}
+    text = (
+        "Candidates: [93395A307 Hex-Drive Flat Head Screw]"
+        "(https://drive.google.com/file/d/1MadeUpMadeUpMadeUp/view) and "
+        f"[the doc]({DOC_LINK})."
+    )
+
+    clean, removed = llm.remove_ungrounded_links(text, known)
+
+    assert removed is True
+    assert "93395A307 Hex-Drive Flat Head Screw and" in clean
+    assert "link removed" not in clean and "MadeUp" not in clean
+    assert f"[the doc]({DOC_LINK})" in clean  # the real link is untouched
 
 
 # --- Tidy my note ---

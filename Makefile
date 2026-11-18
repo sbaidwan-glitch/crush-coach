@@ -18,8 +18,8 @@ dev:   ## run the API on :8000 (from src/)
 test:  ## run the tests (from src/; no server needed)
 	cd src && ../.venv/bin/pytest -q
 
-eval:  ## score the coach on evals/coach_questions.yaml (real model + Drive, costs money; ONLY=<id>, KIND=<kind>)
-	cd src && ../.venv/bin/python scripts/run_evals.py $(if $(ONLY),--only $(ONLY)) $(if $(KIND),--kind $(KIND))
+eval:  ## score the coach on evals/coach_questions.yaml (real model + Drive, costs money; ONLY=<id> KIND=<kind> MODEL=<name> RESUME=1; RETRIEVAL=1 = no model, free)
+	cd src && ../.venv/bin/python scripts/run_evals.py $(if $(ONLY),--only $(ONLY)) $(if $(KIND),--kind $(KIND)) $(if $(MODEL),--model $(MODEL)) $(if $(RESUME),--resume) $(if $(RETRIEVAL),--retrieval-only)
 
 screenshots:  ## screenshot the main pages (incl. the lead Inbox and the Record) at 375px and 1280px into .context/screenshots/
 	cd src && ../.venv/bin/python scripts/screenshots.py

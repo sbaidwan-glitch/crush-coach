@@ -241,3 +241,32 @@ def test_old_sources_rank_below_current_ones_on_postgres(pg, fake):
     ]
     assert ids[0] == "cur" and set(ids) == {"cur", "alfie", "oldf", "oldseason"}
     assert {h.drive_id: h.possibly_old for h in hits}["oldseason"] is True
+
+
+def test_boost_words_rank_below_the_question_and_can_not_drown_it(pg):
+    from index_helpers import add_file
+
+    add_file(pg, "Question answer", chunks=["the draw latch is part 6082A12"])
+    add_file(
+        pg,
+        "Title echo",
+        drive_id="titleEcho001",
+        chunks=["finish enclosure wall panels weld fillets baseplate bellypan"],
+    )
+    boost = "Finish enclosure wall panels weld fillets baseplate bellypan bracket"
+
+    hits = di.search(pg, "Which latch?", boost=boost)
+
+    assert hits[0].name == "Question answer"
+    assert "Title echo" in [h.name for h in hits]  # a weak match, not dropped
+    assert [h.name for h in di.search(pg, "Which latch?")] == ["Question answer"]
+
+
+def test_a_boost_alone_still_finds_things_for_a_vague_question(pg):
+    from index_helpers import add_file
+
+    add_file(pg, "Wall panel notes", chunks=["Panels are welded in two passes."])
+
+    hits = di.search(pg, "How do I start?", boost="Wall panels Enclosure")
+
+    assert [h.name for h in hits] == ["Wall panel notes"]

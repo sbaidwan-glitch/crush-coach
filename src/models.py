@@ -164,7 +164,12 @@ class LlmCall(SQLModel, table=True):
     # From the proxy's cost header when it sends one; a streamed answer's usually
     # doesn't, so then it is estimated from the token counts (llm.ESTIMATED_PRICES).
     cost: float | None = None
-    status: str  # ok, budget_exceeded, rate_limited, timeout, error
+    status: str  # ok, empty, budget_exceeded, rate_limited, timeout, error
+    # Why the call ended (see llm.CallRecord): the real reason behind a cut-off or
+    # empty answer. Null on calls logged before these columns existed.
+    finish_reason: str | None = None  # stop, length (hit the output cap), tool_calls
+    reasoning_tokens: int | None = None  # hidden thinking tokens, if the model says
+    tool_called: bool = False  # the model asked for the live Drive read
     created_at: datetime = Field(default_factory=utc_now)
 
 

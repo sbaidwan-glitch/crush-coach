@@ -83,6 +83,9 @@ def test_upgrade_creates_coach_tables(fresh_engine):
         "latency_ms",
         "cost",
         "status",
+        "finish_reason",
+        "reasoning_tokens",
+        "tool_called",
         "created_at",
     }
     assert calls["cost"]["nullable"] is True  # only when the response provides it
@@ -210,9 +213,9 @@ def test_upgrade_creates_the_task_event_table(fresh_engine):
     assert columns["from_status"]["nullable"] is True
     assert columns["note"]["nullable"] is True
     assert columns["actor"]["nullable"] is False
-    assert [fk["referred_table"] for fk in inspector.get_foreign_keys("task_event")] == [
-        "task"
-    ]
+    assert [
+        fk["referred_table"] for fk in inspector.get_foreign_keys("task_event")
+    ] == ["task"]
 
 
 def test_0007_maps_older_status_words_to_the_new_flow(fresh_engine):

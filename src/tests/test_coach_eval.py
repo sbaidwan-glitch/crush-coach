@@ -188,7 +188,8 @@ def test_summary_counts_median_max_and_cost():
     assert summary.max_seconds == 30
     assert summary.total_cost == pytest.approx(0.06)
     assert summary.line() == (
-        "pass 2 / partial 0 / fail 1 | median 20.0s, max 30.0s | total cost $0.0600"
+        "pass 2 / partial 0 / fail 1 | median 20.0s, max 30.0s | total cost $0.0600, "
+        "$0.0200/question | tokens per question 0 in / 0 out"
     )
 
 
@@ -222,7 +223,7 @@ def questions(n: int) -> list[Question]:
 def test_run_stops_when_total_cost_passes_the_limit():
     asked = []
 
-    def ask(question):
+    def ask(question, earlier=None):
         asked.append(question.id)
         return Outcome(answer="ok", cost=0.15)
 
@@ -235,13 +236,15 @@ def test_run_stops_when_total_cost_passes_the_limit():
 
 
 def test_run_does_not_stop_at_exactly_the_limit():
-    run = run_questions(questions(2), lambda _: Outcome(answer="ok", cost=0.20), 0.40)
+    run = run_questions(
+        questions(2), lambda _, __=None: Outcome(answer="ok", cost=0.20), 0.40
+    )
     assert run.stopped is None
     assert [r.score for r in run.results] == [PASS, PASS]
 
 
 def test_run_stops_when_the_glassroom_budget_is_used_up():
-    def ask(question):
+    def ask(question, earlier=None):
         return Outcome(error="budget", error_kind="budget_exceeded")
 
     run = run_questions(questions(3), ask)
@@ -250,7 +253,7 @@ def test_run_stops_when_the_glassroom_budget_is_used_up():
 
 
 def test_one_failed_question_does_not_stop_the_run():
-    def ask(question):
+    def ask(question, earlier=None):
         if question.id == "q0":
             return Outcome(error="slow", error_kind="timeout")
         return Outcome(answer="ok")
@@ -264,7 +267,7 @@ def flaky(failures: dict[str, list[Outcome]], default: Outcome | None = None):
     """An `ask` that returns the queued outcomes for a question id, then `default`."""
     calls: list[str] = []
 
-    def ask(question):
+    def ask(question, earlier=None):
         calls.append(question.id)
         queue = failures.get(question.id, [])
         if queue:
@@ -282,7 +285,9 @@ def no_sleep():
 
 def test_pauses_between_questions_but_not_before_the_first_or_after_the_last():
     slept, sleep = no_sleep()
-    run_questions(questions(3), lambda _: Outcome(answer="ok"), pause=3, sleep=sleep)
+    run_questions(
+        questions(3), lambda _, __=None: Outcome(answer="ok"), pause=3, sleep=sleep
+    )
     assert slept == [3, 3]
 
 
@@ -322,7 +327,7 @@ def test_the_retry_cost_time_and_calls_are_counted():
     )
     outcomes = iter([bad, good])
     run = run_questions(
-        [q(expect=("ok",))], lambda _: next(outcomes), sleep=lambda _: None
+        [q(expect=("ok",))], lambda _, __=None: next(outcomes), sleep=lambda _: None
     )
     o = run.results[0].outcome
     assert o.cost == pytest.approx(0.03)
@@ -348,7 +353,10 @@ def test_retry_cost_counts_toward_the_stop_limit():
         ]
     )
     run = run_questions(
-        questions(3), lambda _: next(outcomes), max_cost=0.40, sleep=lambda _: None
+        questions(3),
+        lambda _, __=None: next(outcomes),
+        max_cost=0.40,
+        sleep=lambda _: None,
     )
     # 0.25 + 0.25 = 0.50 passes 0.40 after the first question's retry.
     assert [r.score for r in run.results] == [PASS, NOT_RUN, NOT_RUN]
@@ -441,7 +449,7 @@ def test_reports_contain_every_answer(tmp_path):
     outcome = Outcome(
         answer="Use alpha.\n\nAnd beta.", seconds=2.5, cost=0.01, model_calls=2
     )
-    run = run_questions([q()], lambda _: outcome)
+    run = run_questions([q()], lambda _, __=None: outcome)
     meta = {
         "started_at": "2026-11-09 10:00:00",
         "model": "test-model",
@@ -458,3 +466,190 @@ def test_reports_contain_every_answer(tmp_path):
     md = md_path.read_text()
     assert "> Use alpha." in md and "> And beta." in md
     assert "pass 1 / partial 0 / fail 0" in md
+
+
+# --- tokens in the table and the summary line ---
+
+
+def test_the_table_and_summary_show_tokens_per_question():
+    results = [
+        result_for("ok", 5, 0.02, input_tokens=5000, output_tokens=300),
+        result_for("ok", 6, 0.04, input_tokens=7000, output_tokens=500),
+    ]
+
+    table = coach_eval.format_table(results)
+    line = summarize(results).line()
+
+    assert "tokens in" in table and "tokens out" in table
+    assert "5,000" in table and "7,000" in table
+    assert line.endswith(
+        "total cost $0.0600, $0.0300/question | tokens per question 6,000 in / 400 out"
+    )
+
+
+def test_questions_not_run_do_not_count_in_the_per_question_numbers():
+    results = [
+        result_for("ok", 5, 0.02, input_tokens=5000, output_tokens=300),
+        coach_eval.not_run(q(id="late"), "Stopped."),
+    ]
+
+    assert "5,000 in / 300 out" in summarize(results).line()
+
+
+def test_the_cost_limit_is_sixty_cents():
+    assert coach_eval.DEFAULT_MAX_COST == 0.60
+
+
+def test_the_report_says_what_each_model_call_did(tmp_path):
+    outcome = Outcome(
+        answer="alpha beta",
+        call_details=[
+            "call 1: ok, finish reason length, 900 in / 900 out, no tool called"
+        ],
+    )
+    run = run_questions([q()], lambda _, __=None: outcome)
+    meta = {"started_at": "now", "model": "m", "git": "g", "filters": "all"}
+
+    _, md_path = coach_eval.write_reports(tmp_path, "stamp", meta, run)
+
+    assert "finish reason length" in md_path.read_text()
+
+
+# --- follow-ups ---
+
+
+def test_a_follow_up_must_name_an_earlier_question():
+    with pytest.raises(QuestionFileError):
+        parse_questions([entry(id="b", after="a"), entry(id="a")])
+    with pytest.raises(QuestionFileError):
+        parse_questions([entry(id="b", after="nope")])
+    [first, second] = parse_questions([entry(id="a"), entry(id="b", after="a")])
+    assert first.after == "" and second.after == "a"
+
+
+def test_choosing_a_follow_up_also_asks_the_question_it_follows():
+    all_q = [q(id="a"), q(id="x"), q(id="b", after="a", kind="follow-up")]
+
+    assert [x.id for x in coach_eval.select_questions(all_q, only="b")] == ["a", "b"]
+    assert [x.id for x in coach_eval.select_questions(all_q, kind="follow-up")] == [
+        "a",
+        "b",
+    ]
+
+
+def test_a_follow_up_is_given_the_result_of_its_first_question():
+    seen = {}
+
+    def ask(question, earlier=None):
+        seen[question.id] = earlier
+        return Outcome(answer="alpha beta", sources=[{"title": "T"}])
+
+    run_questions([q(id="a"), q(id="b", after="a")], ask)
+
+    assert seen["a"] is None
+    assert seen["b"].id == "a" and seen["b"].outcome.sources == [{"title": "T"}]
+
+
+def test_a_follow_up_is_skipped_when_its_first_question_failed():
+    asked = []
+
+    def ask(question, earlier=None):
+        asked.append(question.id)
+        return Outcome(error="down", error_kind="budget_exceeded")
+
+    run = run_questions([q(id="a"), q(id="b", after="a")], ask)
+
+    assert asked == ["a"]
+    assert run.results[1].score == NOT_RUN
+
+
+# --- resuming (make eval RESUME=1) ---
+
+
+def test_resume_keeps_asked_questions_and_asks_only_the_rest(tmp_path):
+    asked = []
+
+    def ask(question, earlier=None):
+        asked.append(question.id)
+        return Outcome(answer="alpha beta", cost=0.5)
+
+    questions = [q(id="a"), q(id="b"), q(id="c")]
+    first = run_questions(questions, ask, max_cost=0.40)  # stops after a
+    assert [r.score for r in first.results] == [PASS, NOT_RUN, NOT_RUN]
+    meta = {"started_at": "now", "model": "m", "git": "g", "filters": "all"}
+    json_path, _ = coach_eval.write_reports(tmp_path, "20261110-100000", meta, first)
+
+    report = json.loads(coach_eval.latest_report(tmp_path).read_text())
+    kept = coach_eval.results_to_keep(report, questions)
+    asked.clear()
+    second = run_questions(questions, ask, max_cost=0.60, done=kept)
+
+    assert list(kept) == ["a"]
+    assert asked == ["b", "c"]  # the kept answer's $0.50 is not spent again
+    assert second.results[0] is kept["a"]
+    assert second.results[0].outcome.cost == 0.5
+    assert json_path == coach_eval.latest_report(tmp_path)
+
+
+def test_resume_asks_again_a_question_that_was_edited(tmp_path):
+    run = run_questions(
+        [q(id="a", question="Old?")], lambda _, __=None: Outcome(answer="alpha beta")
+    )
+    meta = {"started_at": "now", "model": "m", "git": "g", "filters": "all"}
+    coach_eval.write_reports(tmp_path, "stamp", meta, run)
+    report = json.loads(coach_eval.latest_report(tmp_path).read_text())
+
+    assert coach_eval.results_to_keep(report, [q(id="a", question="New?")]) == {}
+    assert list(coach_eval.results_to_keep(report, [q(id="a", question="Old?")])) == [
+        "a"
+    ]
+
+
+def test_kept_results_cost_nothing_toward_the_limit():
+    kept = {
+        "a": coach_eval.score_outcome(q(id="a"), Outcome(answer="alpha beta", cost=5.0))
+    }
+
+    run = run_questions(
+        [q(id="a"), q(id="b")],
+        lambda _, __=None: Outcome(answer="alpha beta", cost=0.1),
+        max_cost=0.2,
+        done=kept,
+    )
+
+    assert run.stopped is None and run.results[1].score == PASS
+
+
+def test_latest_report_is_none_for_an_empty_or_missing_folder(tmp_path):
+    assert coach_eval.latest_report(tmp_path) is None
+    assert coach_eval.latest_report(tmp_path / "nope") is None
+
+
+# --- retrieval only ---
+
+
+def test_context_check_says_which_facts_the_prompt_never_showed():
+    question = q(expect=("alpha", ["beta", "gamma"], "delta"), cite="Seal")
+
+    check = coach_eval.check_context(question, "Alpha and gamma.", ["Seal Notes"])
+
+    assert (check.expect_found, check.expect_total) == (2, 3)
+    assert check.missing == ["delta"] and check.cite_ok is True
+    assert check.tokens == len("Alpha and gamma.") // coach_eval.CHARS_PER_TOKEN
+    table = coach_eval.format_context_table([check])
+    assert "2/3" in table and "delta" in table
+    assert coach_eval.context_summary([check]).startswith("context complete 0 / 1")
+
+
+def test_a_stop_after_the_last_question_is_not_reported():
+    run = run_questions(
+        questions(2), lambda _, __=None: Outcome(answer="ok", cost=0.5), max_cost=0.40
+    )
+
+    assert run.stopped is not None  # after q0 there was still q1 to ask
+    assert [r.score for r in run.results] == [PASS, NOT_RUN]
+
+    last = run_questions(
+        questions(1), lambda _, __=None: Outcome(answer="ok", cost=0.5), max_cost=0.40
+    )
+    assert last.stopped is None and [r.score for r in last.results] == [PASS]

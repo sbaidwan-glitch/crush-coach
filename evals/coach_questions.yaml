@@ -12,8 +12,12 @@
 #               worded several ways.
 #   cite        a file/doc name the answer should link (substring match)
 #   must_not    things a good answer must NOT do (phrases or behaviors)
-#   kind        lookup | how-to | why | conflict | unknown
-#               (conflict = sources disagree; unknown = nothing in the Drive answers it)
+#   kind        lookup | how-to | why | conflict | unknown | follow-up
+#               (conflict = sources disagree; unknown = nothing in the Drive answers it;
+#               follow-up = a second message in the same chat, see `after`)
+#   after       (follow-ups only) the id of an earlier question. It is asked in the same
+#               chat, after that question and its answer, the way a member would type it.
+#               Running a follow-up with ONLY=<id> asks the question it follows too.
 #
 # Drafted from documents already seen in the Drive. VERIFY each one.
 
@@ -125,7 +129,7 @@
   task: M10
   question: What lubricant should I use on the O-rings?
   # verify: the docs list this as an open question. Any of these wordings counts.
-  expect: [["not decided", "isn't recorded", "not recorded", "no decision", "not in the docs", "open question"]]
+  expect: [["not decided", "isn't recorded", "not recorded", "no decision", "not in the docs", "open question", "does not specify", "do not specify", "doesn't specify", "don't specify"]]
   cite: ""
   must_not: ["use silicone grease."]   # must not present an open question as decided
   kind: unknown
@@ -137,3 +141,24 @@
   cite: ""
   must_not: []
   kind: unknown
+
+# Follow-ups: the second message of a chat. These caught answers that came back empty
+# ("I couldn't put an answer together"); an empty or failed answer scores fail.
+- id: gasket-follow-up
+  task: M03
+  after: gasket-clearance
+  question: Can you explain what that means and what I should look for?
+  # The point is a non-empty, on-topic follow-up that keeps the first answer's numbers.
+  expect: ["0.030", "0.050"]
+  cite: ""
+  must_not: ["couldn't put an answer together"]
+  kind: follow-up
+
+- id: latch-more-detail
+  task: M08
+  after: lid-latch
+  question: Can you explain in more detail?
+  expect: ["6082A12"]
+  cite: ""
+  must_not: ["couldn't put an answer together", "which season"]
+  kind: follow-up

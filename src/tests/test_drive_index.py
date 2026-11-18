@@ -543,6 +543,33 @@ def test_search_finds_cad_by_name_folder_and_kind_and_prefers_the_newest(session
     assert hits[0].modified_time == utc_naive(2026, 10, 9, 10, 0)
 
 
+def test_boost_words_nudge_but_never_outrank_the_question(session, fake):
+    from index_helpers import add_file
+
+    add_file(session, "Question answer", chunks=["the draw latch part number"])
+    add_file(session, "Title echo", chunks=["panels weld fillets bracket baseplate"])
+
+    plain = [h.name for h in di.search(session, "latch")]
+    boosted = [
+        h.name
+        for h in di.search(session, "latch", boost="panels weld fillets bracket baseplate")
+    ]
+
+    assert plain == ["Question answer"]  # no boost: the title echo doesn't match
+    assert boosted[0] == "Question answer"  # the question's match stays first
+    assert "Title echo" in boosted  # ...but the boost words still find things
+
+
+def test_a_search_with_only_boost_words_searches_them(session, fake):
+    from index_helpers import add_file
+
+    add_file(session, "Panel notes", chunks=["panels are welded"])
+
+    assert [h.name for h in di.search(session, "the?", boost="panels")] == [
+        "Panel notes"
+    ]
+
+
 def test_search_matches_part_numbers_split_by_underscores(session, fake):
     di.full_sync(session, fake.google())
     assert [h.name for h in di.search(session, "mount")][:1] == ["lid_mount.stl"]

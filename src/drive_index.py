@@ -1501,6 +1501,10 @@ NAME_ALL_BOOST = 0.9  # every query word is in the file's name: a very strong si
 NAME_ANY_BOOST = 0.45  # some query word is in the name
 PATH_ALL_BOOST = 0.6  # every word is somewhere in name + folder + kind (name-only hits)
 ALL_TERMS_BOOST = 0.25  # a chunk that contains every query word
+# The optional `boost` words of a search (the task title and subsystem): they only
+# add a little to a result that matches, so they can't outweigh the question itself.
+BOOST_RANK_WEIGHT = 0.3  # times the full-text rank of the boost words in the chunk
+BOOST_NAME = 0.15  # a file whose name has a boost word
 COPY_PENALTY = 0.4  # "Copy of ..." files rank below the original
 DEMOTE_PHRASE_PENALTY = 0.35  # folder path has OBSOLETE, Old, Alfie... (drive_rank.py)
 OLD_SEASON_PENALTY = 0.35  # from a season more than a year behind the current one
@@ -1556,18 +1560,22 @@ _PG_CHUNK_QUERY = text(
     f"""
     WITH q AS (
         SELECT websearch_to_tsquery('english', :q_all) AS tsq_all,
-               websearch_to_tsquery('english', :q_any) AS tsq_any
+               websearch_to_tsquery('english', :q_any) AS tsq_any,
+               websearch_to_tsquery('english', :q_boost) AS tsq_boost
     )
     SELECT c.id AS chunk_id, c.heading, c.text, f.id AS file_id, f.drive_id, f.name,
            f.kind, f.folder_path, f.web_link, f.modified_time,
            ts_rank(c.search_vector, q.tsq_any, 32)
              + CASE WHEN c.search_vector @@ q.tsq_all THEN {ALL_TERMS_BOOST} ELSE 0 END
              + CASE WHEN n.v @@ q.tsq_all THEN {NAME_ALL_BOOST}
-                    WHEN n.v @@ q.tsq_any THEN {NAME_ANY_BOOST} ELSE 0 END AS score
+                    WHEN n.v @@ q.tsq_any THEN {NAME_ANY_BOOST} ELSE 0 END
+             + {BOOST_RANK_WEIGHT} * ts_rank(c.search_vector, q.tsq_boost, 32)
+             + CASE WHEN n.v @@ q.tsq_boost THEN {BOOST_NAME} ELSE 0 END AS score
     FROM q, drive_chunk c
     JOIN drive_file f ON f.id = c.file_id
     CROSS JOIN LATERAL (SELECT {_NAME_SQL} AS v) n
-    WHERE c.search_vector @@ q.tsq_any AND {_KIND_FILTER}
+    WHERE (c.search_vector @@ q.tsq_any OR c.search_vector @@ q.tsq_boost)
+      AND {_KIND_FILTER}
     ORDER BY score DESC, f.modified_time DESC NULLS LAST, c.position
     LIMIT :n
     """
@@ -1579,17 +1587,20 @@ _PG_FILE_QUERY = text(
     f"""
     WITH q AS (
         SELECT websearch_to_tsquery('english', :q_all) AS tsq_all,
-               websearch_to_tsquery('english', :q_any) AS tsq_any
+               websearch_to_tsquery('english', :q_any) AS tsq_any,
+               websearch_to_tsquery('english', :q_boost) AS tsq_boost
     )
     SELECT f.id AS file_id, f.drive_id, f.name, f.kind, f.folder_path, f.web_link,
            f.modified_time,
            CASE WHEN n.v @@ q.tsq_all THEN {NAME_ALL_BOOST}
                 WHEN f.search_vector @@ q.tsq_all THEN {PATH_ALL_BOOST}
                 WHEN n.v @@ q.tsq_any THEN {NAME_ANY_BOOST} ELSE 0.3 END
-             + 0.3 * ts_rank(f.search_vector, q.tsq_any, 32) AS score
+             + 0.3 * ts_rank(f.search_vector, q.tsq_any, 32)
+             + CASE WHEN n.v @@ q.tsq_boost THEN {BOOST_NAME} ELSE 0 END AS score
     FROM q, drive_file f
     CROSS JOIN LATERAL (SELECT {_NAME_SQL} AS v) n
-    WHERE f.search_vector @@ q.tsq_any AND {_KIND_FILTER}
+    WHERE (f.search_vector @@ q.tsq_any OR f.search_vector @@ q.tsq_boost)
+      AND {_KIND_FILTER}
     ORDER BY score DESC, f.modified_time DESC NULLS LAST
     LIMIT :n
     """
@@ -1614,9 +1625,21 @@ def _row_hit(row, words: list[str], with_chunk: bool) -> SearchHit:
 
 
 def _postgres_hits(
-    session: Session, query: str, any_query: str, words: list[str], fetch: int, kind
+    session: Session,
+    query: str,
+    any_query: str,
+    boost_query: str,
+    words: list[str],
+    fetch: int,
+    kind,
 ) -> list[SearchHit]:
-    params = {"q_all": query, "q_any": any_query, "kind": kind, "n": fetch}
+    params = {
+        "q_all": query,
+        "q_any": any_query,
+        "q_boost": boost_query,
+        "kind": kind,
+        "n": fetch,
+    }
     chunk_rows = session.execute(_PG_CHUNK_QUERY, params).mappings().all()
     hits = [_row_hit(row, words, True) for row in chunk_rows]
     with_chunks = {hit.file_id for hit in hits}
@@ -1630,10 +1653,15 @@ def _postgres_hits(
 
 
 def _like_hits(
-    session: Session, words: list[str], fetch: int, kind: str | None
+    session: Session,
+    words: list[str],
+    fetch: int,
+    kind: str | None,
+    boost_words: list[str],
 ) -> list[SearchHit]:
     """The SQLite fallback (tests, a laptop without Postgres): any word, LIKE."""
     folded = [word.casefold() for word in words]
+    boost_folded = [word.casefold() for word in boost_words]
 
     def name_boost(name: str) -> float:
         """The boost for the query words being in the file's name."""
@@ -1667,7 +1695,11 @@ def _like_hits(
         if word in kind_words.split()
     ]
     in_file = or_(
-        *(file_text.icontains(word, autoescape=True) for word in words), *kind_clauses
+        *(
+            file_text.icontains(word, autoescape=True)
+            for word in [*words, *boost_words]
+        ),
+        *kind_clauses,
     )
     in_chunk = or_(
         *(
@@ -1675,7 +1707,7 @@ def _like_hits(
                 DriveChunk.text.icontains(word, autoescape=True),
                 func.coalesce(DriveChunk.heading, "").icontains(word, autoescape=True),
             )
-            for word in words
+            for word in [*words, *boost_words]
         )
     )
     type_filter = [DriveFile.kind == kind] if kind else []
@@ -1690,6 +1722,11 @@ def _like_hits(
     for chunk, file in chunk_rows:
         body = f"{chunk.heading or ''} {chunk.text}".casefold()
         share = sum(w in body for w in folded) / len(folded)
+        boost_share = (
+            sum(w in body for w in boost_folded) / len(boost_folded)
+            if boost_folded
+            else 0.0
+        )
         hits.append(
             SearchHit(
                 file_id=file.id,
@@ -1704,7 +1741,8 @@ def _like_hits(
                 snippet=make_snippet(chunk.text, words),
                 score=0.3 * share
                 + (ALL_TERMS_BOOST if share == 1 else 0)
-                + name_boost(file.name),
+                + name_boost(file.name)
+                + BOOST_RANK_WEIGHT * 0.3 * boost_share,
                 chunk_id=chunk.id,
             )
         )
@@ -1825,6 +1863,7 @@ def search(
     kind: str | None = None,
     today: date | None = None,
     demote: drive_rank.DemoteRules | None = None,
+    boost: str = "",
 ) -> list[SearchHit]:
     """Ranked chunks (or name-only file hits) for a question's keywords.
 
@@ -1836,6 +1875,10 @@ def search(
     kept as written. `kind` ("cad", "doc", "sheet", "pdf") limits the file type.
     "Copy of ..." files rank below the original, identical results collapse to
     the newer file, and `max_per_file` stops one long document filling the list.
+    `boost` is extra words (the task's title and subsystem) that only nudge the
+    ranking of results that already match; they can't push the question's own words
+    down, however long they are, and are searched alone only if the question has no
+    searchable word.
     Files in OBSOLETE/Old/Archive/Alfie folders, or from a season more than a year
     behind `today`, rank lower (config: drive_index_demote.txt) and say why in
     `old_reasons`; they are never removed.
@@ -1843,14 +1886,24 @@ def search(
     if kind is not None and kind not in SEARCH_TYPES:
         raise ValueError(f"kind must be one of {', '.join(SEARCH_TYPES)}")
     words = [w for w in _WORD.findall(query) if any(c.isalnum() for c in w)]
+    boost_words = [
+        w
+        for w in dict.fromkeys(_WORD.findall(boost))
+        if any(c.isalnum() for c in w)
+        and w.casefold() not in {x.casefold() for x in words}
+    ]
+    if not words:  # nothing to search for but the boost words: they become the query
+        query, words, boost_words = " ".join(boost_words), boost_words, []
     if limit <= 0 or not words:
         return []
     fetch = max(limit * 5, 50)
     if session.get_bind().dialect.name == "postgresql":
         any_query = query if _OPERATORS.search(query) else " or ".join(words)
-        hits = _postgres_hits(session, query, any_query, words, fetch, kind)
+        hits = _postgres_hits(
+            session, query, any_query, " or ".join(boost_words), words, fetch, kind
+        )
     else:
-        hits = _like_hits(session, words, fetch, kind)
+        hits = _like_hits(session, words, fetch, kind, boost_words)
 
     rules = demote if demote is not None else demote_rules()
     ranked: list[SearchHit] = []

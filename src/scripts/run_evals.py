@@ -3,10 +3,16 @@
     make eval                    # every question in evals/coach_questions.yaml
     make eval ONLY=lid-latch     # one question
     make eval KIND=conflict      # one kind
+    make eval MODEL=claude-haiku-4-5   # another model (COACH_MODEL for this run only)
+    make eval RESUME=1           # ask only the questions the last run did not get to
+    make eval RETRIEVAL=1        # no model, free: what the coach would be shown
 
-Uses the REAL model and the REAL Drive, so it costs money. It stops once the total
-cost passes $0.40 (override with --max-cost). The Glassroom cap is $1 per 5 hours
-across everyone, so check before running twice in a row.
+Uses the REAL model and the REAL Drive, so it costs money (RETRIEVAL=1 does not). It
+stops once the total cost passes $0.60 (override with --max-cost). The Glassroom cap is
+$1 per 5 hours across everyone, so check before running twice in a row.
+
+A question with `after: <id>` is a follow-up: it is asked in the same chat, after that
+question and its answer (which are asked too if they are not already part of the run).
 
 It waits 3 seconds between questions (--pause). A question that fails with a rate
 limit, timeout or model error is retried once after 20 seconds (--retry-pause); the
@@ -22,6 +28,7 @@ index (so DATABASE_URL must point at a synced one), and the answer from
 """
 
 import argparse
+import json
 import logging
 import os
 import subprocess
@@ -56,13 +63,13 @@ from models import Task
 log = logging.getLogger("crush_coach")
 
 
-def missing_setup() -> str | None:
+def missing_setup(need_model: bool = True) -> str | None:
     """A plain message if the real model or the Drive index can't be reached, else None.
 
     Without these every question would "fail" for the same reason, which says
     nothing about the coach, so the run refuses to start.
     """
-    if not os.environ.get("GLASSROOM_API_KEY"):
+    if need_model and not os.environ.get("GLASSROOM_API_KEY"):
         return "GLASSROOM_API_KEY is not set (see .env.example)."
     try:
         from sqlmodel import Session
@@ -111,26 +118,52 @@ class _LogCapture(logging.Handler):
         self.lines.append(record.getMessage())
 
 
+def chat_so_far(
+    earlier: coach_eval.Result | None,
+) -> tuple[list[dict[str, str]], str, list[dict]]:
+    """(history, previous question, sources cited so far) of a follow-up's chat, built
+    the way `coach.converse` builds them from the saved thread."""
+    if earlier is None:
+        return [], "", []
+    history = [
+        {"role": "user", "content": earlier.question},
+        {"role": "assistant", "content": earlier.outcome.answer},
+    ]
+    return history, earlier.question, list(earlier.outcome.sources)
+
+
 def answer_question(
-    task: Task, question: str, calls: list[llm.CallRecord]
+    task: Task,
+    question: str,
+    calls: list[llm.CallRecord],
+    earlier: coach_eval.Result | None = None,
 ) -> llm.CoachAnswer:
     """Retrieval, then one streamed answer: the same two steps the web page runs."""
     from sqlmodel import Session
 
+    history, previous, sources = chat_so_far(earlier)
     with Session(db.engine) as session:
-        found = retrieval.retrieve(session, task, question)
+        found = retrieval.retrieve(
+            session,
+            task,
+            question,
+            previous_question=previous,
+            earlier_sources=sources,
+        )
     run = answering.AnswerRun(
         coach.task_context(task),
         found,
         question,
-        [],
+        history,
         today=coach.today(),
         record=calls.append,
     )
     return run.run()
 
 
-def ask(question: coach_eval.Question) -> coach_eval.Outcome:
+def ask(
+    question: coach_eval.Question, earlier: coach_eval.Result | None = None
+) -> coach_eval.Outcome:
     """Ask the coach one question exactly as the web page would, and time it."""
     task, task_source = find_task(question.task)
     calls: list[llm.CallRecord] = []
@@ -139,7 +172,7 @@ def ask(question: coach_eval.Question) -> coach_eval.Outcome:
     log.addHandler(capture)
     started = time.monotonic()
     try:
-        answer = answer_question(task, question.question, calls)
+        answer = answer_question(task, question.question, calls, earlier)
     except llm.LLMError as exc:
         outcome.error, outcome.error_kind = exc.message, exc.kind
         outcome.drive_calls = None  # the count is lost when the coach raises
@@ -160,11 +193,14 @@ def ask(question: coach_eval.Question) -> coach_eval.Outcome:
     outcome.error_detail = capture.lines
     outcome.seconds = time.monotonic() - started
     outcome.model_calls = len(calls)
+    outcome.call_details = [call.describe(n) for n, call in enumerate(calls, start=1)]
     outcome.input_tokens = sum(c.input_tokens or 0 for c in calls)
     outcome.output_tokens = sum(c.output_tokens or 0 for c in calls)
     outcome.cost = sum(c.cost or 0.0 for c in calls)
-    # A failed call has no cost to report; only a successful one should.
-    outcome.cost_reported = all(c.cost is not None for c in calls if c.status == "ok")
+    # A failed call has no cost to report; only one that produced output should.
+    outcome.cost_reported = all(
+        c.cost is not None for c in calls if c.status in ("ok", "empty")
+    )
     return outcome
 
 
@@ -185,12 +221,62 @@ def git_version() -> str:
         return "unknown"
 
 
+def prompt_for(task: Task, found: retrieval.Retrieval, question: str) -> str:
+    """Everything the model would be sent for this question (no chat history)."""
+    return (
+        llm.system_prompt()
+        + "\n\n"
+        + retrieval.system_context(coach.task_context(task), found.facts, coach.today())
+        + "\n\n"
+        + retrieval.user_content(found, question)
+    )
+
+
+def check_retrieval(
+    questions: list[coach_eval.Question],
+) -> list[coach_eval.ContextCheck]:
+    """For each question: what the model would be shown, and whether it has the facts
+    the answer needs. No model call, no cost. Follow-ups need an answer, so skipped."""
+    from sqlmodel import Session
+
+    checks = []
+    for question in questions:
+        if question.after:
+            continue
+        task, _ = find_task(question.task)
+        with Session(db.engine) as session:
+            found = retrieval.retrieve(session, task, question.question)
+        titles = [entry["title"] for entry in found.known.values()]
+        checks.append(
+            coach_eval.check_context(
+                question, prompt_for(task, found, question.question), titles
+            )
+        )
+    return checks
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Score the Crush coach on test questions"
     )
     parser.add_argument("--only", help="run just the question with this id")
     parser.add_argument("--kind", help=f"run one kind: {', '.join(coach_eval.KINDS)}")
+    parser.add_argument(
+        "--model",
+        help="the model for this run (sets COACH_MODEL), e.g. claude-haiku-4-5",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="keep the answers of the last report and ask only the questions it "
+        "did not get to",
+    )
+    parser.add_argument(
+        "--retrieval-only",
+        action="store_true",
+        help="no model: show what the coach would be sent and whether the facts the "
+        "answer needs are in it",
+    )
     parser.add_argument(
         "--max-cost",
         type=float,
@@ -211,6 +297,8 @@ def main() -> int:
         "(default: %(default)s)",
     )
     args = parser.parse_args()
+    if args.model:
+        os.environ["COACH_MODEL"] = args.model
 
     try:
         questions = coach_eval.select_questions(
@@ -220,21 +308,62 @@ def main() -> int:
         print(f"Cannot run: {exc}", file=sys.stderr)
         return 2
 
-    problem = missing_setup()
+    problem = missing_setup(need_model=not args.retrieval_only)
     if problem:
         print(f"Cannot run: {problem}", file=sys.stderr)
         return 2
 
-    print(f"Asking the coach {len(questions)} question(s) with {llm.model_name()}...\n")
+    if args.retrieval_only:
+        checks = check_retrieval(questions)
+        print(coach_eval.format_context_table(checks))
+        print(f"\n{coach_eval.context_summary(checks)}")
+        return 0
+
+    kept: dict[str, coach_eval.Result] = {}
+    resumed_from = ""
+    if args.resume:
+        previous = coach_eval.latest_report(OUT)
+        if previous is None:
+            print("Cannot resume: there is no earlier report in .context/evals/.")
+            return 2
+        report = json.loads(previous.read_text(encoding="utf-8"))
+        if report.get("model") != llm.model_name():
+            print(
+                f"Cannot resume: {previous.name} used {report.get('model')}, this run "
+                f"uses {llm.model_name()}. Answers from two models would not compare.",
+                file=sys.stderr,
+            )
+            return 2
+        if report.get("git") != git_version():
+            print(
+                f"Note: {previous.name} ran on code version {report.get('git')}, now "
+                f"{git_version()}. Compare with care."
+            )
+        kept = coach_eval.results_to_keep(report, questions)
+        resumed_from = previous.name
+        left = [q for q in questions if q.id not in kept]
+        if not left:
+            print(f"Nothing to resume: {previous.name} already has every question.")
+            return 0
+        print(
+            f"Resuming {previous.name}: keeping {len(kept)} answers, asking "
+            f"{len(left)} more.\n"
+        )
+
+    asking = [q for q in questions if q.id not in kept]
+    print(f"Asking the coach {len(asking)} question(s) with {llm.model_name()}...\n")
 
     def show(result: coach_eval.Result) -> None:
         o = result.outcome
         print(
-            f"  {result.id}: {result.score}  {o.seconds:.1f}s  ${o.cost:.4f}"
+            f"  {result.id}: {result.score}  {o.seconds:.1f}s  "
+            f"{o.input_tokens:,} in / {o.output_tokens:,} out  ${o.cost:.4f}"
             + ("  (retried)" if o.attempts > 1 else "")
             + (f"  [{result.reason}]" if result.score != coach_eval.PASS else ""),
             flush=True,
         )
+        for line in o.call_details:
+            print(f"      {line}", flush=True)
         for line in o.error_detail:
             print(f"      server log: {line}", flush=True)
 
@@ -246,11 +375,15 @@ def main() -> int:
         on_result=show,
         pause=args.pause,
         retry_pause=args.retry_pause,
+        done=kept,
     )
 
     print("\n" + coach_eval.format_table(run.results))
     if run.stopped:
-        print(f"\n{run.stopped} The questions after that were not run.")
+        print(
+            f"\n{run.stopped} The questions after that were not run. "
+            "`make eval RESUME=1` asks just those."
+        )
     summary = coach_eval.summarize(run.results)
     print(f"\n{summary.line()}")
 
@@ -265,6 +398,8 @@ def main() -> int:
         "git": git_version(),
         "filters": filters or "all",
         "max_cost": args.max_cost,
+        "resumed_from": resumed_from,
+        "kept": len(kept),
     }
     json_path, md_path = coach_eval.write_reports(
         OUT, started.strftime("%Y%m%d-%H%M%S"), meta, run
