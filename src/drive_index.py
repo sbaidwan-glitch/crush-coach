@@ -1096,7 +1096,13 @@ def _ancestor_names(
 
 def _is_excluded(item: dict[str, Any], names: list[str], rules: ExcludeRules):
     info = _file_info(item)
-    return rules.match(names, info["name"], info["mime_type"], info["kind"] == "folder")
+    return rules.match(
+        names,
+        info["name"],
+        info["mime_type"],
+        info["kind"] == "folder",
+        drive_id=info["drive_id"],
+    )
 
 
 def _drop_excluded(

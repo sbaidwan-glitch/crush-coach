@@ -10,6 +10,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlmodel import Field, SQLModel
@@ -419,3 +420,56 @@ class TaskSuggestion(SQLModel, table=True):
     resolved_by: str | None = None
     resolved_at: datetime | None = None
     task_code: str | None = None  # the task a lead made from it
+
+
+# --- the work log (see worklog.py) and what is written to the Crush document ---
+
+
+class WorkNote(SQLModel, table=True):
+    """One entry in a member's notebook: what they did on a task, and why.
+
+    Posted by the member without a lead's approval. `original` is what the member
+    wrote before "Tidy my note" (the same text again if they didn't use it), so the
+    member's own words are never lost. `task_code` and `subsystem` are kept as text,
+    so the note outlives its task being removed (`task_id` is then unset).
+    """
+
+    __tablename__ = "work_note"
+
+    id: int | None = Field(default=None, primary_key=True)
+    member: str = Field(index=True)  # the member's email, like coach messages
+    member_name: str  # their display name when they posted: "Name · CODE: ..."
+    task_id: int | None = Field(default=None, foreign_key="task.id", index=True)
+    task_code: str
+    subsystem: str = Field(index=True)
+    did: str  # what they did (the tidied text if they used Tidy and kept it)
+    why: str = ""  # why they did it that way (recommended, not required)
+    original: str  # the member's own words before any tidying
+    posted_at: datetime = Field(default_factory=utc_now, index=True)
+
+
+class DriveWrite(SQLModel, table=True):
+    """The one write of an entry (a work note or a recorded answer) to the Crush document.
+
+    One row per entry (`kind` + `ref_id` is unique), so an entry is written once however
+    many times a request repeats. `status`: pending (not tried), writing (a write is under
+    way), written, failed (`error` says why; the entry stays in the app with "Retry write to
+    Drive"). `tab_title` is the tab it went under; `used_general` is true when no tab
+    matched its subsystem and the General tab was used instead.
+    """
+
+    __tablename__ = "drive_write"
+    __table_args__ = (UniqueConstraint("kind", "ref_id", name="uq_drive_write_entry"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    kind: str  # note or answer
+    ref_id: int  # work_note.id or decision.id
+    status: str = Field(default="pending", index=True)
+    tab_title: str | None = None
+    tab_id: str | None = None  # Google's id for the tab, for a link to it
+    used_general: bool = False
+    error: str | None = None
+    attempts: int = 0
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+    written_at: datetime | None = None

@@ -206,3 +206,72 @@ def test_a_failed_exclusion_lookup_skips_that_file_and_keeps_going(
     assert "gitNew" not in ids and "docNew" in ids
     assert report.text_errors == 1 and "exclude rules" in report.errors[0]
     assert session.get(SyncState, 1).last_error is None
+
+
+# --- the Crush document is written to, never read back ---
+
+CRUSH = "docCrushLog"  # a placeholder id, like the one in fake_crush_doc
+
+
+@pytest.fixture
+def with_crush_doc(noisy):
+    """The Crush document sits in the drive like any Doc, holding an entry the app wrote."""
+    noisy.add(CRUSH, "Crush log", DOC, "fDocs", modified="2026-11-17T20:00:00Z")
+    noisy.documents[CRUSH] = {
+        "tabs": [
+            doc_tab(
+                "Enclosure",
+                doc_paragraph("17 Nov 2026", "HEADING_3"),
+                doc_paragraph("Baseplate gasket clearance: 0.030 in. Replaces: 0.050 in"),
+            )
+        ]
+    }
+    return noisy
+
+
+def test_the_crush_document_id_is_always_an_exclude_rule(tmp_path):
+    rules = ex.load_rules(None, {ex.CRUSH_DOC_ENV_VAR: CRUSH})
+
+    rule = rules.match([], "Crush log", "application/vnd.google-apps.document", False, drive_id=CRUSH)
+    assert rule is not None and CRUSH not in rule.text  # reports never print the id
+    assert rules.match([], "Crush log", "application/vnd.google-apps.document", False, drive_id="other") is None
+    assert not ex.load_rules(None, {})  # no id configured: no rule
+
+
+def test_a_full_sync_never_indexes_the_crush_document(session, with_crush_doc, monkeypatch):
+    monkeypatch.setenv(ex.CRUSH_DOC_ENV_VAR, CRUSH)
+
+    di.full_sync(session, with_crush_doc.google(), exclude=ex.load_rules(None))
+
+    assert CRUSH not in {f.drive_id for f in session.exec(select(DriveFile)).all()}
+    assert "docLid" in {f.drive_id for f in session.exec(select(DriveFile)).all()}
+    assert di.search(session, "gasket clearance") == []
+    assert all(h.drive_id != CRUSH for h in di.search(session, "Crush log"))
+    assert ("docs", "get", CRUSH) not in with_crush_doc.calls  # not even read
+
+
+def test_an_entry_indexed_before_the_document_was_set_up_is_dropped_by_the_next_full_sync(
+    session, with_crush_doc
+):
+    di.full_sync(session, with_crush_doc.google(), exclude=ex.parse_rules([]))
+    assert CRUSH in {f.drive_id for f in session.exec(select(DriveFile)).all()}
+
+    di.full_sync(
+        session, with_crush_doc.google(), exclude=ex.load_rules(None, {ex.CRUSH_DOC_ENV_VAR: CRUSH})
+    )
+
+    assert CRUSH not in {f.drive_id for f in session.exec(select(DriveFile)).all()}
+    assert di.search(session, "gasket clearance") == []
+
+
+def test_incremental_ignores_edits_to_the_crush_document(session, with_crush_doc):
+    rules = ex.load_rules(None, {ex.CRUSH_DOC_ENV_VAR: CRUSH})
+    di.full_sync(session, with_crush_doc.google(), exclude=rules)
+    with_crush_doc.record_change(CRUSH)  # the app appended an entry
+    with_crush_doc.calls.clear()
+
+    report = di.incremental_sync(session, with_crush_doc.google(), exclude=rules)
+
+    assert CRUSH not in {f.drive_id for f in session.exec(select(DriveFile)).all()}
+    assert report.excluded == 1
+    assert ("docs", "get", CRUSH) not in with_crush_doc.calls

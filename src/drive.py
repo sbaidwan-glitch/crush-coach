@@ -95,7 +95,8 @@ def _load_credentials(scopes: list[str] | None = None):
     """Load service-account credentials without exposing their contents.
 
     `scopes` defaults to Drive read-only; the Drive index also asks for the
-    read-only Docs and Sheets scopes. Never pass a write scope.
+    read-only Docs and Sheets scopes. Never pass a write scope from here: the one write
+    (the Crush document) is in drive_write.py, which asks for its own.
     """
     scopes = scopes or [DRIVE_READONLY_SCOPE]
     credential_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")

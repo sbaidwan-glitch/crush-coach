@@ -386,6 +386,48 @@ def test_downgrade_to_0006_removes_only_the_team_facts(fresh_engine):
     assert {"task", "drive_file", "decision"} <= set(tables)
 
 
+def test_upgrade_creates_work_notes_and_drive_writes(fresh_engine):
+    db.run_migrations(fresh_engine)
+
+    inspector = inspect(fresh_engine)
+    notes = {c["name"]: c for c in inspector.get_columns("work_note")}
+    assert set(notes) == {
+        "id", "member", "member_name", "task_id", "task_code", "subsystem",
+        "did", "why", "original", "posted_at",
+    }
+    assert notes["task_id"]["nullable"] is True  # a note outlives its task
+    assert notes["original"]["nullable"] is False  # the member's own words are always kept
+    writes = {c["name"]: c for c in inspector.get_columns("drive_write")}
+    assert set(writes) == {
+        "id", "kind", "ref_id", "status", "tab_title", "tab_id", "used_general",
+        "error", "attempts", "created_at", "updated_at", "written_at",
+    }
+    # One write row per entry: the guarantee a write happens once.
+    uniques = inspector.get_unique_constraints("drive_write")
+    assert [u["column_names"] for u in uniques] == [["kind", "ref_id"]]
+
+
+def test_a_second_write_row_for_the_same_entry_is_refused(fresh_engine):
+    db.run_migrations(fresh_engine)
+    insert = text(
+        "INSERT INTO drive_write (kind, ref_id, status, used_general, attempts, created_at, updated_at) "
+        "VALUES ('note', 1, 'pending', 0, 0, '2026-11-17', '2026-11-17')"
+    )
+    with fresh_engine.begin() as connection:
+        connection.execute(insert)
+    with pytest.raises(Exception, match="UNIQUE"), fresh_engine.begin() as connection:
+        connection.execute(insert)
+
+
+def test_downgrade_to_0011_removes_only_the_work_log_tables(fresh_engine):
+    db.run_migrations(fresh_engine)
+    command.downgrade(db.alembic_config(fresh_engine), "0011")
+
+    tables = inspect(fresh_engine).get_table_names()
+    assert {"work_note", "drive_write"}.isdisjoint(tables)
+    assert {"task", "answer_request", "task_suggestion", "decision"} <= set(tables)
+
+
 def test_migrations_match_models(fresh_engine):
     """Fails when a model changed without a new migration."""
     db.run_migrations(fresh_engine)
