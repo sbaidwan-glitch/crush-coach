@@ -17,6 +17,7 @@ from sqlmodel import Session
 import auth
 import db
 import static_version
+from progress import PANEL_TONES
 
 log = logging.getLogger("crush_coach")
 
@@ -61,8 +62,11 @@ def _context(request: Request) -> dict:
 
 
 def templates() -> Jinja2Templates:
-    return static_version.add_to(
+    """`tone("crush")` in a template is that panel's `data-tone` (progress.PANEL_TONES)."""
+    found = static_version.add_to(
         Jinja2Templates(
             directory=Path(__file__).parent / "templates", context_processors=[_context]
         )
     )
+    found.env.globals["tone"] = PANEL_TONES.__getitem__
+    return found

@@ -56,7 +56,7 @@ def test_lists_tasks_in_a_panel_per_part_of_crush_in_order(session, client):
     html = response.text
     # Four parts: Electronics Mounts sit with Enclosure, Gripper and Torpedo are Actuators.
     for slug in ("enclosure", "seals", "thrusters", "actuators"):
-        assert f'<section class="panel panel--flush" id="{slug}"' in html
+        assert re.search(rf'<section class="panel panel--flush" data-tone="\w+" id="{slug}"', html)
     section = {
         slug: html[html.index(f'id="{slug}"') :]
         for slug in ("enclosure", "seals", "thrusters", "actuators")

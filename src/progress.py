@@ -47,6 +47,22 @@ SUBSYSTEM_GROUPS = (
     },
 )
 
+# The muted colour of each tinted panel (`data-tone`, docs/theme.md), by panel key. A
+# subsystem panel uses the tone of its part of Crush, the same colour as its progress bar
+# and diamond (its key is the group's `slug`). Every other panel uses one of the other
+# tones, never those four, so a subsystem colour keeps one meaning. A panel not listed
+# here is untinted. Colour values live in static/styles/theme.css.
+PANEL_TONES = {
+    "enclosure": "blue",
+    "seals": "teal",
+    "thrusters": "sage",
+    "actuators": "sand",
+    "your-task": "clay",
+    "pick-up": "mauve",
+    "build-progress": "slate",
+    "crush": "slate",
+}
+
 STARTED = ("in_progress", "needs_review")
 
 
@@ -60,6 +76,10 @@ class GroupProgress:
     total: int
     done: int
     in_progress: int  # started: in progress, or waiting for review
+
+    @property
+    def tone(self) -> str:
+        return PANEL_TONES[self.slug]
 
     @property
     def open(self) -> int:
