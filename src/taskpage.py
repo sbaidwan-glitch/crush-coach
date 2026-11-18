@@ -11,6 +11,7 @@ from datetime import datetime
 
 from sqlmodel import Session, col, select
 
+import profiles
 import steps
 import workflow
 from auth import User
@@ -176,11 +177,13 @@ def page_context(session: Session, task: Task, user: User) -> dict:
         "history": [],
         "history_error": None,
         "owner_since": None,
+        "owner_chips": [],
         "decision_status_labels": DECISION_STATUS_LABELS,
     }
     try:
         context["history"] = history(session, task.id)
         context["owner_since"] = owner_since(session, task)
+        context["owner_chips"] = profiles.load(session).chips(task.owner)
     except Exception as exc:  # noqa: BLE001  (the rest of the page still works)
         session.rollback()
         log.error("Could not load task history (%s)", type(exc).__name__)

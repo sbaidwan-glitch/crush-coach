@@ -478,3 +478,23 @@ class DriveWrite(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
     written_at: datetime | None = None
+
+
+# --- member icons (see profiles.py) ---
+
+
+class MemberProfile(SQLModel, table=True):
+    """The icon and short name a member picked at /profile.
+
+    Keyed by the member's email (one row each). `full_name` is the Google name they were
+    signed in with when they saved: a task's `owner` is that same name, so it is how a
+    task finds its owner's icon. A member who never picked has no row and shows as their
+    first name with the default icon. No Google profile photo is stored.
+    """
+
+    __tablename__ = "member_profile"
+
+    email: str = Field(primary_key=True)
+    icon: str  # one of profiles.ICONS
+    display_name: str = ""  # up to profiles.MAX_NAME characters; "" = use the first name
+    full_name: str = Field(default="", index=True)

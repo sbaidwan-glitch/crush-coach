@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "components/feedback.html" import notice as notice_box %}
+{% from "components/icons.html" import avatar %}
+{% block title %}Your icon – Crush Coach{% endblock %}
+{% block heading %}
+<div class="topbar__title">
+  <h1 class="page-title">Your icon</h1>
+  <p class="meta">Shown at the end of your bars on the Timeline and next to your name on tasks.</p>
+</div>
+{% endblock %}
+{% block head_extra %}<script src="{{ static_url('timeline.js') }}" defer></script>{% endblock %}
+{% block main %}
+{% if error %}{{ notice_box(error, "error") }}{% elif saved %}{{ notice_box("Saved. Your icon and name now show on the Timeline and on your tasks.") }}{% endif %}
+<section class="panel profile-panel" data-tone="sage" aria-labelledby="pick-heading">
+  <div class="panel__head"><h2 class="panel__title" id="pick-heading">Pick an icon</h2></div>
+  <form method="post" action="/profile" class="profile-form" data-profile-form>
+    <fieldset>
+      <legend class="visually-hidden">Icon</legend>
+      <div class="picks">
+        {% for name in icons %}
+        <label class="pick"><input type="radio" name="icon" value="{{ name }}"{% if name == icon %} checked{% endif %}><span class="pick__box">{{ avatar(name, 28) }}</span><span class="pick__name">{{ name | capitalize }}</span></label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    <label class="field-label" for="display-name">Name shown next to it</label>
+    <input class="field-input profile-name" id="display-name" name="display_name" value="{{ name }}" maxlength="{{ max_name }}" placeholder="{{ first_name }}" autocomplete="off" aria-describedby="name-hint">
+    <p class="meta" id="name-hint">Up to {{ max_name }} characters. Leave it empty to show “{{ first_name }}”, your Google first name.</p>
+    <div class="field-label">Preview</div>
+    <div class="tl-preview">
+      <span class="tl-bar tl-bar--in-progress tl-preview__bar" aria-hidden="true"></span>
+      <span class="tl-who tl-preview__who" aria-hidden="true"><span class="avatar" data-preview-chip><svg width="20" height="20" focusable="false"><use href="#av-{{ icon }}"/></svg></span><span class="tl-name" data-preview-name data-fallback="{{ first_name }}">{{ name or first_name }}</span></span>
+    </div>
+    <div class="actions"><button class="btn btn--primary" type="submit">Save</button></div>
+  </form>
+</section>
+{% endblock %}

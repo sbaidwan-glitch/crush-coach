@@ -11,7 +11,7 @@ APP = (STYLES / "app.css").read_text()
 EXTRAS = (STYLES / "extras.css").read_text()
 COMPONENTS = {p.name: p.read_text() for p in (TEMPLATES / "components").glob("*.html")}
 # Set inline in the markup (a progress bar's numbers, a legend key), not in tokens.css.
-SET_INLINE = {"--c", "--n", "--done", "--started", "--k"}
+SET_INLINE = {"--c", "--n", "--done", "--started", "--k", "--col"}
 
 
 def strip_comments(css: str) -> str:

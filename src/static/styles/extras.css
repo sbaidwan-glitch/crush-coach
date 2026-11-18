@@ -220,3 +220,29 @@ input[type="radio"] { accent-color: var(--color-ink); }
 .entry .write { margin-top: var(--space-1); }
 .entry .write--failed { color: var(--color-danger); }
 .entry form { margin: var(--space-2) 0 0; }
+
+/* ---------- Timeline and member icons (docs/timeline.md; the chart itself is timeline.css) ---------- */
+/* The pinned label column must cover the bars that scroll under it: it takes the panel's tint. */
+.tl-row { background: inherit; }
+/* A column is a week or more, so the grid lines follow --col (set on .tl-inner) instead of timeline.css's fixed eighths. */
+.tl-track { background-image: repeating-linear-gradient(90deg, var(--color-rule) 0 1px, transparent 1px var(--col, 12.5%)); }
+.tl-track--axis { background-image: none; }
+/* On a phone the chart scrolls sideways: the panel's title and its foot line stay at the left edge with the labels. */
+.tl .panel__head > :first-child { position: sticky; left: var(--space-4); }
+.tl-note span { position: sticky; left: var(--space-4); display: inline-block; max-width: calc(100vw - var(--space-10) * 2); }
+.tl-key__item { display: inline-flex; align-items: center; gap: var(--space-2); }
+.tl-key__item .tl-key__bar { margin-right: 0; }
+.tl .swatch__mark { display: inline-block; margin-right: var(--space-3); vertical-align: var(--space-1); }
+.chip-link { display: inline-grid; color: inherit; text-decoration: none; }
+.chip-link .avatar { width: var(--space-8); height: var(--space-8); margin-left: 0; }
+/* The owner on a task row and the task page: a small chip per person, then the name as written. */
+.owner { display: inline-flex; align-items: center; gap: var(--space-2); }
+.owner .avatar { width: var(--space-5); height: var(--space-5); }
+.pick { position: relative; }
+.profile-panel { max-width: calc(var(--space-10) * 18); }
+.profile-form { margin-top: var(--space-3); }
+.profile-form fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.profile-name { max-width: calc(var(--space-10) * 7); }
+.tl-preview { display: flex; align-items: center; gap: var(--space-2); }
+.tl-preview__bar { position: static; display: inline-block; width: calc(var(--space-10) * 4.5); height: var(--space-3); }
+.tl-preview__who { position: static; transform: none; }

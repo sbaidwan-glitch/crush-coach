@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% from "components/feedback.html" import notice as notice_box, empty_state, error_state %}
+{% from "components/progress_bar.html" import diamond %}
+{% from "components/status.html" import status_label %}
+{% from "components/icons.html" import avatar %}
+{% block title %}Timeline – Crush Coach{% endblock %}
+{% block heading %}
+<div class="topbar__title">
+  <h1 class="page-title">Timeline</h1>
+  <p class="meta">Each bar runs from the day a task was picked up to the day it was finished. Open tasks run to today.</p>
+</div>
+{% endblock %}
+{% block head_extra %}<script src="{{ static_url('timeline.js') }}" defer></script>{% endblock %}
+{% block main %}
+{% if error %}
+{{ error_state(error, "/timeline", "Try again") }}
+{% elif not total_tasks %}
+{{ empty_state("No tasks yet. A team lead can import the tracker from the Admin page.") }}
+{% else %}
+{% if not has_bars %}{{ notice_box("Nobody has picked up a task yet, so there are no bars. Tasks still to start are listed under each part of Crush.") }}{% endif %}
+{#- The chart scrolls sideways inside .tl on a phone; the label column stays pinned. timeline.js scrolls it to today. -#}
+<div class="tl" id="timeline" data-today="{{ today_pct }}" style="--today:{{ today_pct }}%" tabindex="0" role="region" aria-label="Timeline of tasks, scrolls sideways">
+  <div class="tl-inner" style="--col:{{ column_pct }}%">
+    <div class="tl-axis" aria-hidden="true">
+      <div class="tl-label"></div>
+      <div class="tl-track tl-track--axis">{% for pct, label in ticks %}<span style="left:{{ pct }}%">{{ label }}</span>{% endfor %}</div>
+    </div>
+    {% for p in panels %}
+    {% set g = p.group %}
+    <section class="panel panel--flush" data-tone="{{ g.tone }}" aria-labelledby="h-{{ g.slug }}">
+      <div class="panel__head"><h2 class="panel__title" id="h-{{ g.slug }}">{{ diamond(g) }}{{ g.label }}</h2><span class="meta">{{ g.done }} of {{ g.total }} done</span></div>
+      {% for r in p.rows %}
+      <div class="tl-row">
+        <div class="tl-label">
+          <span class="code">{{ r.task.code }}</span>
+          <span class="tl-title"><a class="task-row__title" href="/tasks/{{ r.task.code }}">{{ r.task.title }}</a></span>
+          {{ status_label(r.task.status, status_labels[r.task.status]) }}
+        </div>
+        <div class="tl-track">
+          <span class="tl-bar tl-bar--{{ 'in-progress' if r.state == 'open' else r.state }}" style="left:{{ r.left }}%;width:{{ r.width }}%" role="img" aria-label="{{ r.label }}"></span>
+          {% if r.chips %}<span class="tl-who" style="left:{{ r.tip }}%" aria-hidden="true">{% for c in r.chips %}{{ avatar(c.icon) }}{% endfor %}<span class="tl-name">{{ r.name }}</span></span>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+      {% if p.not_started %}<div class="tl-note"><span>Not started, no bar yet: {{ p.not_started | join(", ") }}</span></div>{% endif %}
+      {% if p.undated %}<div class="tl-note"><span>Started before the tracker kept dates, no bar: {{ p.undated | join(", ") }}</span></div>{% endif %}
+    </section>
+    {% endfor %}
+  </div>
+</div>
+<p class="meta tl-key">
+  <span class="tl-key__item"><span class="tl-key__bar tl-key__bar--done"></span>Finished</span>
+  <span class="tl-key__item"><span class="tl-key__bar tl-key__bar--in-progress"></span>Open, up to today</span>
+  <span class="tl-key__item"><span class="tl-key__bar tl-key__bar--review"></span>Waiting for review</span>
+</p>
+{% endif %}
+{% endblock %}
