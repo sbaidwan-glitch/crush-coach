@@ -46,6 +46,7 @@ def session():
         DriveFile,
         DriveWrite,
         LlmCall,
+        MemberProfile,
         SyncState,
         Task,
         TaskEvent,
@@ -73,6 +74,7 @@ def session():
             DriveFile,
             SyncState,
             TeamFact,
+            MemberProfile,
         ):
             s.exec(delete(table))
         s.commit()

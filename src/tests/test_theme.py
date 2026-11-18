@@ -136,9 +136,10 @@ def test_the_head_script_sets_the_theme_before_the_stylesheets_paint(as_user):
     script = head[head.index("<script>") :]
     assert 'localStorage.getItem("cc-theme")' in script and "dataset.theme" in script
     assert 'localStorage.getItem("cc-bubbles")' in script
-    # theme.css comes after app.css (and before extras.css, whose phone rules size the buttons).
+    # theme.css comes after app.css, timeline.css (the icon chips) right after theme.css, and
+    # extras.css last (its phone rules size the buttons).
     css = [m for m in re.findall(r"styles/(\w+)\.css", head)]
-    assert css == ["tokens", "app", "theme", "extras"]
+    assert css == ["tokens", "app", "theme", "timeline", "extras"]
 
 
 def test_the_buttons_are_in_the_bottom_bar_on_phones(as_user):

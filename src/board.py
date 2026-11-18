@@ -16,6 +16,7 @@ from sqlmodel import Session, col, select
 
 import auth
 import db
+import profiles
 import progress
 import shell
 from auth import MaybeUser
@@ -191,6 +192,8 @@ def render_board(
         "error": error,
         "user": user,
         "preview": preview,
+        # Signed out, owners are made up and get no chips (nothing to look up).
+        "owner_chips": profiles.load(session).chips if user else (lambda owner: []),
     }
     if status is None:
         status = 503 if error else 200
