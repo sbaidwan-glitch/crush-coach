@@ -21,7 +21,7 @@
 </div>
 {% endif %}
 <div class="grid-2">
-  <section class="panel" aria-labelledby="your-task">
+  <section class="panel" data-tone="{{ tone('your-task') }}" aria-labelledby="your-task">
     <div class="panel__head">
       <div><h2 class="panel__title" id="your-task">Your task</h2><p class="panel__sub">Pick up where you left off.</p></div>
       {% if task %}{{ status_label(task.status, status_labels[task.status]) }}{% endif %}
@@ -54,7 +54,7 @@
     {% endif %}
   </section>
 
-  <section class="panel" aria-labelledby="pick-up">
+  <section class="panel" data-tone="{{ tone('pick-up') }}" aria-labelledby="pick-up">
     <div class="panel__head">
       <div><h2 class="panel__title" id="pick-up">Pick up a task</h2><p class="panel__sub">{% if preview %}Open tasks on Crush. Titles are hidden until you sign in.{% else %}Unclaimed tasks you could start today.{% endif %}</p></div>
       <span class="meta">{{ unclaimed_count }} open</span>
@@ -64,19 +64,19 @@
     {% endfor %}
   </section>
 
-  <section class="panel" aria-labelledby="build-progress">
+  <section class="panel" data-tone="{{ tone('build-progress') }}" aria-labelledby="build-progress">
     <div class="panel__head"><h2 class="panel__title" id="build-progress">Build progress</h2><a class="btn btn--small" href="/tasks">All tasks</a></div>
     <div class="total"><span><b>{{ total.done }}</b> / <b>{{ total.total }}</b> <span>tasks done</span></span><span><b>{{ total.percent }}</b> <span>%</span></span></div>
     <div class="pbars">{% for g in groups if g.total %}{{ pbar(g, flex=True) }}{% endfor %}</div>
     <div class="legend"><span class="key" style="--k:var(--color-sub-1)">Done</span><span class="key" style="--k:color-mix(in srgb,var(--color-sub-1) 55%,white)">In progress</span><span class="key" style="--k:color-mix(in srgb,var(--color-sub-1) 22%,white)">Not started</span></div>
     <div class="swatches">
       {% for g in groups %}
-      <a class="swatch" href="/tasks#{{ g.slug }}">{{ diamond(g) }}<span>{{ g.label }}<span class="task-row__meta">{{ g.open }} open task{{ "" if g.open == 1 else "s" }}</span></span><b>{{ g.done }}<span> / {{ g.total }}</span></b></a>
+      <a class="swatch" style="--k:var(--color-sub-{{ g.colour }})" href="/tasks#{{ g.slug }}">{{ diamond(g) }}<span>{{ g.label }}<span class="task-row__meta">{{ g.open }} open task{{ "" if g.open == 1 else "s" }}</span></span><b>{{ g.done }}<span> / {{ g.total }}</span></b></a>
       {% endfor %}
     </div>
   </section>
 
-  <section class="panel panel--strong" aria-labelledby="crush">
+  <section class="panel panel--strong" data-tone="{{ tone('crush') }}" aria-labelledby="crush">
     <div class="panel__head">
       <div><h2 class="panel__title" id="crush">Crush</h2><p class="panel__sub">Build map by subsystem. Select a label to see its tasks.</p></div>
       <a class="btn btn--small" href="/record">Record</a>

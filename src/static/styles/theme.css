@@ -1,0 +1,75 @@
+/* theme.css: tinted panels, dark mode, bubbles. Loaded after app.css. */
+.panel[data-tone="blue"]{--tone:#3e6a87;--color-muted:#4d5d6a;--color-review:#9a4828;--color-todo:#4d5d6a;background:#e3edf3;border-top-color:#3e6a87}
+.panel[data-tone="teal"]{--tone:#3f7f8c;--color-muted:#4d5d6a;--color-review:#9a4828;--color-todo:#4d5d6a;background:#e0eef0;border-top-color:#3f7f8c}
+.panel[data-tone="sage"]{--tone:#5f8052;--color-muted:#4d5d6a;--color-review:#9a4828;--color-todo:#4d5d6a;background:#e4eee1;border-top-color:#5f8052}
+.panel[data-tone="sand"]{--tone:#a8832f;--color-muted:#4d5d6a;--color-review:#9a4828;--color-todo:#4d5d6a;background:#f4ecd8;border-top-color:#a8832f}
+.panel[data-tone="clay"]{--tone:#b85f3b;--color-muted:#4d5d6a;--color-review:#9a4828;--color-todo:#4d5d6a;background:#f6e3da;border-top-color:#b85f3b}
+.panel[data-tone="slate"]{--tone:#4a5d6b;--color-muted:#4d5d6a;--color-review:#9a4828;--color-todo:#4d5d6a;background:#e7ecef;border-top-color:#4a5d6b}
+.panel[data-tone="mauve"]{--tone:#7d6388;--color-muted:#4d5d6a;--color-review:#9a4828;--color-todo:#4d5d6a;background:#ebe4ee;border-top-color:#7d6388}
+.panel[data-tone="rose"]{--tone:#a8566b;--color-muted:#4d5d6a;--color-review:#9a4828;--color-todo:#4d5d6a;background:#f5e2e7;border-top-color:#a8566b}
+.sidebar { background: #1d2f3d; }
+.sidebar__link, .sidebar__btn { color: #8ea4b4; }
+.sidebar__link[aria-current="page"] { background: #2c4457; color: #fff; }
+.sidebar__logo { background: #fff; }
+.sidebar__btn { width: 68px; padding: 8px 0 6px; display: flex; flex-direction: column; align-items: center; gap: 3px; font: 500 11px var(--font-sans); background: none; border: 0; cursor: pointer; }
+.sidebar__btn:hover { color: #fff; }
+.sidebar__btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.sidebar__btn[aria-pressed="false"] { opacity: .6; }
+:root[data-theme="dark"] { --color-paper:#10171d;--color-sheet:#18222a;--color-field:#202c35;--color-rule:#33434f;--color-track:#2b3842;
+--color-blueprint:#1a2d3a;--color-grid:rgba(143,182,207,.14);--color-dot:rgba(200,220,235,.10);
+--color-ink:#e4ebef;--color-muted:#a3b4c0;--color-on-ink:#0f161b;--color-on-ink-muted:#8ea4b4;
+--color-accent:#8fb6cf;--color-accent-light:#8fb6cf;--color-done:#86b49a;--color-review:#e58a62;--color-danger:#e8806c;
+--focus-ring:0 0 0 3px rgba(143,182,207,.55);--shadow-render:0 6px 14px rgba(0,0,0,.55); }
+:root[data-theme="dark"] .sidebar { background: #080c10; }
+:root[data-theme="dark"] .sidebar__link[aria-current="page"] { background: #1b2d3b; }
+:root[data-theme="dark"] .panel[data-tone="blue"]{--tone:#7fb0cf;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#1a2a35;border-top-color:#7fb0cf}
+:root[data-theme="dark"] .panel[data-tone="teal"]{--tone:#6fb4c0;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#162b2f;border-top-color:#6fb4c0}
+:root[data-theme="dark"] .panel[data-tone="sage"]{--tone:#92b583;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#1c2b20;border-top-color:#92b583}
+:root[data-theme="dark"] .panel[data-tone="sand"]{--tone:#d9b95f;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#2b271a;border-top-color:#d9b95f}
+:root[data-theme="dark"] .panel[data-tone="clay"]{--tone:#e48c66;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#33231c;border-top-color:#e48c66}
+:root[data-theme="dark"] .panel[data-tone="slate"]{--tone:#9db0bd;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#1b252d;border-top-color:#9db0bd}
+:root[data-theme="dark"] .panel[data-tone="mauve"]{--tone:#b99bc4;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#28212d;border-top-color:#b99bc4}
+:root[data-theme="dark"] .panel[data-tone="rose"]{--tone:#d98ba0;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#2e1f26;border-top-color:#d98ba0}
+@media (prefers-color-scheme: dark) {
+ :root:not([data-theme="light"]) { --color-paper:#10171d;--color-sheet:#18222a;--color-field:#202c35;--color-rule:#33434f;--color-track:#2b3842;
+--color-blueprint:#1a2d3a;--color-grid:rgba(143,182,207,.14);--color-dot:rgba(200,220,235,.10);
+--color-ink:#e4ebef;--color-muted:#a3b4c0;--color-on-ink:#0f161b;--color-on-ink-muted:#8ea4b4;
+--color-accent:#8fb6cf;--color-accent-light:#8fb6cf;--color-done:#86b49a;--color-review:#e58a62;--color-danger:#e8806c;
+--focus-ring:0 0 0 3px rgba(143,182,207,.55);--shadow-render:0 6px 14px rgba(0,0,0,.55); }
+ :root:not([data-theme="light"]) .sidebar { background: #080c10; }
+ :root:not([data-theme="light"]) .sidebar__link[aria-current="page"] { background: #1b2d3b; }
+ :root:not([data-theme="light"]) .panel[data-tone="blue"]{--tone:#7fb0cf;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#1a2a35;border-top-color:#7fb0cf}
+ :root:not([data-theme="light"]) .panel[data-tone="teal"]{--tone:#6fb4c0;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#162b2f;border-top-color:#6fb4c0}
+ :root:not([data-theme="light"]) .panel[data-tone="sage"]{--tone:#92b583;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#1c2b20;border-top-color:#92b583}
+ :root:not([data-theme="light"]) .panel[data-tone="sand"]{--tone:#d9b95f;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#2b271a;border-top-color:#d9b95f}
+ :root:not([data-theme="light"]) .panel[data-tone="clay"]{--tone:#e48c66;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#33231c;border-top-color:#e48c66}
+ :root:not([data-theme="light"]) .panel[data-tone="slate"]{--tone:#9db0bd;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#1b252d;border-top-color:#9db0bd}
+ :root:not([data-theme="light"]) .panel[data-tone="mauve"]{--tone:#b99bc4;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#28212d;border-top-color:#b99bc4}
+ :root:not([data-theme="light"]) .panel[data-tone="rose"]{--tone:#d98ba0;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#2e1f26;border-top-color:#d98ba0}
+ :root:not([data-theme="light"]) .btn { border-color: var(--color-muted); }
+ :root:not([data-theme="light"]) .btn--primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-ink); }
+ :root:not([data-theme="light"]) .btn--primary:hover { background: color-mix(in srgb, var(--color-accent) 82%, white); }
+ :root:not([data-theme="light"]) .sidebar__logo { background: var(--color-field); color: var(--color-accent); }
+ :root:not([data-theme="light"]) .sidebar__logo svg { stroke: var(--color-accent); }
+}
+/* Dark: the ink-filled primary button would be a bright slab on a dark page, so it takes the accent; outlines use the muted colour; the logo tile stops being white. */
+:root[data-theme="dark"] .btn { border-color: var(--color-muted); }
+:root[data-theme="dark"] .btn--primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-ink); }
+:root[data-theme="dark"] .btn--primary:hover { background: color-mix(in srgb, var(--color-accent) 82%, white); }
+:root[data-theme="dark"] .sidebar__logo { background: var(--color-field); color: var(--color-accent); }
+:root[data-theme="dark"] .sidebar__logo svg { stroke: var(--color-accent); }
+/* Build progress: each subsystem button is tinted in its own colour (--k, set on the link), so it matches its bar and diamond. */
+.swatch { background: color-mix(in srgb, var(--k, transparent) 22%, var(--color-sheet)); border-color: color-mix(in srgb, var(--k, var(--color-rule)) 75%, transparent); }
+.swatch:hover { background: color-mix(in srgb, var(--k, transparent) 36%, var(--color-sheet)); }
+.swatch:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+/* Bubbles: the one place round shapes are allowed. Behind every panel, never over text. */
+.bubbles { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.shell { position: relative; z-index: 1; }
+.bubbles i { position: absolute; bottom: -90px; left: var(--x); width: var(--s); height: var(--s); border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  background: radial-gradient(circle at 30% 28%, color-mix(in srgb, var(--color-accent) 30%, transparent), color-mix(in srgb, var(--color-accent) 8%, transparent) 62%);
+  animation: rise var(--d) linear var(--delay) infinite; will-change: transform; }
+@keyframes rise { from { transform: translate(0,0); } 50% { transform: translate(var(--sw), -60vh); } to { transform: translate(0,-115vh); } }
+:root[data-bubbles="off"] .bubbles { display: none; }
+@media (prefers-reduced-motion: reduce) { .bubbles { display: none; } }
+@media print { .bubbles { display: none; } }

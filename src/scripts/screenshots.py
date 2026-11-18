@@ -29,6 +29,8 @@ SRC = Path(__file__).resolve().parents[1]
 ROOT = SRC.parent
 OUT = ROOT / ".context" / "screenshots"
 WIDTHS = (375, 1280)
+# The theme follows the browser's colour scheme: light files keep their names, dark ones get "-dark".
+SCHEMES = ("light", "dark")
 # (file name, path, who is signed in)
 PAGES = (
     ("home", "/", "member"),
@@ -417,11 +419,13 @@ def main() -> int:
             wait_for(f"{base}/health")
             with sync_playwright() as p:
                 browser = p.chromium.launch()
-                for width in WIDTHS:
+                for width, scheme in ((w, c) for w in WIDTHS for c in SCHEMES):
+                    suffix = "" if scheme == "light" else "-dark"
                     contexts = {}
                     for who, user in (("member", MEMBER), ("lead", LEAD), ("guest", None)):
                         context = browser.new_context(
-                            viewport={"width": width, "height": 900}
+                            viewport={"width": width, "height": 900},
+                            color_scheme=scheme,
                         )
                         if user is not None:
                             context.add_cookies(
@@ -439,32 +443,32 @@ def main() -> int:
                         response = page.goto(f"{base}{path}")
                         page.wait_for_load_state("networkidle")
                         page.evaluate("document.fonts.ready")
-                        target = OUT / f"{name}-{width}.png"
+                        target = OUT / f"{name}{suffix}-{width}.png"
                         page.screenshot(path=str(target), full_page=True)
                         overflow = page.evaluate(
                             "document.documentElement.scrollWidth - innerWidth"
                         )
                         print(
-                            f"{response.status} {path} at {width}px -> {target.relative_to(ROOT)}"
+                            f"{response.status} {path} at {width}px ({scheme}) -> {target.relative_to(ROOT)}"
                         )
                         expected = EXPECTED_STATUS.get(name, 200)
                         if response.status != expected:
                             problems.append(f"{path} returned {response.status}")
                         if overflow > 0:
                             problems.append(
-                                f"{path} scrolls sideways by {overflow}px at {width}px"
+                                f"{path} scrolls sideways by {overflow}px at {width}px ({scheme})"
                             )
                         page.close()
                     # The side panel, open: press the top bar button on a task page and on Home.
-                    for name, path in DRAWERS:
+                    for name, path in DRAWERS if scheme == "light" else ():
                         page = contexts["member"].new_page()
                         page.goto(f"{base}{path}")
                         page.wait_for_load_state("networkidle")
                         page.click("[data-worklog-open]")
                         page.wait_for_selector("#worklog[open] textarea")
-                        target = OUT / f"{name}-{width}.png"
+                        target = OUT / f"{name}{suffix}-{width}.png"
                         page.screenshot(path=str(target))
-                        print(f"opened the work log on {path} at {width}px -> {target.relative_to(ROOT)}")
+                        print(f"opened the work log on {path} at {width}px ({scheme}) -> {target.relative_to(ROOT)}")
                         page.close()
                     for context in contexts.values():
                         context.close()
