@@ -60,7 +60,7 @@ PANEL_TONES = {
     "your-task": "clay",
     "pick-up": "mauve",
     "build-progress": "slate",
-    "crush": "slate",
+    "crush": "rose",
 }
 
 STARTED = ("in_progress", "needs_review")

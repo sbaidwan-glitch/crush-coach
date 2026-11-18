@@ -6,6 +6,7 @@
 .panel[data-tone="clay"]{--tone:#b85f3b;--color-muted:#4d5d6a;--color-review:#9a4828;--color-todo:#4d5d6a;background:#f6e3da;border-top-color:#b85f3b}
 .panel[data-tone="slate"]{--tone:#4a5d6b;--color-muted:#4d5d6a;--color-review:#9a4828;--color-todo:#4d5d6a;background:#e7ecef;border-top-color:#4a5d6b}
 .panel[data-tone="mauve"]{--tone:#7d6388;--color-muted:#4d5d6a;--color-review:#9a4828;--color-todo:#4d5d6a;background:#ebe4ee;border-top-color:#7d6388}
+.panel[data-tone="rose"]{--tone:#a8566b;--color-muted:#4d5d6a;--color-review:#9a4828;--color-todo:#4d5d6a;background:#f5e2e7;border-top-color:#a8566b}
 .sidebar { background: #1d2f3d; }
 .sidebar__link, .sidebar__btn { color: #8ea4b4; }
 .sidebar__link[aria-current="page"] { background: #2c4457; color: #fff; }
@@ -28,6 +29,7 @@
 :root[data-theme="dark"] .panel[data-tone="clay"]{--tone:#e48c66;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#33231c;border-top-color:#e48c66}
 :root[data-theme="dark"] .panel[data-tone="slate"]{--tone:#9db0bd;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#1b252d;border-top-color:#9db0bd}
 :root[data-theme="dark"] .panel[data-tone="mauve"]{--tone:#b99bc4;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#28212d;border-top-color:#b99bc4}
+:root[data-theme="dark"] .panel[data-tone="rose"]{--tone:#d98ba0;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#2e1f26;border-top-color:#d98ba0}
 @media (prefers-color-scheme: dark) {
  :root:not([data-theme="light"]) { --color-paper:#10171d;--color-sheet:#18222a;--color-field:#202c35;--color-rule:#33434f;--color-track:#2b3842;
 --color-blueprint:#1a2d3a;--color-grid:rgba(143,182,207,.14);--color-dot:rgba(200,220,235,.10);
@@ -43,7 +45,19 @@
  :root:not([data-theme="light"]) .panel[data-tone="clay"]{--tone:#e48c66;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#33231c;border-top-color:#e48c66}
  :root:not([data-theme="light"]) .panel[data-tone="slate"]{--tone:#9db0bd;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#1b252d;border-top-color:#9db0bd}
  :root:not([data-theme="light"]) .panel[data-tone="mauve"]{--tone:#b99bc4;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#28212d;border-top-color:#b99bc4}
+ :root:not([data-theme="light"]) .panel[data-tone="rose"]{--tone:#d98ba0;--color-muted:#a3b4c0;--color-review:#e58a62;--color-todo:#a3b4c0;background:#2e1f26;border-top-color:#d98ba0}
+ :root:not([data-theme="light"]) .btn { border-color: var(--color-muted); }
+ :root:not([data-theme="light"]) .btn--primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-ink); }
+ :root:not([data-theme="light"]) .btn--primary:hover { background: color-mix(in srgb, var(--color-accent) 82%, white); }
+ :root:not([data-theme="light"]) .sidebar__logo { background: var(--color-field); color: var(--color-accent); }
+ :root:not([data-theme="light"]) .sidebar__logo svg { stroke: var(--color-accent); }
 }
+/* Dark: the ink-filled primary button would be a bright slab on a dark page, so it takes the accent; outlines use the muted colour; the logo tile stops being white. */
+:root[data-theme="dark"] .btn { border-color: var(--color-muted); }
+:root[data-theme="dark"] .btn--primary { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-on-ink); }
+:root[data-theme="dark"] .btn--primary:hover { background: color-mix(in srgb, var(--color-accent) 82%, white); }
+:root[data-theme="dark"] .sidebar__logo { background: var(--color-field); color: var(--color-accent); }
+:root[data-theme="dark"] .sidebar__logo svg { stroke: var(--color-accent); }
 /* Bubbles: the one place round shapes are allowed. Behind every panel, never over text. */
 .bubbles { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
 .shell { position: relative; z-index: 1; }

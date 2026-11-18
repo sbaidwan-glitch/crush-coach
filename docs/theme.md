@@ -3,9 +3,9 @@
 Reference: `docs/concepts/home.html` and `tasks.html` (they load `src/static/styles/theme.css`); screenshots `*-light-*.png`, `*-dark-*.png`.
 
 ## 1. A muted colour per panel
-- A panel gets `data-tone="blue|teal|sage|sand|clay|mauve|slate"`. The tone sets the panel's background tint and its 3px top rule. Tokens live in `theme.css` (light and dark values for each).
+- A panel gets `data-tone="blue|teal|sage|sand|clay|mauve|slate|rose"`. The tone sets the panel's background tint and its 3px top rule. Tokens live in `theme.css` (light and dark values for each).
 - **On /tasks a subsystem panel uses its subsystem's tone, the same colour as its progress bar and diamond:** Enclosure = blue, Seals = teal, Thrusters = sage, Actuators = sand. Subsystem colours therefore keep one meaning everywhere.
-- Panels that are not a subsystem never use those four: Home "Your task" = clay, "Pick up a task" = mauve, "Build progress" and "Crush" = slate; on /tasks, Recent decisions (now the Record link) = mauve, Waiting for review = clay.
+- Panels that are not a subsystem never use those four: Home "Your task" = clay, "Pick up a task" = mauve, "Build progress" = slate, "Crush" = rose (a warm frame around the blue blueprint); on /tasks, Recent decisions (now the Record link) = mauve, Waiting for review = clay.
 - Inside a tone, `--color-muted`, `--color-todo` and `--color-review` are darker (light) or lighter (dark) so small text keeps at least 4.5:1. Measured on the concepts: lowest text contrast 4.87:1 light, 5.7:1 dark.
 - Fields and inset boxes keep `--color-sheet`/`--color-field`, so form controls stay white-ish on a tint.
 

@@ -56,7 +56,7 @@ def test_other_panels_never_use_a_subsystem_tone():
         "your-task": "clay",
         "pick-up": "mauve",
         "build-progress": "slate",
-        "crush": "slate",
+        "crush": "rose",
     }
     assert not set(others.values()) & SUBSYSTEM_TONES
 
@@ -110,7 +110,7 @@ def test_home_panels_use_their_own_tones(session, as_user):
         ("your-task", "clay"),
         ("pick-up", "mauve"),
         ("build-progress", "slate"),
-        ("crush", "slate"),
+        ("crush", "rose"),
     ):
         assert re.search(rf'data-tone="{tone}" aria-labelledby="{heading}"', html), heading
 
