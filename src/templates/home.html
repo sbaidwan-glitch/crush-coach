@@ -71,7 +71,7 @@
     <div class="legend"><span class="key" style="--k:var(--color-sub-1)">Done</span><span class="key" style="--k:color-mix(in srgb,var(--color-sub-1) 55%,white)">In progress</span><span class="key" style="--k:color-mix(in srgb,var(--color-sub-1) 22%,white)">Not started</span></div>
     <div class="swatches">
       {% for g in groups %}
-      <a class="swatch" href="/tasks#{{ g.slug }}">{{ diamond(g) }}<span>{{ g.label }}<span class="task-row__meta">{{ g.open }} open task{{ "" if g.open == 1 else "s" }}</span></span><b>{{ g.done }}<span> / {{ g.total }}</span></b></a>
+      <a class="swatch" style="--k:var(--color-sub-{{ g.colour }})" href="/tasks#{{ g.slug }}">{{ diamond(g) }}<span>{{ g.label }}<span class="task-row__meta">{{ g.open }} open task{{ "" if g.open == 1 else "s" }}</span></span><b>{{ g.done }}<span> / {{ g.total }}</span></b></a>
       {% endfor %}
     </div>
   </section>

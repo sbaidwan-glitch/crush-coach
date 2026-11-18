@@ -58,6 +58,10 @@
 :root[data-theme="dark"] .btn--primary:hover { background: color-mix(in srgb, var(--color-accent) 82%, white); }
 :root[data-theme="dark"] .sidebar__logo { background: var(--color-field); color: var(--color-accent); }
 :root[data-theme="dark"] .sidebar__logo svg { stroke: var(--color-accent); }
+/* Build progress: each subsystem button is tinted in its own colour (--k, set on the link), so it matches its bar and diamond. */
+.swatch { background: color-mix(in srgb, var(--k, transparent) 22%, var(--color-sheet)); border-color: color-mix(in srgb, var(--k, var(--color-rule)) 75%, transparent); }
+.swatch:hover { background: color-mix(in srgb, var(--k, transparent) 36%, var(--color-sheet)); }
+.swatch:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 /* Bubbles: the one place round shapes are allowed. Behind every panel, never over text. */
 .bubbles { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
 .shell { position: relative; z-index: 1; }
