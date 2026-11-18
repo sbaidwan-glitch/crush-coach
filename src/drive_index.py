@@ -52,6 +52,7 @@ logging.getLogger("pypdf").addFilter(_QuietPdfRepairs())
 # --- limits -----------------------------------------------------------------
 
 MAX_PDF_BYTES = 20 * 1024 * 1024  # bigger PDFs are skipped, with the reason recorded
+MAX_PDF_ENV = "DRIVE_INDEX_MAX_PDF_MB"  # raise it to index a big textbook
 MAX_TEXT_CHARS = 1_500_000  # per file; anything past this is dropped ("cut short")
 MAX_SHEET_ROWS = 5000  # per tab
 SHEET_RANGES_PER_CALL = 10
@@ -157,6 +158,19 @@ def describe_error(exc: BaseException) -> str:
 
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def max_pdf_bytes() -> int:
+    """The biggest PDF that is read: MAX_PDF_BYTES, or DRIVE_INDEX_MAX_PDF_MB if set.
+
+    A textbook is often 30-100 MB. Reading one takes minutes and memory, so the limit
+    stays low by default; raise it on the machine that runs the sync.
+    """
+    try:
+        megabytes = float(os.environ.get(MAX_PDF_ENV) or 0)
+    except ValueError:
+        megabytes = 0
+    return int(megabytes * 1024 * 1024) if megabytes > 0 else MAX_PDF_BYTES
 
 
 def clean_text(value: str) -> str:
@@ -638,13 +652,14 @@ def extract(services: GoogleServices, info: dict[str, Any]) -> Extracted:
             return _extract_sheet(services, info["drive_id"])
         if kind == "pdf":
             size = info.get("size")
-            if size is not None and size > MAX_PDF_BYTES:
+            limit = max_pdf_bytes()
+            if size is not None and size > limit:
                 megabytes = size / (1024 * 1024)
                 return Extracted(
                     status="skipped",
                     reason=(
                         f"PDF is {megabytes:.0f} MB, over the "
-                        f"{MAX_PDF_BYTES // (1024 * 1024)} MB limit"
+                        f"{limit // (1024 * 1024)} MB limit"
                     ),
                 )
             return _extract_pdf(services, info["drive_id"])

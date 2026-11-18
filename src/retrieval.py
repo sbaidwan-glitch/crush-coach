@@ -527,6 +527,14 @@ def _register(known: dict[str, dict[str, Any]], hit: drive_index.SearchHit) -> N
         entry["chunk_ids"].append(hit.chunk_id)
 
 
+def register_source(
+    known: dict[str, dict[str, Any]], hit: drive_index.SearchHit
+) -> None:
+    """Allow the model to cite this file: its link is kept when an answer is checked.
+    Used for sources a tool found after the prompt was built."""
+    _register(known, hit)
+
+
 def _register_decisions(
     known: dict[str, dict[str, Any]], found: list[dict[str, Any]]
 ) -> None:
@@ -736,10 +744,10 @@ def _describe_decision(d: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def numbered_sources(r: Retrieval) -> dict[int, drive_index.SearchHit]:
-    """The passages as the model sees them: [S1], [S2]... (this-question passages
+def numbered_sources(r: Retrieval) -> dict[str, drive_index.SearchHit]:
+    """The passages as the model sees them: "S1", "S2"... (this-question passages
     first, then the ones carried over from earlier in the chat)."""
-    return {n: hit for n, hit in enumerate([*r.chunks, *r.earlier], start=1)}
+    return {f"S{n}": hit for n, hit in enumerate([*r.chunks, *r.earlier], start=1)}
 
 
 def system_context(task: dict[str, str], team_facts: list[str], today: str) -> str:

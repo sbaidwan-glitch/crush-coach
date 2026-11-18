@@ -26,6 +26,7 @@ from typing import Any
 
 import drive
 import llm
+import recommend as recommend_tools
 import retrieval
 
 log = logging.getLogger("crush_coach")
@@ -52,6 +53,11 @@ NOTE_SHORTENED = (
     "This answer hit the length limit, so it ends at its last full sentence "
     "(shortened). Ask a follow-up for the rest."
 )
+NOTE_NO_SEARCH = (
+    "Searching the reference books failed, so this recommendation uses only the "
+    "team's own sources."
+)
+NOTE_NO_CALC = "The calculator failed, so check every number in this answer by hand."
 NOTE_CUT_SHORT = (
     "This answer stopped early (time limit or connection). "
     "Ask again if something is missing."
@@ -69,6 +75,10 @@ def notes_for(answer: llm.CoachAnswer) -> list[str]:
         notes.append(NOTE_CUT_SHORT)
     if answer.drive_failed:
         notes.append(NOTE_DRIVE)
+    if "search_references" in answer.tools_failed:
+        notes.append(NOTE_NO_SEARCH)
+    if "calculate" in answer.tools_failed:
+        notes.append(NOTE_NO_CALC)
     if answer.decisions_failed:
         notes.append(NOTE_DECISIONS)
     if answer.ungrounded_links:
@@ -134,12 +144,12 @@ def clean_end(text: str) -> str:
     return text
 
 
-_SOURCE_REF = re.compile(r"\[S(\d+)\](?!\()")
+_SOURCE_REF = re.compile(r"\[([SR]\d+)\](?!\()")
 
 
-def link_source_numbers(text: str, numbered: dict[int, Any]) -> str:
-    """Turn a bare "[S3]" (the number the model saw in the prompt) into the Markdown
-    link `[Title](link)` to that source.
+def link_source_numbers(text: str, numbered: dict[str, Any]) -> str:
+    """Turn a bare "[S3]" (the number the model saw in the prompt) or "[R2]" (a number a
+    search tool gave it) into the Markdown link `[Title](link)` to that source.
 
     The prompt asks for links, but smaller models cite by number, and the page
     can't show or open a number. Only the links the model was given are used, so
@@ -147,7 +157,7 @@ def link_source_numbers(text: str, numbered: dict[int, Any]) -> str:
     """
 
     def link(match: re.Match[str]) -> str:
-        hit = numbered.get(int(match.group(1)))
+        hit = numbered.get(match.group(1))
         if hit is None or not hit.web_link:
             return match.group(0)
         title = hit.name.replace("[", "(").replace("]", ")")
@@ -205,28 +215,45 @@ class AnswerRun:
         record: Callable[[llm.CallRecord], None] | None = None,
         read_doc: ReadDoc | None = None,
         seconds: float | None = None,
+        recommend: recommend_tools.RecommendKit | None = None,
     ) -> None:
         self.found = found
         self.numbered = retrieval.numbered_sources(found)
+        self.recommend = recommend
         self.answer: llm.CoachAnswer | None = None
-        system = (
-            llm.system_prompt()
-            + "\n\n"
-            + retrieval.system_context(task, found.facts, today)
-        )
-        self._stream = llm.CoachStream(
-            system,
-            history,
-            retrieval.user_content(found, question),
-            read_file=live_reader(found.readable_ids, read_doc),
-            record=record,
-            seconds=seconds,
-        )
+        system = llm.system_prompt()
+        if recommend is not None:
+            system += llm.recommend_prompt()
+        system += "\n\n" + retrieval.system_context(task, found.facts, today)
+        if recommend is None:
+            self._stream = llm.CoachStream(
+                system,
+                history,
+                retrieval.user_content(found, question),
+                read_file=live_reader(found.readable_ids, read_doc),
+                record=record,
+                seconds=seconds,
+            )
+        else:  # a recommendation: more tools, more rounds, more time
+            self._stream = llm.CoachStream(
+                system,
+                history,
+                retrieval.user_content(found, question),
+                read_file=live_reader(found.readable_ids, read_doc),
+                tools=recommend.tools(),
+                max_rounds=llm.RECOMMEND_ROUNDS,
+                record=record,
+                seconds=llm.RECOMMEND_SECONDS if seconds is None else seconds,
+            )
+
+    def _numbers(self) -> dict[str, Any]:
+        """[S#] passages from the prompt, and [R#] ones the search tool found since."""
+        return {**self.numbered, **(self.recommend.refs if self.recommend else {})}
 
     def _safe(self, text: str) -> str:
         """The text so far, as the page may show it while it is still being written."""
         shown, _ = llm.remove_ungrounded_links(
-            link_source_numbers(hold_back_partial_url(text), self.numbered),
+            link_source_numbers(hold_back_partial_url(text), self._numbers()),
             self.found.known,
         )
         return shown
@@ -257,7 +284,7 @@ class AnswerRun:
         text = stream.text.strip()
         if stream.truncated or stream.cut_short:
             text = clean_end(text)
-        text = link_source_numbers(text, self.numbered)
+        text = link_source_numbers(text, self._numbers())
         text, sources, ungrounded = llm.ground_answer(text, self.found.known)
         return llm.CoachAnswer(
             text=text,
@@ -269,6 +296,8 @@ class AnswerRun:
             cut_short=stream.cut_short,
             shortened=stream.truncated,
             tool_calls=stream.reads,
+            tools_used=dict(stream.tools_used),
+            tools_failed=list(stream.failed_tools),
             seconds=stream.elapsed,
             first_text_seconds=stream.first_text_seconds,
         )

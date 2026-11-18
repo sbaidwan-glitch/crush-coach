@@ -1333,3 +1333,170 @@ def test_a_follow_up_gets_an_answer_and_keeps_the_first_answers_sources(
     second = model.requests[1]
     assert [m["role"] for m in second["messages"]][-3:] == ["user", "assistant", "user"]
     assert "Use the two-point latch on the lid" in second["messages"][-1]["content"]
+
+
+# --- the Recommend button ---
+
+HANDBOOK = "https://drive.google.com/file/d/1HandbookHandbookHandbook/view"
+
+
+@pytest.fixture
+def library(session, task):
+    add_file(
+        session,
+        "Parker O-Ring Handbook.pdf",
+        kind="pdf",
+        folder="MuddSub / Library / Textbooks",
+        chunks=[
+            "Latch seating: squeeze should be 15 to 30 percent of the cross section."
+        ],
+        drive_id="handbook0001",
+        link=HANDBOOK,
+    )
+
+
+def test_the_recommend_button_is_under_the_latest_answer_only(
+    monkeypatch, session, task, client
+):
+    script(monkeypatch, fake.reply("The latch holds."), fake.reply("Second answer."))
+    ask(client, "How should the latch work?")
+    ask(client, "And the hinge?")
+
+    page = client.get("/tasks/M04").text
+
+    assert page.count("data-coach-recommend") == 1
+    assert page.rindex("data-coach-recommend") > page.index("Second answer.")
+    assert 'name="recommend" value="1"' in page
+
+
+def test_there_is_no_recommend_button_before_any_answer_or_under_a_failure(
+    monkeypatch, session, task, client
+):
+    assert "data-coach-recommend" not in client.get("/tasks/M04").text
+    script(monkeypatch, fake.rate_limited())
+    ask(client)
+
+    assert "data-coach-recommend" not in client.get("/tasks/M04").text
+
+
+def test_a_fresh_answer_brings_the_button_and_a_recommendation_does_not(
+    monkeypatch, session, task, library, client
+):
+    script(
+        monkeypatch,
+        fake.reply("The latch holds."),
+        fake.reply("**Recommendation:** 20 percent squeeze."),
+    )
+
+    first = stream(client, "How should the latch work?")
+    second = stream(client, "", recommend="1")
+
+    assert "data-coach-recommend" in first[-1]["html"]
+    assert second[-1]["type"] == "done"
+    assert "data-coach-recommend" not in second[-1]["html"]
+
+
+def test_pressing_recommend_searches_the_references_calculates_and_cites(
+    monkeypatch, session, task, library, client
+):
+    model = script(
+        monkeypatch,
+        fake.reply(f"The latch holds ([notes]({LINK}))."),
+        fake.tool_request(("s1", "search_references", '{"query": "latch squeeze"}')),
+        fake.tool_request(("c1", "calculate", '{"expression": "0.125 * 0.2"}')),
+        fake.reply(
+            "**Recommendation:** 20 percent squeeze [R1]. Gland depth 0.025 in."
+        ),
+    )
+    stream(client, "How should the latch work?")
+
+    events = stream(client, "", recommend="1")
+
+    done = events[-1]
+    assert done["type"] == "done"
+    assert "Recommendation:" in done["html"]
+    assert f'href="{HANDBOOK}"' in done["html"]  # [R1] became a link to the handbook
+    assert "Parker O-Ring Handbook.pdf" in done["html"]
+    steps = [e["text"] for e in events if e["type"] == "step"]
+    assert any("reference books" in step for step in steps)
+    assert any("Calculating" in step for step in steps)
+    # the saved member message is the button's fixed text; the answer is a recommendation
+    saved = sorted(stored(session, CoachMessage), key=lambda m: m.id)
+    assert [m.role for m in saved] == ["user", "assistant", "user", "assistant"]
+    assert saved[2].content == coach.RECOMMEND_REQUEST
+    assert json.loads(saved[3].meta)["recommend"] is True
+    # retrieval used the design question, so the latch notes are in the prompt
+    first_prompt = model.requests[1]["messages"][-1]["content"]
+    assert (
+        "How should the latch work?" not in first_prompt
+    )  # the member's message is the request
+    assert "Give me your recommendation." in first_prompt
+    assert "Latch design notes" in first_prompt
+    assert [r.get("tool_choice") for r in model.requests[1:]] == [None, None, None]
+    # every call is logged, tool rounds included
+    assert [c.status for c in stored(session, LlmCall)] == ["ok", "ok", "ok", "ok"]
+
+
+def test_a_recommendation_is_rejected_when_nothing_has_been_asked_yet(
+    monkeypatch, session, task, client
+):
+    script(monkeypatch)  # a model call would raise
+
+    events = stream(client, "", recommend="1")
+
+    assert events[-1]["type"] == "rejected"
+    assert "Ask the coach" in events[-1]["message"]
+    assert stored(session, CoachMessage) == []
+    assert stored(session, LlmCall) == []
+
+
+def test_a_recommendation_counts_toward_the_daily_cap(
+    monkeypatch, session, task, library, client
+):
+    monkeypatch.setenv("COACH_DAILY_LIMIT", "2")
+    script(monkeypatch, fake.reply("The latch holds."), fake.reply("Recommendation."))
+    stream(client, "How should the latch work?")
+    stream(client, "", recommend="1")
+
+    events = stream(client, "And one more?")
+
+    assert (
+        events[-1]["type"] == "rejected" and "2 coach messages" in events[-1]["message"]
+    )
+
+
+def test_retrying_a_failed_recommendation_is_a_recommendation_again(
+    monkeypatch, session, task, library, client
+):
+    model = script(
+        monkeypatch,
+        fake.reply("The latch holds."),
+        fake.rate_limited(),
+        fake.reply("**Recommendation:** 20 percent squeeze."),
+    )
+    stream(client, "How should the latch work?")
+    failed = stream(client, "", recommend="1")
+    assert failed[-1]["type"] == "failed"
+    [error] = [m for m in stored(session, CoachMessage) if m.role == "error"]
+
+    events = stream(client, "", retry=str(json.loads(error.meta)["retry_of"]))
+
+    assert events[-1]["type"] == "done"
+    assert "Recommendation mode" in model.requests[-1]["messages"][0]["content"]
+    assert "data-coach-recommend" not in events[-1]["html"]
+
+
+def test_the_plain_form_post_recommends_too(
+    monkeypatch, session, task, library, client
+):
+    script(
+        monkeypatch,
+        fake.reply("The latch holds."),
+        fake.reply("**Recommendation:** 20 percent squeeze."),
+    )
+    ask(client, "How should the latch work?")
+
+    response = client.post("/tasks/M04/coach", data={"recommend": "1"}, headers=HTMX)
+
+    assert "Recommendation:" in response.text
+    assert [c.status for c in stored(session, LlmCall)] == ["ok", "ok"]

@@ -284,9 +284,11 @@ def test_a_real_link_next_to_its_number_is_left_alone():
         "Hit", (), {"name": "Latch design notes", "web_link": "https://x.test/a"}
     )
 
-    assert answering.link_source_numbers(text, {1: hit}).count("https://x.test/a") == 2
+    assert (
+        answering.link_source_numbers(text, {"S1": hit}).count("https://x.test/a") == 2
+    )
     already = "[S1](https://z.test)"  # already a Markdown link: not touched
-    assert answering.link_source_numbers(already, {1: hit}) == already
+    assert answering.link_source_numbers(already, {"S1": hit}) == already
 
 
 def test_the_streamed_text_shows_numbered_citations_as_links_too(monkeypatch, found):
@@ -296,3 +298,125 @@ def test_the_streamed_text_shows_numbered_citations_as_links_too(monkeypatch, fo
 
     texts = [e["text"] for e in events if e["type"] == "text"]
     assert f"[Latch design notes]({LINK})" in texts[-1]
+
+
+# --- recommendation mode ---
+
+
+@pytest.fixture
+def kit(session, found):
+    import contextlib
+
+    import recommend
+
+    add_file(
+        session,
+        "Parker O-Ring Handbook.pdf",
+        kind="pdf",
+        folder="MuddSub / Library / Textbooks",
+        chunks=["Static face seal gland squeeze should be 15 to 30 percent."],
+        drive_id="handbook0001",
+        link="https://drive.google.com/file/d/1HandbookHandbookHandbook/view",
+    )
+    return recommend.RecommendKit(found, lambda: contextlib.nullcontext(session))
+
+
+def start_recommend(monkeypatch, found, kit, *script):
+    client = fake.FakeClient(script)
+    monkeypatch.setattr(llm, "get_client", lambda: client)
+    records = []
+    run = answering.AnswerRun(
+        TASK,
+        found,
+        "Give me your recommendation.",
+        [],
+        today="2026-11-15",
+        record=records.append,
+        recommend=kit,
+    )
+    return run, records, client
+
+
+def test_a_recommendation_searches_calculates_and_cites_what_it_found(
+    monkeypatch, found, kit
+):
+    run, records, client = start_recommend(
+        monkeypatch,
+        found,
+        kit,
+        fake.tool_request(("s1", "search_references", '{"query": "gasket squeeze"}')),
+        fake.tool_request(("c1", "calculate", '{"expression": "0.125 * 0.2"}')),
+        fake.reply("**Recommendation:** squeeze 20 percent [R1]. Gland depth 0.025."),
+    )
+
+    answer = run.run()
+
+    assert (
+        "[Parker O-Ring Handbook.pdf](https://drive.google.com/file/d/1Handbook"
+        in answer.text
+    )
+    assert [s["title"] for s in answer.sources] == ["Parker O-Ring Handbook.pdf"]
+    assert answer.tools_used == {"search_references": 1, "calculate": 1}
+    assert answer.ungrounded_links is False
+    assert len(records) == 3
+    first = client.requests[0]
+    assert "Recommendation mode" in first["messages"][0]["content"]
+    assert {t["function"]["name"] for t in first["tools"]} == {
+        "read_file",
+        "search_references",
+        "calculate",
+    }
+
+
+def test_a_recommendation_gets_the_longer_time_limit_and_more_rounds(
+    monkeypatch, found, kit
+):
+    run, _, _ = start_recommend(monkeypatch, found, kit, fake.reply("Done."))
+
+    assert run._stream.seconds == llm.RECOMMEND_SECONDS > llm.ANSWER_SECONDS
+    assert run._stream.max_rounds == llm.RECOMMEND_ROUNDS > 1
+
+
+def test_a_normal_answer_has_no_recommendation_prompt_or_tools(monkeypatch, found):
+    run, _, client = start(monkeypatch, found, fake.reply("Plain answer."))
+
+    run.run()
+
+    request = client.requests[0]
+    assert "Recommendation mode" not in request["messages"][0]["content"]
+    assert [t["function"]["name"] for t in request["tools"]] == ["read_file"]
+    assert run._stream.seconds == llm.ANSWER_SECONDS
+
+
+def test_a_failed_search_is_noted_for_the_member(monkeypatch, found, kit):
+    def boom(arguments, seconds_left):
+        raise RuntimeError("index down")
+
+    kit.search_references = boom
+    run, _, _ = start_recommend(
+        monkeypatch,
+        found,
+        kit,
+        fake.tool_request(("s1", "search_references", '{"query": "x"}')),
+        fake.reply("From the team's sources only."),
+    )
+
+    answer = run.run()
+
+    assert answering.NOTE_NO_SEARCH in answering.notes_for(answer)
+
+
+def test_a_reference_link_the_model_invents_is_still_removed(monkeypatch, found, kit):
+    run, _, _ = start_recommend(
+        monkeypatch,
+        found,
+        kit,
+        fake.reply(
+            "See [Shigley](https://drive.google.com/file/d/1MadeUpMadeUpMadeUp/view)."
+        ),
+    )
+
+    answer = run.run()
+
+    assert "MadeUp" not in answer.text and "Shigley" in answer.text
+    assert answer.ungrounded_links is True

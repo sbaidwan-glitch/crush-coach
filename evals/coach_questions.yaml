@@ -12,9 +12,12 @@
 #               worded several ways.
 #   cite        a file/doc name the answer should link (substring match)
 #   must_not    things a good answer must NOT do (phrases or behaviors)
-#   kind        lookup | how-to | why | conflict | unknown | follow-up
+#   kind        lookup | how-to | why | conflict | unknown | follow-up | recommend
 #               (conflict = sources disagree; unknown = nothing in the Drive answers it;
 #               follow-up = a second message in the same chat, see `after`)
+#   recommend   (true on one question) asked like pressing the Recommend button after
+#               `after`: the coach searches the reference books and calculates.
+#               `question` is then the button's own text, "Give me your recommendation."
 #   after       (follow-ups only) the id of an earlier question. It is asked in the same
 #               chat, after that question and its answer, the way a member would type it.
 #               Running a follow-up with ONLY=<id> asks the question it follows too.
@@ -162,3 +165,16 @@
   cite: ""
   must_not: ["couldn't put an answer together", "which season"]
   kind: follow-up
+
+# Recommendations: the Recommend button after an answer. The coach should state a
+# recommendation, say where it comes from (team source and a reference, linked), and
+# keep the numbers it was given. A lead still decides.
+- id: gasket-recommend
+  task: M03
+  after: gasket-clearance
+  recommend: true
+  question: Give me your recommendation.
+  expect: ["Recommendation", "0.030", ["Parker", "handbook", "Gasket Selection Notes", "General engineering"]]
+  cite: ""
+  must_not: ["couldn't put an answer together", "which season"]
+  kind: recommend

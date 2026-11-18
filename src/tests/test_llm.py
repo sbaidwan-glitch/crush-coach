@@ -655,6 +655,188 @@ def test_an_invented_markdown_link_keeps_its_title_and_leaves_no_fragment():
     assert f"[the doc]({DOC_LINK})" in clean  # the real link is untouched
 
 
+# --- recommendation mode: several tools, several rounds ---
+
+
+def calc_tool(calls=None):
+    def run(arguments, seconds_left):
+        if calls is not None:
+            calls.append(arguments)
+        return json.dumps({"result": "0.6"})
+
+    return llm.Tool(
+        "calculate",
+        {"type": "function", "function": {"name": "calculate", "parameters": {}}},
+        run,
+        "Calculating…",
+    )
+
+
+def search_tool(calls=None):
+    def run(arguments, seconds_left):
+        if calls is not None:
+            calls.append(arguments)
+        return json.dumps({"results": ["Parker handbook p. 58"]})
+
+    return llm.Tool(
+        "search_references",
+        {
+            "type": "function",
+            "function": {"name": "search_references", "parameters": {}},
+        },
+        run,
+        "Searching the reference books…",
+    )
+
+
+def run_with_tools(script, monkeypatch, tools, max_rounds=4, read_file=None):
+    client = use_client(monkeypatch, script)
+    records = []
+    stream = llm.CoachStream(
+        "SYSTEM",
+        [],
+        "Give me your recommendation.",
+        read_file=read_file,
+        tools=tools,
+        max_rounds=max_rounds,
+        record=records.append,
+        seconds=45.0,
+    )
+    return stream, list(stream), records, client
+
+
+def test_the_model_can_use_tools_over_several_rounds_then_answers(monkeypatch):
+    searched, calculated = [], []
+    stream, events, records, client = run_with_tools(
+        [
+            fake.tool_request(
+                ("s1", "search_references", '{"query": "gasket clearance"}')
+            ),
+            fake.tool_request(("c1", "calculate", '{"expression": "0.030 / 0.050"}')),
+            fake.reply("Recommendation: 0.030 in."),
+        ],
+        monkeypatch,
+        [search_tool(searched), calc_tool(calculated)],
+    )
+
+    assert searched == [{"query": "gasket clearance"}]
+    assert calculated == [{"expression": "0.030 / 0.050"}]
+    assert stream.text == "Recommendation: 0.030 in."
+    assert stream.tools_used == {"search_references": 1, "calculate": 1}
+    steps = [value for kind, value in events if kind == "step"]
+    assert "Searching the reference books…" in steps and "Calculating…" in steps
+    assert [r.status for r in records] == ["ok", "ok", "ok"]
+    assert [r.tool_called for r in records] == [True, True, False]
+    # every call after a tool result still lists the tools (Anthropic needs them)
+    assert all("tools" in request for request in client.requests)
+    assert [r.get("tool_choice") for r in client.requests] == [None, None, None]
+
+
+def test_several_tool_calls_in_one_round_all_run_and_all_get_a_result(monkeypatch):
+    calculated = []
+    stream, _, _, client = run_with_tools(
+        [
+            fake.tool_request(
+                ("c1", "calculate", '{"expression": "1+1"}'),
+                ("c2", "calculate", '{"expression": "2+2"}'),
+            ),
+            fake.reply("Done."),
+        ],
+        monkeypatch,
+        [calc_tool(calculated)],
+    )
+
+    assert len(calculated) == 2 and stream.text == "Done."
+    second = client.requests[1]["messages"]
+    assert [m["tool_call_id"] for m in second if m["role"] == "tool"] == ["c1", "c2"]
+    [asked] = [m for m in second if m.get("tool_calls")]
+    assert [c["id"] for c in asked["tool_calls"]] == ["c1", "c2"]
+
+
+def test_tools_are_forbidden_once_the_rounds_are_used_up(monkeypatch):
+    stream, _, _, client = run_with_tools(
+        [
+            fake.tool_request(("c1", "calculate", '{"expression": "1+1"}')),
+            fake.tool_request(("c2", "calculate", '{"expression": "2+2"}')),
+            fake.reply("Final."),
+        ],
+        monkeypatch,
+        [calc_tool()],
+        max_rounds=1,
+    )
+
+    assert stream.tools_used == {"calculate": 1}  # the second request was not run
+    assert client.requests[1]["tool_choice"] == "none"
+    assert stream.text == "Final."
+
+
+def test_a_tool_that_fails_is_reported_to_the_model_and_the_answer_goes_on(monkeypatch):
+    def boom(arguments, seconds_left):
+        raise RuntimeError("secret detail sk-secret-123")
+
+    failing = llm.Tool("calculate", calc_tool().spec, boom, "Calculating…")
+    stream, _, _, client = run_with_tools(
+        [
+            fake.tool_request(("c1", "calculate", '{"expression": "1+1"}')),
+            fake.reply("From the sources only."),
+        ],
+        monkeypatch,
+        [failing],
+    )
+
+    assert stream.failed_tools == ["calculate"]
+    assert stream.text == "From the sources only."
+    told = client.requests[1]["messages"][-1]["content"]
+    assert "calculate tool failed" in told and "sk-secret-123" not in told
+
+
+def test_bad_json_arguments_to_a_tool_count_as_a_failure_not_a_crash(monkeypatch):
+    calls = []
+    stream, _, _, _ = run_with_tools(
+        [
+            fake.tool_request(("c1", "calculate", "not json")),
+            fake.reply("Answer."),
+        ],
+        monkeypatch,
+        [calc_tool(calls)],
+    )
+
+    assert calls == [] and stream.failed_tools == ["calculate"]
+    assert stream.text == "Answer."
+
+
+def test_an_unknown_tool_name_is_ignored(monkeypatch):
+    stream, _, _, client = run_with_tools(
+        [
+            fake.tool_request(("x1", "delete_everything", "{}")),
+            fake.reply("Answer."),
+        ],
+        monkeypatch,
+        [calc_tool()],
+    )
+
+    assert stream.tools_used == {}
+    assert stream.text == "Answer."  # the empty first call was tried again
+    assert len(client.requests) == 2
+
+
+def test_the_live_read_and_the_new_tools_work_together(monkeypatch):
+    reads = []
+    stream, _, _, _ = run_with_tools(
+        [
+            fake.tool_request(read_call()),
+            fake.tool_request(("c1", "calculate", '{"expression": "2*3"}')),
+            fake.reply("Both used."),
+        ],
+        monkeypatch,
+        [calc_tool()],
+        read_file=lambda file_id, seconds_left: reads.append(file_id) or "{}",
+    )
+
+    assert reads == ["1AbCdEfGhIjKlMnOp"]
+    assert stream.reads == 1 and stream.tools_used == {"read_file": 1, "calculate": 1}
+
+
 # --- Tidy my note ---
 
 TIDY_TASK = {"Task": "M06 Weld the enclosure walls", "Subsystem": "Enclosure"}

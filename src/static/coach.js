@@ -90,6 +90,10 @@
 
   function insertHtml(html) {
     var pending = byId("coach-pending");
+    // A newer message makes any earlier "Recommend" button stale; the new answer
+    // brings its own.
+    var stale = document.querySelectorAll("[data-coach-recommend]");
+    for (var i = 0; i < stale.length; i++) stale[i].parentNode.removeChild(stale[i]);
     if (pending) pending.insertAdjacentHTML("beforebegin", html);
   }
 
@@ -97,7 +101,9 @@
     busy = on;
     var fields = document.querySelector("#coach-form fieldset");
     if (fields) fields.disabled = on;
-    var retries = document.querySelectorAll("[data-coach-retry] button");
+    var retries = document.querySelectorAll(
+      "[data-coach-retry] button, [data-coach-recommend] button"
+    );
     for (var i = 0; i < retries.length; i++) retries[i].disabled = on;
   }
 
@@ -124,7 +130,7 @@
         removeLive();
         insertHtml(event.html);
         state.finished = true;
-        if (!state.isRetry) {
+        if (!state.keepBox) {
           var box = byId("coach-message");
           if (box) box.value = "";
         }
@@ -133,7 +139,7 @@
         removeLive();
         insertHtml(event.html);
         state.finished = true;
-        if (!state.isRetry) {
+        if (!state.keepBox) {
           // The message is saved in the thread now; Retry sends it again.
           var field = byId("coach-message");
           if (field) field.value = "";
@@ -182,11 +188,15 @@
     return pump();
   }
 
-  function send(form, isRetry) {
+  function send(form, isRetry, isRecommend) {
     if (busy) return;
     var body = new URLSearchParams();
     var echoed = null;
-    if (isRetry) {
+    if (isRecommend) {
+      // The Recommend button sends one fixed message; the text box is left alone.
+      body.set("recommend", "1");
+      echoed = echoMemberMessage(form.getAttribute("data-message") || "");
+    } else if (isRetry) {
       body.set("retry", form.querySelector('input[name="retry"]').value);
       var failed = form.closest("[data-failed]");
       if (failed) failed.parentNode.removeChild(failed);
@@ -202,7 +212,13 @@
     setStatus(WORKING_TEXT);
     showPending(true);
 
-    var state = { isRetry: isRetry, sawText: false, finished: false, rejected: false };
+    var state = {
+      isRetry: isRetry,
+      keepBox: isRetry || isRecommend,
+      sawText: false,
+      finished: false,
+      rejected: false,
+    };
     var url = form.getAttribute("action") + "/stream";
     fetch(url, {
       method: "POST",
@@ -253,10 +269,12 @@
       if (!canStream) return;
       var form = event.target;
       var isRetry = form.hasAttribute && form.hasAttribute("data-coach-retry");
-      if (form.id !== "coach-form" && !isRetry) return;
+      var isRecommend =
+        form.hasAttribute && form.hasAttribute("data-coach-recommend");
+      if (form.id !== "coach-form" && !isRetry && !isRecommend) return;
       event.preventDefault();
       event.stopPropagation();
-      send(form, isRetry);
+      send(form, isRetry, isRecommend);
     },
     true
   );

@@ -12,7 +12,9 @@ search is billed per search on top of tokens. Prints no secrets and no prompt te
 beyond the question below.
 """
 
+import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -49,6 +51,39 @@ def citations(message: Any) -> list[str]:
     return found
 
 
+def extra_fields(reply: Any) -> list[str]:
+    """Names of the reply fields beyond the plain text: where a proxy may put search
+    results that are not OpenAI-style annotations."""
+    try:
+        data = reply.model_dump()
+    except Exception:  # noqa: BLE001  (a probe must never crash on an odd reply)
+        return []
+    message = (data.get("choices") or [{}])[0].get("message") or {}
+    names = [
+        f"message.{key}"
+        for key, value in message.items()
+        if key not in ("role", "content", "refusal") and value not in (None, [], {})
+    ]
+    names += [
+        key
+        for key in ("citations", "search_results", "provider_specific_fields")
+        if data.get(key)
+    ]
+    return names
+
+
+def urls_anywhere(reply: Any) -> list[str]:
+    """https URLs in the reply outside its text, however the proxy shaped the citations."""
+    try:
+        data = reply.model_dump()
+    except Exception:  # noqa: BLE001
+        return []
+    for choice in data.get("choices") or []:
+        (choice.get("message") or {}).pop("content", None)
+    text = json.dumps(data, default=str)
+    return list(dict.fromkeys(re.findall(r"https?://[^\s\"'<>)\]\\]+", text)))
+
+
 def probe(model: str) -> str:
     started = time.monotonic()
     try:
@@ -66,18 +101,20 @@ def probe(model: str) -> str:
         text = str(getattr(exc, "message", ""))[:160].replace("\n", " ")
         return f"{model}: ERROR {type(exc).__name__} {status} {text}"
     message = reply.choices[0].message
-    urls = citations(message)
+    urls = citations(message) or urls_anywhere(reply)
     cost = raw.headers.get(llm.COST_HEADER, "not reported")
     verdict = (
         "SEARCH WORKS (web citations)"
         if urls
-        else "no citations (answered from memory?)"
+        else "no citations found: judge from the answer and the cost (a billed search "
+        "adds about a cent over a plain answer)"
     )
     answer = " ".join((message.content or "").split())[:200]
+    extras = ", ".join(extra_fields(reply)) or "none"
     return (
         f"{model}: {verdict}; {len(urls)} citation(s), cost {cost}, "
-        f"{time.monotonic() - started:.1f}s\n    {answer}\n    "
-        + "\n    ".join(urls[:3])
+        f"{time.monotonic() - started:.1f}s, extra reply fields: {extras}\n    {answer}"
+        + "".join(f"\n    {url}" for url in urls[:3])
     )
 
 

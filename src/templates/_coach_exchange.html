@@ -8,7 +8,7 @@
      limit); the text stays in the box #}
 {% from "components/coach_message.html" import coach_message, coach_error %}
 {% if answer %}
-{{ coach_message({"id": answer.id, "role": "assistant", "member": "Coach", "content": answer.content, "notes": answer.notes, "sources": answer.sources, "settle": answer.settle}, code) }}
+{{ coach_message({"id": answer.id, "role": "assistant", "member": "Coach", "content": answer.content, "notes": answer.notes, "sources": answer.sources, "settle": answer.settle, "can_recommend": answer.can_recommend}, code) }}
 {% endif %}
 {% if failure %}
 {% with m = {"role": "error", "member": "Coach", "content": failure.content, "notes": [], "sources": [], "retry_id": failure.retry_id} %}{% include "_coach_message.html" %}{% endwith %}
