@@ -34,6 +34,8 @@ Newest entries at the bottom. Entries from here on are drafted with the /reflect
 
 **What I changed:** Cut XP and points; kept progress (Crush's build progress, completed tasks). Shifted the center of the product to finding answers in the Drive, with the coach inside each task. Kept the tracker as the backbone, updated automatically as people work.
 
+**Evidence:** The concept screens the people I talked to were shown: [Quest Board](process/2026-11-03-concept-quest-board.png) and [Build the Sub](process/2026-11-03-concept-build-the-sub.png).
+
 ## 6 Nov 2026: Repo setup
 **What I did:** Created the repo from the course template, removed lab-only files, and set up CLAUDE.md, permission rules that block the agent from reading secret files, and this log. Stored the Glassroom key in macOS Keychain and loaded it into the shell environment, so it is never in a file. Chose to work locally with Conductor instead of Codespaces.
 
@@ -141,3 +143,67 @@ I tested the coach on real tasks (M02, M03.5, E01). It took 20–50 seconds, ask
 **Evidence.** `make eval` in #27 (7d29dfa questions, 2544342 scoring, 15d8e73 runner, 51350d1 question cleanup). Earlier coach fixes in #26. The indexing run and baseline numbers aren't in git yet.
 
 **Next.** Rebuild the coach on the index and run `make eval` against the three targets. This tests whether answering from our own index fixes the root cause, or whether retrieval quality (CAD/PDF files, duplicates, spreadsheet headers) is the real limit.
+
+## 2026-11-23 — Design review
+
+**Stage:** Test
+
+**What I did.** On Monday 23 Nov, during the class design review, three classmates in my group of four each tried the app on their own device with no help from me and filled in a worksheet. 
+
+**What I learned.**
+- All three finished the main task and said it was smooth. None found it slow or broken.
+- The home display repeats itself. Build progress and the Crush labels do the same job, and both feel secondary to tasks. One reviewer suggested quadrants with the important things on top.
+- All tasks is a little overwhelming. One reviewer suggested shades to show what's mine at a glance.
+- Record vs. notebook was confusing at first. Only later did they realize the record is settled across the team and the notebook is personal.
+- After suggesting something, it doesn't show up as pending.
+- Having a lead review on every task might slow people down. One reviewer asked who owns approvals and how much management I'd have to do.
+- What would make them use it: email notifications, a weekly summary, and seeing what others are working on.
+- Nobody tested whether the coach's answers are right.
+
+**What surprised me.** Everyone found the dashboard pretty intuitive. I thought I'd have more questions about the overall feel.
+
+**What changed because of it.** Nothing is built yet. Because of the review I will:
+- clean up the task page for a better user workflow
+- create a better way of recording answers for the team vs. what's personal
+- make sure the team knows which tasks are pending review
+- change the look of the panels
+- implement reminders
+
+I have no plan yet for the approvals question or for checking the coach's answers. "Seeing what others are working on" is what the Timeline (#43) is for, but I built that on 17 Nov, before the review, so it isn't a response to it. 
+
+**Evidence.** The three filled-in worksheets: [worksheet 1](process/design-review-worksheet-1.png), [worksheet 2](process/design-review-worksheet-2.png), [worksheet 3](process/design-review-worksheet-3.png).
+
+**Next.** Build the five changes above.
+
+## 2026-11-26 — 12–26 Nov: A working team tool, a new Home, and a cheaper coach
+
+**Stage:** Building, Prototype
+
+**What I did.** Between my 11 Nov entry and today I turned the prototype into something a team could use. The reasons below come from the PR descriptions.
+
+*The look.* On 11 Nov Home was a heading and one button on a dark page. I rebuilt it in the Drafting design: a sidebar and four panels (Your task, Pick up a task, Build progress, Crush) (#31). On 17 Nov I added a tint per panel so no two Home panels share a colour, plus a Light/Dark toggle and a Bubbles toggle (#42). I removed the "Recently recorded" panel from All tasks because the Record page already shows those answers (#37).
+
+*Task flow.* Tasks now move through steps that fit their type (Fabricate, Print, Design, Validate, Investigate) instead of one list for all. I dropped the "AI pre-check" step because that feature doesn't exist (#35). A lead can change a task's type and edit its steps. I added the Timeline, with one bar per task from the day it was picked up to the day it was finished, so there is more awareness of what other members are working on. It is also just better task management. Members can now pick an icon too (#43).
+
+*Leads.* I replaced the separate review panels and the propose/accept/supersede screens with one Inbox for leads and a Record of settled answers (#36), to simplify lead review and decisions. Leads can also remove tasks and update existing ones on re-import (#32). Signed-out visitors get a read-only preview with blurred, made-up task text, so recruiters can see progress without real names in the page (#34).
+
+*Work log.* Members can log today's work. A "Tidy my note" button cleans up the note without inventing numbers, parts or names. Posted notes are appended to the Crush document, never edited (#38). This goes back to my 28 Oct problem: decisions and status were buried in notebooks and CAD.
+
+*The coach.* The rebuild I planned on 11 Nov landed in #33. It answers from my own Drive index in one streamed call, with team facts. I couldn't run `make eval` for it because that workspace had no API key. #39 then went after the cost, which was about $0.044 per question, and the cut-off and empty answers. The results on 17 questions:
+
+| Model | Result | Speed | Cost per question |
+|---|---|---|---|
+| Sonnet | pass 12 / partial 3 / fail 2 | median 6.9 s | $0.0361 |
+| Haiku | pass 10 / partial 4 / fail 3 | median 3.7 s | $0.0074 |
+| Gemini Flash-Lite | pass 10 / partial 4 / fail 3 | median 1.6 s | $0.0023 |
+
+Offline, questions whose prompt held everything needed went from 8/15 to 13/15. Sonnet misses my 11 Nov targets for speed (under 6 s) and cost (under $0.01), so I kept it as the default for now. The coach could only repeat the Drive: asked "what would an adapter look like?", it said "No detailed design exists in the sources". So #40 added a Recommend button that searches the reference books and does the arithmetic with a calculator tool. A lead still decides.
+
+**What changed because of the review.** Nothing in this window. See the 23 Nov entry.
+
+**Evidence.** PRs #31–#40, #42 and #43.
+- Home before: [11 Nov](process/2026-11-11-app-home-before-redesign.png)
+- Drafting redesign: [15 Nov](process/2026-11-15-app-home-drafting-redesign.png)
+- Tinted panels: [26 Nov](process/2026-11-26-app-home-tinted-panels.png)
+
+**Next.** Do the changes I planned after the design review (see the 23 Nov entry). Also re-run `make eval` on the final commit, which the test plan in #39 left unchecked.
