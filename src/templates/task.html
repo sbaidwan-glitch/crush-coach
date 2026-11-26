@@ -3,6 +3,7 @@
 {% from "components/coach_message.html" import coach_message %}
 {% from "components/feedback.html" import notice as notice_box, empty_state, error_state, loading_indicator %}
 {% from "components/status.html" import status_label %}
+{% from "components/icons.html" import owner as owner_line %}
 {% block title %}{% if task %}{{ task.code }} {{ task.title }}{% else %}Task{% endif %} – Crush Coach{% endblock %}
 {% block heading %}
 {% if task %}<h1 class="page-title"><span class="code page-title__code">{{ task.code }}</span>{{ task.title }}</h1>
@@ -58,7 +59,7 @@
       <ol class="stages">{% for s in stages %}<li{% if s.state == "past" %} class="is-past"{% elif s.state == "current" %} class="is-current" aria-current="step"{% endif %}>{{ s.label }}</li>{% endfor %}</ol>
       {% else %}<div class="field">{{ task.stage }}</div>{% endif %}
       <div class="field-label">Owner</div>
-      <div class="field field--row"><span{% if not task.owner %} class="unclaimed"{% endif %}>{{ task.owner or "Unclaimed" }}</span>{% if owner_since %}<span class="meta">since {{ owner_since }}</span>{% endif %}</div>
+      <div class="field field--row">{{ owner_line(task.owner, owner_chips) }}{% if owner_since %}<span class="meta">since {{ owner_since }}</span>{% endif %}</div>
 
       {% if main_action or "unclaim" in actions %}
       <div class="actions">

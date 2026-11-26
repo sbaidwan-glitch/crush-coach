@@ -5,7 +5,7 @@
 Starts the app against a throwaway SQLite database seeded with the made-up sample
 tasks, signs in with a forged session cookie for a made-up member, and saves
 /, /tasks, /tasks/E01 (a member's own task in progress), /tasks/G01 (waiting for a lead),
-/tasks/G01 as a member (a conflicting coach answer with "Ask a lead to settle this"), the lead Inbox (one card of each kind), the Record, /admin and /admin/import at 375px and 1280px into
+/tasks/G01 as a member (a conflicting coach answer with "Ask a lead to settle this"), the lead Inbox (one card of each kind), the Record, the Timeline and /profile, /admin and /admin/import at 375px and 1280px into
 .context/screenshots/ (gitignored).
 It never touches your real database, your .env secrets, the model or Google.
 
@@ -37,6 +37,9 @@ PAGES = (
     ("home-lead", "/", "lead"),
     ("tasks", "/tasks", "lead"),
     ("tasks-member", "/tasks", "member"),
+    ("timeline", "/timeline", "member"),
+    ("timeline-lead", "/timeline", "lead"),
+    ("profile", "/profile", "member"),
     ("task-E01", "/tasks/E01", "member"),
     ("task-G01-lead", "/tasks/G01", "lead"),
     ("task-M04", "/tasks/M04", "member"),
@@ -56,10 +59,11 @@ PAGES = (
     # Signed out: a read-only preview (the task and decision pages are a sign-in prompt, 401)
     ("home-guest", "/", "guest"),
     ("tasks-guest", "/tasks", "guest"),
+    ("timeline-guest", "/timeline", "guest"),
     ("task-guest", "/tasks/E01", "guest"),
     ("record-guest", "/record", "guest"),
 )
-EXPECTED_STATUS = {"task-guest": 401, "record-guest": 401}
+EXPECTED_STATUS = {"task-guest": 401, "record-guest": 401, "timeline-guest": 401}
 # Pages where the work log button is pressed, and the panel (a drawer) is photographed open.
 DRAWERS = (("drawer-task", "/tasks/E01"), ("drawer-home", "/"))
 
@@ -96,6 +100,7 @@ def seed() -> None:
         Decision,
         DecisionTask,
         DriveWrite,
+        MemberProfile,
         SyncState,
         Task,
         TaskEvent,
@@ -355,6 +360,42 @@ def seed() -> None:
                            tab_title="Enclosure", tab_id="t.0", written_at=now),
             ]
         )
+        # The Timeline: made-up start and finish days for the sample tasks (M01, M05 and A01
+        # stay not started, so each panel's foot line shows), two icons picked, and one task
+        # with two owners.
+        by_code = {t.code: t for t in session.exec(select(Task)).all()}
+        by_code["T01"].owner = "Jordan Demo, Sam Example"
+
+        def moves(code, started, finished=None, asked=None):
+            task = by_code[code]
+            session.add(TaskEvent(task_id=task.id, actor=task.owner or "Someone", kind="start",
+                                  from_status="todo", to_status="in_progress",
+                                  created_at=now - timedelta(days=started)))
+            if asked:
+                session.add(TaskEvent(task_id=task.id, actor=task.owner or "Someone", kind="advance",
+                                      from_status="in_progress", to_status="needs_review",
+                                      created_at=now - timedelta(days=asked)))
+            if finished:
+                session.add(TaskEvent(task_id=task.id, actor=task.owner or "Someone", kind="advance",
+                                      from_status="in_progress", to_status="done",
+                                      created_at=now - timedelta(days=finished)))
+
+        moves("M02", 31)
+        moves("M03", 38, finished=17)
+        moves("M04", 22)
+        moves("E02", 26, finished=12)
+        moves("G01", 19)
+        moves("T01", 28, finished=9)
+        session.add_all(
+            [
+                MemberProfile(email=MEMBER["email"], icon="submarine", display_name="Riley",
+                              full_name=MEMBER["name"]),
+                MemberProfile(email="sam@example.edu", icon="wrench", display_name="",
+                              full_name="Sam Example"),
+                MemberProfile(email="jordan@example.edu", icon="octopus", display_name="Jordan D",
+                              full_name="Jordan Demo"),
+            ]
+        )
         # A made-up Drive sync state, so /admin shows real-looking numbers.
         session.add(
             SyncState(
@@ -454,6 +495,23 @@ def main() -> int:
                         expected = EXPECTED_STATUS.get(name, 200)
                         if response.status != expected:
                             problems.append(f"{path} returned {response.status}")
+                        if name == "timeline":
+                            # On a phone the chart opens scrolled so Today is in view; on a wide
+                            # screen it fits and doesn't move.
+                            seen = page.evaluate(
+                                """() => {
+                                    const box = document.getElementById("timeline");
+                                    const line = document.querySelector(".tl-track--axis").getBoundingClientRect();
+                                    const labels = box.querySelector(".tl-axis .tl-label").offsetWidth;
+                                    const edge = box.getBoundingClientRect();
+                                    const x = line.left + line.width * parseFloat(box.dataset.today) / 100;
+                                    return {moved: box.scrollLeft > 0, visible: x > edge.left + labels && x < edge.right};
+                                }"""
+                            )
+                            if width <= 820 and not (seen["moved"] and seen["visible"]):
+                                problems.append(f"the timeline did not open with Today in view at {width}px ({scheme})")
+                            if width > 820 and seen["moved"]:
+                                problems.append(f"the timeline scrolled sideways at {width}px ({scheme})")
                         if overflow > 0:
                             problems.append(
                                 f"{path} scrolls sideways by {overflow}px at {width}px ({scheme})"

@@ -438,3 +438,18 @@ def test_migrations_match_models(fresh_engine):
         context = MigrationContext.configure(connection)
         diff = compare_metadata(context, SQLModel.metadata)
     assert diff == [], f"models changed without an Alembic migration: {diff}"
+
+
+def test_upgrade_creates_the_member_profile_table_and_downgrade_removes_it(fresh_engine):
+    db.run_migrations(fresh_engine)
+
+    columns = {c["name"]: c for c in inspect(fresh_engine).get_columns("member_profile")}
+    assert set(columns) == {"email", "icon", "display_name", "full_name"}
+    assert inspect(fresh_engine).get_pk_constraint("member_profile")["constrained_columns"] == [
+        "email"
+    ]
+    assert all(c["nullable"] is False for c in columns.values())
+
+    command.downgrade(db.alembic_config(fresh_engine), "0013")
+
+    assert "member_profile" not in inspect(fresh_engine).get_table_names()

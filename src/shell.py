@@ -41,6 +41,25 @@ def needs_you_count(request: Request) -> int | None:
         return None
 
 
+def my_chip(request: Request):
+    """The signed-in person's own chip (icon and short name), for the top bar.
+
+    None when signed out or if anything fails: the top bar then shows the default icon
+    and the page still works.
+    """
+    try:
+        user = auth.session_user(request)
+        if user is None:
+            return None
+        import profiles  # here, not at the top: profiles imports this module
+
+        with Session(db.engine) as session:
+            return profiles.load(session).mine(user)
+    except Exception as exc:  # noqa: BLE001  (the top bar must never break a page)
+        log.error("Could not load the member's icon (%s)", type(exc).__name__)
+        return None
+
+
 _TASK_CODE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,19}")
 
 
@@ -56,6 +75,7 @@ def _context(request: Request) -> dict:
     on_task = request.url.path.startswith("/tasks/")
     return {
         "needs_you": needs_you_count(request),
+        "my_chip": my_chip(request),
         "worklog_task": _code(request.path_params.get("code")) if on_task else "",
         "worklog_open": _code(request.query_params.get("log")),
     }

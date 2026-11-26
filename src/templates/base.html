@@ -1,7 +1,7 @@
 {#- The shell every page shares: sidebar (a bottom tab bar on phones), then the main
     column with the page title and who is signed in. Pages fill `heading` (or just
     `page_title`) and `main`. -#}
-{% from "components/icons.html" import nav_icon, logo %}
+{% from "components/icons.html" import nav_icon, logo, avatar_sprite, avatar %}
 {% set path = request.url.path %}
 {% set is_lead = user and user.role == "lead" %}
 <!doctype html>
@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="{{ static_url('styles/tokens.css') }}">
     <link rel="stylesheet" href="{{ static_url('styles/app.css') }}">
     <link rel="stylesheet" href="{{ static_url('styles/theme.css') }}">
+    <link rel="stylesheet" href="{{ static_url('styles/timeline.css') }}">
     <link rel="stylesheet" href="{{ static_url('styles/extras.css') }}">
     {#- Sets data-theme / data-bubbles from the saved choice before the first paint, so a dark page never flashes light. theme.js (below) handles the buttons. -#}
     <script>try{var d=document.documentElement,t=localStorage.getItem("cc-theme"),b=localStorage.getItem("cc-bubbles");if(t==="light"||t==="dark")d.dataset.theme=t;if(b==="off")d.dataset.bubbles="off"}catch(e){}</script>
@@ -46,6 +47,7 @@
       <i style="--x:{{ x }}%;--s:{{ size }}px;--d:{{ secs }}s;--delay:{{ delay }}s;--sw:{{ sway }}px"></i>
       {%- endfor %}
     </div>
+    {{ avatar_sprite() }}
     <a class="skip-link" href="#main">Skip to main content</a>
     <div class="shell">
       <nav class="sidebar" aria-label="Main">
@@ -53,6 +55,7 @@
         <a class="sidebar__link" href="/"{% if path == "/" %} aria-current="page"{% endif %}>{{ nav_icon("home") }}<span>Home</span></a>
         {% if is_lead %}<a class="sidebar__link" href="/inbox"{% if path.startswith("/inbox") %} aria-current="page"{% endif %}>{{ nav_icon("inbox") }}<span>Inbox</span>{% if needs_you %}<span class="sidebar__badge" aria-hidden="true">{{ needs_you }}</span><span class="visually-hidden">, {{ needs_you }} waiting on you</span>{% endif %}</a>{% endif %}
         <a class="sidebar__link" href="/tasks"{% if path.startswith("/tasks") %} aria-current="page"{% endif %}>{{ nav_icon("tasks") }}<span>Tasks</span></a>
+        <a class="sidebar__link" href="/timeline"{% if path.startswith("/timeline") %} aria-current="page"{% endif %}>{{ nav_icon("timeline") }}<span>Timeline</span></a>
         <a class="sidebar__link" href="/record"{% if path.startswith("/record") %} aria-current="page"{% endif %}>{{ nav_icon("record") }}<span>Record</span></a>
         <span class="sidebar__spacer"></span>
         {#- Shown by theme.js (they do nothing without it). On phones they sit in the bottom tab bar with the links. -#}
@@ -69,8 +72,8 @@
           {% if user %}<a class="btn" href="/worklog?tab=log{% if worklog_task %}&amp;task={{ worklog_task }}{% endif %}" data-worklog-open data-panel-url="/worklog/panel?tab=log{% if worklog_task %}&amp;task={{ worklog_task }}{% endif %}">Log today’s work</a>{% endif %}
           {% block topbar_actions %}{% endblock %}
           {% if user %}
-          <span class="avatar" title="{{ user.name }}{% if is_lead %} (lead){% endif %}" aria-hidden="true">{{ user.name.split() | map("first") | map("upper") | join("") | truncate(2, True, "") }}</span>
-          <span class="visually-hidden">Signed in as {{ user.name }}{% if is_lead %} (lead){% endif %}.</span>
+          {#- The member's own chip: it opens /profile, where they pick the icon and short name. -#}
+          <a class="chip-link" href="/profile" title="Your icon and name">{{ avatar(my_chip.icon if my_chip else "gear") }}<span class="visually-hidden">Signed in as {{ user.name }}{% if is_lead %} (lead){% endif %}. Change your icon and name.</span></a>
           <a class="btn btn--small" href="/logout">Sign out</a>
           {% else %}
           <a class="btn btn--primary" href="/login">Sign in with Google</a>

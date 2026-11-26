@@ -18,8 +18,10 @@ import db
 import facts
 import home
 import inbox
+import profiles
 import record
 import static_version
+import timeline
 import workflow
 import worklog
 
@@ -60,6 +62,8 @@ app.include_router(workflow.router)
 app.include_router(coach.router)
 app.include_router(inbox.router)
 app.include_router(record.router)
+app.include_router(timeline.router)
+app.include_router(profiles.router)
 app.include_router(worklog.router)
 app.include_router(admin.router)
 app.include_router(facts.router)
