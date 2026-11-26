@@ -144,38 +144,38 @@ I tested the coach on real tasks (M02, M03.5, E01). It took 20–50 seconds, ask
 
 **Next.** Rebuild the coach on the index and run `make eval` against the three targets. This tests whether answering from our own index fixes the root cause, or whether retrieval quality (CAD/PDF files, duplicates, spreadsheet headers) is the real limit.
 
-## 2026-11-23 — Design review: three classmates tried it without me
+## 2026-11-23 — Design review
 
 **Stage:** Test
 
-**What I did.** On Monday 23 Nov, during the class design review, three classmates in my group of four each tried the app on their own device with no help from me. Each filled in a worksheet. I covered their names in the images and don't name them here.
+**What I did.** On Monday 23 Nov, during the class design review, three classmates in my group of four each tried the app on their own device with no help from me and filled in a worksheet. 
 
 **What I learned.**
 - All three finished the main task and said it was smooth. None found it slow or broken.
-- Home repeats itself: Build progress and the Crush labels do the same job, and both feel secondary to tasks. One reviewer suggested quadrants with the important things on top.
+- The home display repeats itself. Build progress and the Crush labels do the same job, and both feel secondary to tasks. One reviewer suggested quadrants with the important things on top.
 - All tasks is a little overwhelming. One reviewer suggested shades to show what's mine at a glance.
-- Record vs. notebook was confusing at first. The Record is settled across the team and the notebook is personal.
+- Record vs. notebook was confusing at first. Only later did they realize the record is settled across the team and the notebook is personal.
 - After suggesting something, it doesn't show up as pending.
-- Lead review on every task might slow people down. One reviewer asked who owns approvals and how much management I'd have to do.
+- Having a lead review on every task might slow people down. One reviewer asked who owns approvals and how much management I'd have to do.
 - What would make them use it: email notifications, a weekly summary, and seeing what others are working on.
 - Nobody tested whether the coach's answers are right.
 
 **What surprised me.** Everyone found the dashboard pretty intuitive. I thought I'd have more questions about the overall feel.
 
 **What changed because of it.** Nothing is built yet. Because of the review I will:
-- clean up the task page for a better user workflow;
-- create a better way of recording answers for the team vs. what's personal;
-- make sure the team knows which tasks are pending review;
-- change the look of the panels;
-- implement reminders.
+- clean up the task page for a better user workflow
+- create a better way of recording answers for the team vs. what's personal
+- make sure the team knows which tasks are pending review
+- change the look of the panels
+- implement reminders
 
-I have no plan yet for the approvals question or for checking the coach's answers. "Seeing what others are working on" is what the Timeline (#43) is for, but I built that on 17 Nov, before the review, so it isn't a response to it. None of the commits so far respond to the review.
+I have no plan yet for the approvals question or for checking the coach's answers. "Seeing what others are working on" is what the Timeline (#43) is for, but I built that on 17 Nov, before the review, so it isn't a response to it. 
 
 **Evidence.** The three filled-in worksheets: [worksheet 1](process/design-review-worksheet-1.png), [worksheet 2](process/design-review-worksheet-2.png), [worksheet 3](process/design-review-worksheet-3.png).
 
 **Next.** Build the five changes above.
 
-## 2026-11-26 — 12–26 Nov: a working team tool, a calmer Home, and a cheaper coach
+## 2026-11-26 — 12–26 Nov: A working team tool, a new Home, and a cheaper coach
 
 **Stage:** Building, Prototype
 
