@@ -13,6 +13,7 @@ One-time setup: `.venv/bin/pip install -r requirements-dev.txt`
 and `.venv/bin/playwright install chromium`.
 """
 
+import argparse
 import base64
 import json
 import os
@@ -72,6 +73,11 @@ DRAWERS = (("drawer-task", "/tasks/E01"), ("drawer-home", "/"))
 SESSION_SECRET = "screenshots-only-not-a-secret"
 MEMBER = {"name": "Riley Sample", "email": "member@example.edu", "role": "member"}
 LEAD = {"name": "Lee Sample", "email": "lead@example.edu", "role": "lead"}
+
+
+def shown(path: Path) -> Path:
+    """A path for the log: relative to the repo when it is inside it."""
+    return path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
 
 
 def free_port() -> int:
@@ -433,7 +439,34 @@ def wait_for(url: str, tries: int = 100) -> None:
     raise SystemExit(f"The app did not start at {url}")
 
 
-def main() -> int:
+def pick_pages(wanted: list[str]) -> tuple:
+    """The PAGES rows for the given items: a path ("/tasks": its first row) or a row name ("home-lead")."""
+    rows = []
+    for item in wanted:
+        match = next((row for row in PAGES if item in (row[0], row[1])), None)
+        if match is None:
+            known = ", ".join(f"{row[0]} ({row[1]})" for row in PAGES)
+            raise SystemExit(f"No page called {item!r}. Pages: {known}")
+        if match not in rows:
+            rows.append(match)
+    return tuple(rows)
+
+
+def parse_args(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Screenshot the app against throwaway sample data.")
+    parser.add_argument("--pages", nargs="+", metavar="PAGE",
+                        help="only these pages, each a path (/tasks) or a name from PAGES (tasks); default all")
+    parser.add_argument("--out", type=Path, default=OUT, help="folder for the PNGs (default .context/screenshots)")
+    parser.add_argument("--scheme", choices=("light", "dark", "both"), default="both",
+                        help="colour scheme(s); default both")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    pages = pick_pages(args.pages) if args.pages else PAGES
+    out = args.out
+    schemes = SCHEMES if args.scheme == "both" else (args.scheme,)
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
@@ -468,13 +501,13 @@ def main() -> int:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        OUT.mkdir(parents=True, exist_ok=True)
+        out.mkdir(parents=True, exist_ok=True)
         problems = []
         try:
             wait_for(f"{base}/health")
             with sync_playwright() as p:
                 browser = p.chromium.launch()
-                for width, scheme in ((w, c) for w in WIDTHS for c in SCHEMES):
+                for width, scheme in ((w, c) for w in WIDTHS for c in schemes):
                     suffix = "" if scheme == "light" else "-dark"
                     contexts = {}
                     for who, user in (("member", MEMBER), ("lead", LEAD), ("guest", None)):
@@ -493,18 +526,18 @@ def main() -> int:
                                 ]
                             )
                         contexts[who] = context
-                    for name, path, who in PAGES:
+                    for name, path, who in pages:
                         page = contexts[who].new_page()
                         response = page.goto(f"{base}{path}")
                         page.wait_for_load_state("networkidle")
                         page.evaluate("document.fonts.ready")
-                        target = OUT / f"{name}{suffix}-{width}.png"
+                        target = out / f"{name}{suffix}-{width}.png"
                         page.screenshot(path=str(target), full_page=True)
                         overflow = page.evaluate(
                             "document.documentElement.scrollWidth - innerWidth"
                         )
                         print(
-                            f"{response.status} {path} at {width}px ({scheme}) -> {target.relative_to(ROOT)}"
+                            f"{response.status} {path} at {width}px ({scheme}) -> {shown(target)}"
                         )
                         expected = EXPECTED_STATUS.get(name, 200)
                         if response.status != expected:
@@ -532,15 +565,15 @@ def main() -> int:
                             )
                         page.close()
                     # The side panel, open: press the top bar button on a task page and on Home.
-                    for name, path in DRAWERS if scheme == "light" else ():
+                    for name, path in DRAWERS if scheme == "light" and not args.pages else ():
                         page = contexts["member"].new_page()
                         page.goto(f"{base}{path}")
                         page.wait_for_load_state("networkidle")
                         page.click("[data-worklog-open]")
                         page.wait_for_selector("#worklog[open] textarea")
-                        target = OUT / f"{name}{suffix}-{width}.png"
+                        target = out / f"{name}{suffix}-{width}.png"
                         page.screenshot(path=str(target))
-                        print(f"opened the work log on {path} at {width}px ({scheme}) -> {target.relative_to(ROOT)}")
+                        print(f"opened the work log on {path} at {width}px ({scheme}) -> {shown(target)}")
                         page.close()
                     for context in contexts.values():
                         context.close()
