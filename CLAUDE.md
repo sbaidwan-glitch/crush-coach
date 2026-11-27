@@ -80,9 +80,13 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 - This repo is public. Never commit people's names, contact info, or exports of the tracker or Drive. Drive file names, catalog part numbers, and individual design values in eval questions are OK. Tests and seed data use made-up tasks and people.
 - One task, one branch, one PR. Small commits. Never push to `main`; everything reaches `main` through a PR Samara reviews.
 - Every model change needs a new Alembic migration. Never edit a migration that has been merged; add a new one. `tests/test_migrations.py` fails if the models and migrations disagree.
+- Two open PRs must not both add a migration with the same number: when one merges, the other renumbers (new file, new revision id, `down_revision` = the merged head) before it merges. `test_there_is_exactly_one_migration_head` enforces this. The `.claude/hooks/` guard also blocks edits to any migration already on `origin/main` (run `git fetch origin` first so it's current).
 - Every LLM or Google call handles failure: the page says plainly what failed, and the rest of the page still works.
 - Log every model call (model, input and output tokens, cost, task, member) to the database; this feeds the cost-benefit analysis.
 - Pages must be semantic, accessible, honest about network errors, and usable at phone width (Lab 6 standard).
+- Design: follow `docs/design.md`; where CLAUDE.md or a PR says a rule changed, the newest merged PR wins.
+- UI PRs attach before/after screenshots at 1280 and 375 (`make screenshots`).
+- A PR that changes anything under `src/prompts`, `src/coach*.py`, `src/retrieval.py`, `src/answering.py` or `src/llm.py` puts the `make eval` summary line (before and after) in its description; the PR template has the checkbox.
 
 ## Product rules the code must enforce
 - The coach advises; it never decides. Leads approve drawings, routers, test plans, and decisions.
@@ -117,3 +121,4 @@ Owner: Samara Baidwan (mechanical co-lead). Course: E190BO AI-Amplified Prototyp
 ## Learned the hard way
 (Add a line here whenever the agent makes the same mistake twice.)
 - Behind Railway’s proxy, trust forwarded headers or generated URLs will be http.
+- Two PRs both added migration 0008, then both 0012: renumber the later one when the other merges (see Rules).

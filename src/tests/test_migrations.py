@@ -1,9 +1,13 @@
 """Migrations run on throwaway SQLite files, never on the app's shared engine."""
 
+import re
+from pathlib import Path
+
 import pytest
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 from sqlmodel import SQLModel
 
@@ -506,3 +510,38 @@ def test_downgrade_to_0014_removes_the_notebook_tables_and_columns(fresh_engine)
     notes = {c["name"] for c in inspector.get_columns("work_note")}
     assert {"state", "refers_to_id", "specs_dropped", "updated_at"}.isdisjoint(notes)
     assert "purpose" not in {c["name"] for c in inspector.get_columns("llm_call")}
+
+
+def _script_directory() -> ScriptDirectory:
+    return ScriptDirectory.from_config(db.alembic_config())
+
+
+def test_there_is_exactly_one_migration_head():
+    """Two PRs that each add a migration on the same parent leave two heads."""
+    heads = sorted(_script_directory().get_heads())
+    assert len(heads) == 1, (
+        f"There are {len(heads)} migration heads: {', '.join(heads)}. "
+        "Two PRs added a migration on the same parent. "
+        "Renumber the later PR's migration and set its down_revision to the other head."
+    )
+
+
+def test_every_revision_id_is_its_files_number_and_numbers_are_unique():
+    versions = Path(_script_directory().versions)
+    numbers: dict[str, list[str]] = {}
+    for path in sorted(versions.glob("*.py")):
+        match = re.match(r"(\d+)_", path.name)
+        assert match, f"{path.name}: a migration file name starts with its number, like 0015_name.py"
+        numbers.setdefault(match.group(1), []).append(path.name)
+    duplicates = {n: names for n, names in numbers.items() if len(names) > 1}
+    assert not duplicates, (
+        f"Two migration files share a number: {duplicates}. "
+        "Renumber the later PR's migration (file name and revision id) "
+        "and set its down_revision to the other head."
+    )
+
+    for revision in _script_directory().walk_revisions():
+        name = Path(revision.path).name
+        assert name.startswith(f"{revision.revision}_"), (
+            f"{name}: the file name must start with its revision id ({revision.revision}_)"
+        )
