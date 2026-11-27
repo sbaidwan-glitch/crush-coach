@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Import finished – Crush Coach{% endblock %}
 {% block page_title %}Import finished{% endblock %}
-{% block topbar_actions %}<a class="btn" href="/tasks">All tasks</a>{% endblock %}
+{% block topbar_actions %}<a class="btn" href="/tasks?show=all">All tasks</a>{% endblock %}
 {% block main %}
 <section class="panel" aria-labelledby="result-heading">
   <h2 class="panel__title" id="result-heading">What happened</h2>
@@ -31,6 +31,6 @@
   </ul>
   {% endif %}
 
-  <div class="actions"><a class="btn btn--primary" href="/tasks">Go to all tasks</a><a class="btn" href="/admin/import">Import another file</a></div>
+  <div class="actions"><a class="btn btn--primary" href="/tasks?show=all">Go to all tasks</a><a class="btn" href="/admin/import">Import another file</a></div>
 </section>
 {% endblock %}

@@ -8,7 +8,7 @@ from sqlmodel import select
 import auth
 import board
 import main
-from models import Decision, Task, TaskEvent, utc_now
+from models import Decision, Task, TaskEvent, TaskSuggestion, utc_now
 
 MEMBER = {"name": "Test Member", "email": "member@example.edu", "role": "member"}
 LEAD = {"name": "Test Lead", "email": "lead@example.edu", "role": "lead"}
@@ -133,8 +133,126 @@ def test_a_filter_with_no_matches_says_so(session, client):
     add(session, "M01", "Someone's", "Enclosure", owner="Someone Else", status="in_progress")
 
     html = client.get("/tasks", params={"show": "mine"}).text
+    assert "You haven&#39;t claimed a task yet." in html and "?show=unclaimed" in html
 
-    assert "No tasks match this filter." in html
+    html = client.get("/tasks", params={"show": "review"}).text
+    assert "No tasks match this filter." in html and 'href="/tasks?show=all"' in html
+
+
+# --- Mine by default, and the marker on your own rows ---
+
+
+def seed_mixed(session):
+    add(session, "M01", "My own thing", "Enclosure", status="in_progress", owner="Test Member")
+    add(session, "M02", "Their thing", "Enclosure", status="in_progress", owner="Someone Else")
+    add(session, "M03", "Free thing", "Seals/Waterproofing")
+
+
+def test_a_member_with_tasks_lands_on_mine_and_all_is_one_click_away(session, client):
+    seed_mixed(session)
+
+    html = client.get("/tasks").text
+
+    assert '<a href="/tasks?show=mine" aria-current="true">Mine</a>' in html
+    assert "My own thing" in html and "Their thing" not in html and "Free thing" not in html
+    assert '<a href="/tasks?show=all">All</a>' in html
+    everything = client.get("/tasks", params={"show": "all"}).text
+    assert '<a href="/tasks?show=all" aria-current="true">All</a>' in everything
+    assert all(t in everything for t in ("My own thing", "Their thing", "Free thing"))
+
+
+def test_a_member_with_no_tasks_yet_lands_on_all_not_an_empty_page(session, client):
+    add(session, "M02", "Their thing", "Enclosure", status="in_progress", owner="Someone Else")
+
+    html = client.get("/tasks").text
+
+    assert '<a href="/tasks?show=all" aria-current="true">All</a>' in html
+    assert "Their thing" in html
+
+
+def test_leads_and_signed_out_visitors_land_on_all(session):
+    add(session, "M01", "Lead's own", "Enclosure", status="in_progress", owner="Test Lead")
+    add(session, "M02", "Their thing", "Enclosure", status="in_progress", owner="Someone Else")
+
+    with sign_in_as(LEAD) as lead:
+        lead_html = lead.get("/tasks").text
+    main.app.dependency_overrides.clear()
+    with TestClient(main.app, follow_redirects=False) as visitor:
+        visitor_html = visitor.get("/tasks").text
+
+    assert '<a href="/tasks?show=all" aria-current="true">All</a>' in lead_html
+    assert "Their thing" in lead_html
+    assert '<a href="/tasks?show=all" aria-current="true">All</a>' in visitor_html
+    assert ">Mine<" not in visitor_html
+
+
+def test_own_tasks_are_marked_yours_on_all_tasks_and_others_are_not(session, client):
+    seed_mixed(session)
+
+    html = client.get("/tasks", params={"show": "all"}).text
+
+    rows = re.findall(r'<div class="task-row[^"]*">.*?</div>', html, re.DOTALL)
+    by_code = {re.search(r'class="code">(\w+)<', r).group(1): r for r in rows}
+    assert "task-row--mine" in by_code["M01"] and ">Yours<" in by_code["M01"]
+    for code in ("M02", "M03"):
+        assert "task-row--mine" not in by_code[code] and "Yours" not in by_code[code]
+
+
+def test_home_links_to_the_board_go_to_all_not_mine(session, client):
+    seed_mixed(session)
+
+    html = client.get("/").text
+
+    assert 'href="/tasks?show=all">All tasks</a>' in html
+    assert 'href="/tasks?show=all#enclosure"' in html
+
+
+# --- a member's own suggestions ---
+
+
+def suggest(session, who, title, status="open", task_code=None):
+    session.add(
+        TaskSuggestion(title=title, why="", suggested_by=who, status=status, task_code=task_code)
+    )
+    session.commit()
+
+
+def test_your_suggestions_show_each_state_and_nobody_elses(session, client):
+    add(session, "M09", "Drill jig", "Enclosure")
+    suggest(session, "Test Member", "Waiting one")
+    suggest(session, "Test Member", "Added one", status="added", task_code="M09")
+    suggest(session, "Test Member", "Passed one", status="dismissed")
+    suggest(session, "Someone Else", "Not mine to see")
+
+    html = client.get("/tasks").text
+
+    panel = html[html.index('id="your-suggestions"') :].split("</section>")[0]
+    assert "Your suggestions" in panel
+    for title in ("Waiting one", "Added one", "Passed one"):
+        assert title in panel
+    assert "Waiting for a lead" in panel and ">Added<" in panel and ">Not now<" in panel
+    assert 'href="/tasks/M09"' in panel
+    assert "Not mine to see" not in html
+
+
+def test_your_suggestions_stay_when_a_filter_hides_every_task_row(session, client):
+    suggest(session, "Test Member", "Still here")
+
+    html = client.get("/tasks", params={"show": "review"}).text
+
+    assert "Still here" in html
+
+
+def test_no_your_suggestions_panel_before_you_suggest_anything(session, client):
+    assert "Your suggestions" not in client.get("/tasks").text
+
+
+def test_a_new_suggestion_shows_up_straight_away_as_waiting(session, client):
+    client.post("/task-suggestions", data={"title": "Spare O-rings", "why": "We keep losing them"})
+
+    html = client.get("/tasks").text
+
+    assert "Spare O-rings" in html and "Waiting for a lead" in html
 
 
 def test_empty_board_says_so_and_how_it_gets_filled(session, client):

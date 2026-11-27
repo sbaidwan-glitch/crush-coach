@@ -15,14 +15,14 @@
 {% if page_error %}
 {{ error_state(page_error, "/tasks/" ~ code, "Try again") }}
 {% elif not_found %}
-{{ error_state("There is no task with code “" ~ code ~ "”.", "/tasks", "Back to all tasks") }}
+{{ error_state("There is no task with code “" ~ code ~ "”.", "/tasks?show=all", "Back to all tasks") }}
 {% else %}
 {% if error %}{{ notice_box(error, "error") }}{% endif %}
 <div class="grid-task">
   <section class="panel" aria-labelledby="coach-heading">
     <div class="panel__head"><div>
       <h2 class="panel__title" id="coach-heading">Coach</h2>
-      <p class="panel__sub">Answers from the team Drive and the Record. It advises; leads decide. Limit: {{ daily_limit }} messages per person per day.</p>
+      <p class="panel__sub">Answers from the team Drive and the Team record. It advises; leads decide. Limit: {{ daily_limit }} messages per person per day.</p>
     </div></div>
     <div class="coach">
       <div id="coach-log" role="log" aria-live="polite" aria-label="Conversation with the coach" class="coach">

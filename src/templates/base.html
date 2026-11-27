@@ -56,7 +56,7 @@
         {% if is_lead %}<a class="sidebar__link" href="/inbox"{% if path.startswith("/inbox") %} aria-current="page"{% endif %}>{{ nav_icon("inbox") }}<span>Inbox</span>{% if needs_you %}<span class="sidebar__badge" aria-hidden="true">{{ needs_you }}</span><span class="visually-hidden">, {{ needs_you }} waiting on you</span>{% endif %}</a>{% endif %}
         <a class="sidebar__link" href="/tasks"{% if path.startswith("/tasks") %} aria-current="page"{% endif %}>{{ nav_icon("tasks") }}<span>Tasks</span></a>
         <a class="sidebar__link" href="/timeline"{% if path.startswith("/timeline") %} aria-current="page"{% endif %}>{{ nav_icon("timeline") }}<span>Timeline</span></a>
-        <a class="sidebar__link" href="/record"{% if path.startswith("/record") %} aria-current="page"{% endif %}>{{ nav_icon("record") }}<span>Record</span></a>
+        <a class="sidebar__link" href="/record"{% if path.startswith("/record") %} aria-current="page"{% endif %}>{{ nav_icon("record") }}<span>Team record</span></a>
         <span class="sidebar__spacer"></span>
         {#- Shown by theme.js (they do nothing without it). On phones they sit in the bottom tab bar with the links. -#}
         <button class="sidebar__btn" id="theme-btn" type="button" hidden>{{ nav_icon("theme") }}<span id="theme-label">Dark</span></button>

@@ -36,7 +36,8 @@ PAGES = (
     ("home", "/", "member"),
     ("home-lead", "/", "lead"),
     ("tasks", "/tasks", "lead"),
-    ("tasks-member", "/tasks", "member"),
+    ("tasks-member", "/tasks", "member"),  # lands on Mine
+    ("tasks-member-all", "/tasks?show=all", "member"),  # "Yours" marks, and Your suggestions
     ("timeline", "/timeline", "member"),
     ("timeline-lead", "/timeline", "lead"),
     ("profile", "/profile", "member"),
@@ -297,6 +298,19 @@ def seed() -> None:
                     why="Done when: the jig locates all 8 latch hole pairs from the lid edge.",
                     suggested_by=MEMBER["name"],
                     created_at=now - timedelta(hours=2),
+                ),
+                TaskSuggestion(
+                    title="Print a spare gripper finger",
+                    suggested_by=MEMBER["name"],
+                    status="added",
+                    task_code="G01",
+                    created_at=now - timedelta(days=3),
+                ),
+                TaskSuggestion(
+                    title="Re-anodise the old lid",
+                    suggested_by=MEMBER["name"],
+                    status="dismissed",
+                    created_at=now - timedelta(days=5),
                 ),
             ]
         )

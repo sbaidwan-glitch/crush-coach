@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% from "components/feedback.html" import notice as notice_box, empty_state, error_state %}
 {% set keep = ("&amp;notes=1" if show_notes else "") %}
-{% block title %}Record – Crush Coach{% endblock %}
+{% block title %}Team record – Crush Coach{% endblock %}
 {% block heading %}
 <div class="topbar__title">
-  <h1 class="page-title">Record</h1>
-  <p class="page-sub">What the team has settled, by date.</p>
+  <h1 class="page-title">Team record</h1>
+  <p class="page-sub">What the team has settled. Your own entries are in your Notebook.</p>
   <nav class="segmented" aria-label="Part of Crush">
     {% for slug, name in parts %}<a href="/record?part={{ slug }}{% if q %}&amp;q={{ q | urlencode }}{% endif %}{{ keep | safe }}"{% if slug == part %} aria-current="true"{% endif %}>{{ name }}</a>{% endfor %}
   </nav>
