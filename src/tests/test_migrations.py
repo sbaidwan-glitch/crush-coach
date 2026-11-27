@@ -90,6 +90,7 @@ def test_upgrade_creates_coach_tables(fresh_engine):
         "finish_reason",
         "reasoning_tokens",
         "tool_called",
+        "purpose",
         "created_at",
     }
     assert calls["cost"]["nullable"] is True  # only when the response provides it
@@ -400,7 +401,8 @@ def test_upgrade_creates_work_notes_and_drive_writes(fresh_engine):
     notes = {c["name"]: c for c in inspector.get_columns("work_note")}
     assert set(notes) == {
         "id", "member", "member_name", "task_id", "task_code", "subsystem",
-        "did", "why", "original", "posted_at",
+        "did", "why", "original", "posted_at", "state", "refers_to_id", "specs_dropped",
+        "updated_at",
     }
     assert notes["task_id"]["nullable"] is True  # a note outlives its task
     assert notes["original"]["nullable"] is False  # the member's own words are always kept
@@ -457,6 +459,57 @@ def test_upgrade_creates_the_member_profile_table_and_downgrade_removes_it(fresh
     command.downgrade(db.alembic_config(fresh_engine), "0013")
 
     assert "member_profile" not in inspect(fresh_engine).get_table_names()
+
+
+def test_the_notebook_migration_publishes_existing_notes_and_makes_its_tables(fresh_engine):
+    config = db.alembic_config(fresh_engine)
+    command.upgrade(config, "0014")
+    with fresh_engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO work_note (member, member_name, task_code, subsystem, did, why, "
+                "original, posted_at) VALUES ('sam@example.edu', 'Sam Example', 'M06', "
+                "'Enclosure', 'Cut the panels.', '', 'Cut the panels.', '2026-11-17 10:00:00')"
+            )
+        )
+
+    command.upgrade(config, "head")
+
+    with fresh_engine.connect() as connection:
+        row = connection.execute(
+            text("SELECT state, specs_dropped, updated_at, refers_to_id FROM work_note")
+        ).one()
+    assert row.state == "published"  # everything that exists now was posted by its member
+    assert row.specs_dropped == 0
+    assert str(row.updated_at).startswith("2026-11-17 10:00")
+    assert row.refers_to_id is None
+
+    inspector = inspect(fresh_engine)
+    photo = {c["name"]: c for c in inspector.get_columns("note_photo")}
+    assert set(photo) == {
+        "id", "note_id", "member", "position", "content_type", "size", "width", "height",
+        "data", "created_at", "drive_file_id", "drive_link",
+    }
+    assert photo["data"]["nullable"] is False
+    spec = {c["name"] for c in inspector.get_columns("note_spec")}
+    assert spec == {
+        "id", "note_id", "position", "text", "original_text", "unit", "source_title",
+        "source_link", "accepted", "edited", "created_at",
+    }
+    private = {c["name"]: c for c in inspector.get_columns("private_note")}
+    # No task, no Drive id, no state: a private note is only words, a member and a time.
+    assert set(private) == {"id", "member", "text", "created_at"}
+
+
+def test_downgrade_to_0014_removes_the_notebook_tables_and_columns(fresh_engine):
+    db.run_migrations(fresh_engine)
+    command.downgrade(db.alembic_config(fresh_engine), "0014")
+
+    inspector = inspect(fresh_engine)
+    assert {"note_photo", "note_spec", "private_note"}.isdisjoint(inspector.get_table_names())
+    notes = {c["name"] for c in inspector.get_columns("work_note")}
+    assert {"state", "refers_to_id", "specs_dropped", "updated_at"}.isdisjoint(notes)
+    assert "purpose" not in {c["name"] for c in inspector.get_columns("llm_call")}
 
 
 def _script_directory() -> ScriptDirectory:

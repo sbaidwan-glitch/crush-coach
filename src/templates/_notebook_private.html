@@ -1,0 +1,27 @@
+{#- Private notes: words only the member can read. No task, no Drive, no AI, no publish.
+    Expects: private_notes, load_errors, panel. -#}
+{% from "components/feedback.html" import empty_state, error_state %}
+{% set hx = panel %}
+<p class="hint private-hint">Only you can see these. They are never added to the Crush document, never sent to the AI, and no lead can read them. There is nothing to publish.</p>
+<form method="post" action="/notebook/private"{% if hx %} hx-post="/notebook/private" hx-target="#notebook-body" hx-swap="innerHTML"{% endif %}>
+  <label class="field-label" for="nb-private">New private note</label>
+  <textarea class="field-input" id="nb-private" name="text" rows="3" maxlength="2000" required></textarea>
+  <div class="actions"><button class="btn" type="submit">Save private note</button></div>
+</form>
+{% if load_errors.private %}
+{{ error_state(load_errors.private, "/notebook?tab=private", "Try again") }}
+{% else %}
+<div class="private-list">
+{% for n in private_notes %}
+<div class="entry" id="private-{{ n.id }}">
+  <p class="meta"><time>{{ n.date.day }} {{ n.date.strftime("%b %Y") }}</time></p>
+  <p class="private-text">{{ n.text }}</p>
+  <form method="post" action="/notebook/private/{{ n.id }}/delete"{% if hx %} hx-post="/notebook/private/{{ n.id }}/delete" hx-target="#notebook-body" hx-swap="innerHTML" hx-confirm="Delete this private note?"{% endif %}>
+    <button class="btn btn--small" type="submit">Delete</button>
+  </form>
+</div>
+{% else %}
+{{ empty_state("No private notes yet.") }}
+{% endfor %}
+</div>
+{% endif %}

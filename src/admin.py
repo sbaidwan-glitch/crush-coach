@@ -35,6 +35,7 @@ from starlette.datastructures import FormData, UploadFile
 import db
 import drive_index
 import import_tasks as importer
+import notebook
 import shell
 import task_removal as removal
 from auth import LeadUser
@@ -581,10 +582,20 @@ def admin_home(
     user: LeadUser,
     sync: str | None = None,
 ):
+    try:
+        spec_counts = notebook.spec_counts(session)
+    except Exception as exc:  # noqa: BLE001  (the rest of the page still works)
+        session.rollback()
+        log.error("Admin could not count suggested specs (%s)", type(exc).__name__)
+        spec_counts = None
     return templates.TemplateResponse(
         request,
         "admin.html",
-        {"user": user, "drive": _drive_context(session, sync)},
+        {
+            "user": user,
+            "drive": _drive_context(session, sync),
+            "spec_counts": spec_counts,
+        },
     )
 
 

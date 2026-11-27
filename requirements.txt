@@ -37,6 +37,7 @@ pyyaml==6.0.3           # evals/coach_questions.yaml (make eval)
 google-api-python-client==2.201.0
 google-auth==2.62.1
 pypdf==7.0.0            # PDF text for the Drive index (src/drive_index.py)
+pillow==13.0.0          # notebook photos: real file type, resize, strip location data (src/photos.py)
 
 # --- lab notebooks (hw5.ipynb and friends) ---
 ipykernel==7.3.0

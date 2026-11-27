@@ -22,7 +22,7 @@
 {% macro write_line(e, retry=False) %}
 <p class="why write write--{{ e.write.status }}">{{ e.write.text }}{% if e.write.link %} <a href="{{ e.write.link }}" target="_blank" rel="noopener noreferrer">Open that tab</a>{% endif %}</p>
 {% if e.write.status != "written" and retry %}
-<form method="post" action="/worklog/answers/{{ e.id }}/retry"><input type="hidden" name="part" value="{{ part }}"><button class="btn btn--small" type="submit">Retry write to Drive</button></form>
+<form method="post" action="/record/answers/{{ e.id }}/retry"><input type="hidden" name="part" value="{{ part }}"><button class="btn btn--small" type="submit">Retry write to Drive</button></form>
 {% endif %}
 {% endmacro %}
 {% block main %}
@@ -48,6 +48,8 @@
   <div class="entry" id="note-{{ e.id }}">
     <p><span class="tag tag--note">Note</span>{{ e.who }} · <a class="code" href="/tasks/{{ e.task_code }}">{{ e.task_code }}</a>: {{ e.did }}</p>
     {% if e.why %}<p class="why">Why: {{ e.why }}</p>{% endif %}
+    {% for s in e.specs %}<p class="why">Spec: {{ s.text }}{% if s.unit %} {{ s.unit }}{% endif %}. Source: {% if s.source_link.startswith("/") %}<a href="{{ s.source_link }}">{{ s.source_title }}</a>{% else %}<a href="{{ s.source_link }}" target="_blank" rel="noopener noreferrer">{{ s.source_title }}</a>{% endif %}</p>{% endfor %}
+    {% if e.photos %}<p class="why">Photos: {% for p in e.photos %}<a href="/notebook/photos/{{ p.id }}" target="_blank" rel="noopener noreferrer">Photo {{ p.number }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
     {{ write_line(e) }}
   </div>
   {% else %}

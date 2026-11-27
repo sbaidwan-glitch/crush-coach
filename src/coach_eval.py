@@ -22,7 +22,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
-KINDS = ("lookup", "how-to", "why", "conflict", "unknown", "follow-up", "recommend")
+KINDS = ("lookup", "how-to", "why", "conflict", "unknown", "follow-up", "recommend", "plan")
 DEFAULT_MAX_COST = 0.60  # dollars; the Glassroom cap is $1 per 5 hours
 DEFAULT_PAUSE = 3.0  # seconds between questions, so the run doesn't hit rate limits
 DEFAULT_RETRY_PAUSE = 20.0  # seconds before the one retry of a failed question
@@ -59,6 +59,9 @@ class Question:
     # A recommendation: asked like pressing the Recommend button after `after`, with the
     # reference-book search and the calculator. `question` is the button's own text.
     recommend: bool = False
+    # A plan: asked like pressing "Plan my next steps" after `after` (one short call, no
+    # tools). `question` is then the button's own text, "Plan my next steps."
+    plan: bool = False
 
 
 def _text_list(entry: dict, field_name: str, where: str) -> tuple[str, ...]:
@@ -121,6 +124,11 @@ def parse_questions(data: object) -> list[Question]:
         recommend = entry.get("recommend") or False
         if not isinstance(recommend, bool):
             raise QuestionFileError(f"{where}: `recommend` must be true or false")
+        plan = entry.get("plan") or False
+        if not isinstance(plan, bool):
+            raise QuestionFileError(f"{where}: `plan` must be true or false")
+        if plan and recommend:
+            raise QuestionFileError(f"{where}: a question is a `recommend` or a `plan`, not both")
         after = entry.get("after") or ""
         if not isinstance(after, str) or (after and after not in seen_before):
             raise QuestionFileError(
@@ -129,6 +137,10 @@ def parse_questions(data: object) -> list[Question]:
         if recommend and not after:
             raise QuestionFileError(
                 f"{where}: a `recommend` question needs `after`: the answer it is about"
+            )
+        if plan and not after:
+            raise QuestionFileError(
+                f"{where}: a `plan` question needs `after`: the answer it plans from"
             )
         questions.append(
             Question(
@@ -141,6 +153,7 @@ def parse_questions(data: object) -> list[Question]:
                 must_not=_text_list(entry, "must_not", where),
                 after=after.strip(),
                 recommend=recommend,
+                plan=plan,
             )
         )
         seen_before.add(entry["id"])

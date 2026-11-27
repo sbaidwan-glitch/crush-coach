@@ -19,12 +19,12 @@ import dev_login
 import facts
 import home
 import inbox
+import notebook
 import profiles
 import record
 import static_version
 import timeline
 import workflow
-import worklog
 
 STATIC_DIR = Path(__file__).parent / "static"
 templates = static_version.add_to(Jinja2Templates(directory=Path(__file__).parent / "templates"))
@@ -66,7 +66,7 @@ app.include_router(inbox.router)
 app.include_router(record.router)
 app.include_router(timeline.router)
 app.include_router(profiles.router)
-app.include_router(worklog.router)
+app.include_router(notebook.router)
 app.include_router(admin.router)
 app.include_router(facts.router)
 

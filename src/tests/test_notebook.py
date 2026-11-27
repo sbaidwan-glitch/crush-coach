@@ -1,7 +1,7 @@
-"""The work log: the side panel and its two tabs, Tidy my note (one model call, on the
-button), posting without a lead, the Crush document write and its retry, the Home banner,
-and where notes show up (History, Record). Made-up people and tasks; the model and Google
-are fakes."""
+"""The Notebook: the side panel and its three tabs, Tidy my note (one model call, on the
+button), publishing without a lead, the Crush document write and its retry, the Home banner,
+and where entries show up (History, Record). Made-up people and tasks; the model and Google
+are fakes. Photos, specs, private notes and the plan button have their own files."""
 
 import json
 import re
@@ -9,17 +9,26 @@ from datetime import timedelta
 
 import fake_openai as fake
 import pytest
-from fake_crush_doc import DOC_ID, FakeCrushDoc
+from fake_crush_doc import DOC_ID
 from fake_google import http_error
 from fastapi.testclient import TestClient
-from sqlmodel import select
+from notebook_helpers import (
+    HTMX,
+    LEAD,
+    MEMBER,
+    OTHER,
+    TODAY,
+    add_note,
+    add_task,
+    stored,
+    use_model,
+)
 
-import auth
 import drive_write
 import llm
 import localtime
 import main
-import worklog
+import notebook
 from models import (
     CoachMessage,
     Decision,
@@ -27,17 +36,11 @@ from models import (
     DriveFile,
     DriveWrite,
     LlmCall,
-    Task,
+    PrivateNote,
     TaskEvent,
     WorkNote,
     utc_now,
 )
-
-MEMBER = {"name": "Sam Example", "email": "sam@example.edu", "role": "member"}
-OTHER = {"name": "Riley Sample", "email": "riley@example.edu", "role": "member"}
-LEAD = {"name": "Lee Lead", "email": "lee@example.edu", "role": "lead"}
-HTMX = {"HX-Request": "true"}
-TODAY = localtime.heading(localtime.today())
 
 DID = "tacked the 4 walls and welded 2 corners, one warped a bit so clamped it to the fixture plate"
 WHY = "did opposite corners first so the heat pulls evenly"
@@ -46,74 +49,6 @@ TIDIED = {
     "why": "Welded opposite corners first so the heat pulls evenly.",
     "question": "Which two corners did you fully weld?",
 }
-
-
-@pytest.fixture
-def as_user(monkeypatch):
-    clients = []
-
-    def make(user):
-        monkeypatch.setattr(auth, "session_user", lambda request: user)
-        main.app.dependency_overrides[auth.require_user] = lambda: user
-        main.app.dependency_overrides[auth.optional_user] = lambda: user
-        c = TestClient(main.app)
-        c.__enter__()
-        clients.append(c)
-        return c
-
-    yield make
-    for c in clients:
-        c.__exit__(None, None, None)
-    main.app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def doc(monkeypatch):
-    """The Crush document, as a fake with a tab per part of Crush."""
-    document = FakeCrushDoc("Enclosure", "Seals", "Thrusters", "Actuators", "General")
-    monkeypatch.setenv("DECISIONS_DOC_ID", DOC_ID)
-    monkeypatch.setattr(drive_write, "build_docs", lambda: document)
-    return document
-
-
-def use_model(monkeypatch, *script):
-    model = fake.FakeClient(list(script))
-    monkeypatch.setattr(llm, "get_client", lambda: model)
-    return model
-
-
-def add_task(session, code="M06", owner="Sam Example", status="in_progress", **kw):
-    task = Task(
-        code=code,
-        title=kw.pop("title", "Weld the enclosure walls"),
-        subsystem=kw.pop("subsystem", "Enclosure"),
-        task_type="Fabricate",
-        stage="Drawing",
-        status=status,
-        owner=owner,
-        **kw,
-    )
-    session.add(task)
-    session.commit()
-    session.refresh(task)
-    return task
-
-
-def add_note(session, task, member=MEMBER, did="Cut the panels.", why="", when=None, **kw):
-    note = WorkNote(
-        member=member["email"], member_name=member["name"], task_id=task.id,
-        task_code=task.code, subsystem=task.subsystem, did=did, why=why, original=did,
-        posted_at=when or utc_now(), **kw,
-    )
-    session.add(note)
-    session.commit()
-    session.refresh(note)
-    return note
-
-
-def stored(session, model):
-    session.expire_all()
-    return list(session.exec(select(model)).all())
 
 
 # --- opening the panel ------------------------------------------------------------------
@@ -125,8 +60,8 @@ def test_the_top_bar_has_the_button_on_every_page_for_signed_in_members(session,
 
     for path in ("/", "/tasks", "/record", "/tasks/M06"):
         html = client.get(path).text
-        assert "Log today’s work" in html and "data-worklog-open" in html, path
-        assert '<dialog id="worklog"' in html, path
+        assert ">Notebook</a>" in html and "data-notebook-open" in html, path
+        assert '<dialog id="notebook"' in html and "Open full page" in html, path
 
 
 def test_on_a_task_page_the_panel_opens_on_that_task(session, as_user):
@@ -134,23 +69,26 @@ def test_on_a_task_page_the_panel_opens_on_that_task(session, as_user):
 
     html = as_user(MEMBER).get("/tasks/M06").text
 
-    assert 'data-panel-url="/worklog/panel?tab=log&amp;task=M06"' in html
+    assert 'data-panel-url="/notebook/panel?tab=today&amp;task=M06"' in html
     assert "data-open-url" not in html  # it opens when asked, not on every load
 
 
-def test_signed_out_visitors_get_no_panel_and_no_log_routes(session, monkeypatch):
+def test_signed_out_visitors_get_no_panel_and_see_nothing_of_the_notebook(session, monkeypatch):
     add_task(session)
     monkeypatch.undo()
 
     with TestClient(main.app) as visitor:
         home = visitor.get("/")
-        page = visitor.get("/worklog", follow_redirects=False)
-        posted = visitor.post("/worklog/post", data={"task": "M06", "did": "x"}, follow_redirects=False)
+        page = visitor.get("/notebook")
+        panel = visitor.get("/notebook/panel", follow_redirects=False)
+        entry = visitor.post("/notebook/entry/publish", data={"task": "M06", "did": "x"}, follow_redirects=False)
+        private = visitor.post("/notebook/private", data={"text": "x"}, follow_redirects=False)
 
-    assert "Log today’s work" not in home.text and 'id="worklog"' not in home.text
-    assert page.status_code == 303 and "/login" in page.headers["location"]
-    assert posted.status_code == 303 and "/login" in posted.headers["location"]
-    assert stored(session, WorkNote) == []
+    assert ">Notebook</a>" not in home.text and 'id="notebook"' not in home.text
+    assert page.status_code == 401 and "Sign in" in page.text and 'name="did"' not in page.text
+    for response in (panel, entry, private):
+        assert response.status_code == 303 and "/login" in response.headers["location"]
+    assert stored(session, WorkNote) == [] and stored(session, PrivateNote) == []
 
 
 def test_the_log_parameter_opens_the_panel_on_load_and_only_for_a_real_code(session, as_user):
@@ -160,31 +98,38 @@ def test_the_log_parameter_opens_the_panel_on_load_and_only_for_a_real_code(sess
     opened = client.get("/tasks/M06?log=M06").text
     junk = client.get('/tasks/M06?log="><script>alert(1)</script>').text
 
-    assert 'data-open-url="/worklog/panel?tab=log&amp;task=M06"' in opened
+    assert 'data-open-url="/notebook/panel?tab=today&amp;task=M06"' in opened
     assert "data-open-url" not in junk and "<script>alert(1)" not in junk
 
 
-def test_the_panel_has_two_tabs_and_the_two_boxes(session, as_user):
+def test_the_panel_has_three_tabs_and_the_entry_form(session, as_user):
     add_task(session)
 
-    html = as_user(MEMBER).get("/worklog/panel?task=M06").text
+    html = as_user(MEMBER).get("/notebook/panel?task=M06").text
 
-    assert "Log today’s work" in html and "My notebook" in html
-    assert 'aria-current="true">Log today’s work' in html
-    assert "What did you do?" in html and "Why did you do it that way?" in html
-    assert "(recommended)" in html
+    for tab in ("Today’s entry", "Earlier", "Private notes"):
+        assert tab in html
+    assert 'aria-current="true">Today’s entry' in html
+    assert "What I did" in html and "Why <span" in html and "(recommended)" in html
     assert '<option value="M06" selected>' in html
-    assert "Tidy my note" in html and "Post as written" in html
+    for button in ("Tidy my note", "Suggest specs", "Save draft", "Publish to Crush doc"):
+        assert button in html
+    assert "Add photos" in html and 'capture="environment"' in html and 'type="file"' in html
+    assert 'action="/notebook/entry/publish"' in html and 'enctype="multipart/form-data"' in html
 
 
 def test_the_page_version_works_without_javascript(session, as_user):
     add_task(session)
 
-    response = as_user(MEMBER).get("/worklog?task=M06")
+    response = as_user(MEMBER).get("/notebook?task=M06")
 
     assert response.status_code == 200
-    assert response.text.count('id="worklog-body"') == 1  # no second copy from the dialog
-    assert "What did you do?" in response.text and 'action="/worklog/post"' in response.text
+    html = response.text
+    assert html.count('id="notebook-body"') == 0 and html.count('<dialog') == 0  # no second copy
+    assert "What I did" in html and 'action="/notebook/entry/publish"' in html
+    assert "hx-post" not in html  # plain posts, no htmx needed
+    # Compose on the left, history on the right: one grid that stacks on a phone.
+    assert html.index("Today’s entry") < html.index("Earlier") and "grid-2 notebook-page" in html
 
 
 def test_only_the_members_own_tasks_are_offered_with_the_asked_one_selected(session, as_user):
@@ -192,7 +137,7 @@ def test_only_the_members_own_tasks_are_offered_with_the_asked_one_selected(sess
     add_task(session, "M07", title="Second task")
     add_task(session, "M08", owner="Riley Sample", title="Someone else's")
 
-    html = as_user(MEMBER).get("/worklog/panel?task=M07").text
+    html = as_user(MEMBER).get("/notebook/panel?task=M07").text
 
     assert '<option value="M07" selected>' in html and '<option value="M06">' in html
     assert "Someone else" not in html
@@ -201,7 +146,7 @@ def test_only_the_members_own_tasks_are_offered_with_the_asked_one_selected(sess
 def test_a_member_with_no_task_is_told_what_to_do(session, as_user):
     add_task(session, "M08", owner="Riley Sample")
 
-    html = as_user(MEMBER).get("/worklog/panel").text
+    html = as_user(MEMBER).get("/notebook/panel").text
 
     assert "You don’t own a task yet" in html and 'name="did"' not in html
 
@@ -212,11 +157,11 @@ def test_a_database_failure_says_so_in_the_panel(session, as_user, monkeypatch):
     def broken(*args, **kwargs):
         raise RuntimeError("password=hunter2")
 
-    monkeypatch.setattr(worklog, "task_choices", broken)
-    response = as_user(MEMBER).get("/worklog/panel")
+    monkeypatch.setattr(notebook, "task_choices", broken)
+    response = as_user(MEMBER).get("/notebook/panel")
 
     assert "Couldn&#39;t load this from the database" in response.text or "Couldn’t load" in response.text
-    assert "hunter2" not in response.text and "My notebook" in response.text
+    assert "hunter2" not in response.text and "Earlier" in response.text
 
 
 # --- Tidy my note --------------------------------------------------------------------------
@@ -224,7 +169,7 @@ def test_a_database_failure_says_so_in_the_panel(session, as_user, monkeypatch):
 
 def tidy(client, did=DID, why=WHY, **extra):
     data = {"task": "M06", "did": did, "why": why, **extra}
-    return client.post("/worklog/tidy", data=data, headers=HTMX)
+    return client.post("/notebook/entry/tidy", data=data, headers=HTMX)
 
 
 def test_tidy_calls_the_small_model_once_shows_the_result_and_saves_nothing(session, as_user, monkeypatch):
@@ -236,11 +181,11 @@ def test_tidy_calls_the_small_model_once_shows_the_result_and_saves_nothing(sess
     assert response.status_code == 200
     assert len(model.requests) == 1 and model.requests[0]["model"] == "claude-haiku-4-5"
     html = response.text
-    assert "Tidied note · check it before posting" in html
+    assert "Tidied note · check it before you publish" in html
     assert TIDIED["did"] in html and TIDIED["why"] in html  # editable, in the boxes
     assert "One thing is missing:" in html and "Which two corners did you fully weld?" in html
     assert 'name="reply"' in html and 'name="asked"' in html
-    assert "Post to the Crush document" in html and "Tidy again" in html
+    assert "Publish to Crush doc" in html and "Tidy again" in html
     assert f'name="original_did" value="{DID}"' in html  # their own words are kept for later
     assert stored(session, WorkNote) == [] and stored(session, DriveWrite) == []
 
@@ -318,17 +263,17 @@ def test_a_rewrite_that_invents_a_detail_keeps_the_members_words_and_says_so(ses
     assert "added a detail that isn’t in your note" in html
 
 
-def test_a_failed_tidy_keeps_the_text_says_why_and_still_lets_them_post(session, as_user, monkeypatch):
+def test_a_failed_tidy_keeps_the_text_says_why_and_still_lets_them_publish(session, as_user, monkeypatch):
     add_task(session)
     use_model(monkeypatch, fake.timed_out())
 
     response = tidy(as_user(MEMBER))
 
     assert response.status_code == 502
-    assert "Took too long" in response.text and "post your note as written" in response.text
-    assert DID in response.text and "Post as written" in response.text
+    assert "Took too long" in response.text and "publish your note as written" in response.text
+    assert DID in response.text and "Publish to Crush doc" in response.text
     (call,) = stored(session, LlmCall)
-    assert call.status == "timeout"
+    assert call.status == "timeout" and call.purpose == "tidy"
     assert stored(session, WorkNote) == []
 
 
@@ -361,7 +306,7 @@ def test_tidy_has_a_daily_limit_but_posting_does_not(session, as_user, monkeypat
     blocked = tidy(client)
 
     assert blocked.status_code == 400 and "used today's 1 tidies" in blocked.text.replace("&#39;", "'")
-    assert "post your note as written" in blocked.text
+    assert "publish your note as written" in blocked.text
     assert len(model.requests) == 1
 
 
@@ -369,7 +314,7 @@ def test_tidy_works_as_a_whole_page_without_htmx(session, as_user, monkeypatch):
     add_task(session)
     use_model(monkeypatch, fake.reply(json.dumps(TIDIED)))
 
-    response = as_user(MEMBER).post("/worklog/tidy", data={"task": "M06", "did": DID, "why": WHY})
+    response = as_user(MEMBER).post("/notebook/entry/tidy", data={"task": "M06", "did": DID, "why": WHY})
 
     assert "<!doctype html>" in response.text and TIDIED["did"] in response.text
 
@@ -379,7 +324,7 @@ def test_the_model_is_never_called_by_opening_pages(session, as_user, monkeypatc
     model = use_model(monkeypatch)
     client = as_user(MEMBER)
 
-    for path in ("/", "/worklog", "/worklog/panel", "/worklog/panel?tab=notebook", "/record", "/tasks/M06?log=M06"):
+    for path in ("/", "/worklog", "/notebook/panel", "/notebook/panel?tab=earlier", "/record", "/tasks/M06?log=M06"):
         client.get(path)
 
     assert model.requests == []
@@ -390,7 +335,7 @@ def test_the_model_is_never_called_by_opening_pages(session, as_user, monkeypatc
 
 def post(client, **data):
     data = {"task": "M06", "did": TIDIED["did"], "why": TIDIED["why"], **data}
-    return client.post("/worklog/post", data=data, headers=HTMX)
+    return client.post("/notebook/entry/publish", data=data, headers=HTMX)
 
 
 def test_posting_saves_the_note_keeps_their_own_words_and_writes_the_document(session, as_user, doc):
@@ -432,26 +377,32 @@ def test_posting_without_tidy_keeps_the_text_as_both_note_and_original(session, 
     assert doc.lines("Enclosure")[-1] == "Sam Example · M06: Sanded the lid."
 
 
-def test_after_posting_the_notebook_shows_it_and_says_where_it_went(session, as_user, doc):
+def test_after_publishing_earlier_shows_it_with_its_state_and_where_it_went(session, as_user, doc):
     add_task(session)
 
     html = post(as_user(MEMBER)).text
 
-    assert 'aria-current="true">My notebook' in html and "data-posted" in html
-    assert "Posted. Written to the Enclosure tab of the Crush document." in html
+    assert 'aria-current="true">Earlier' in html and "data-posted" in html
+    assert "Published. Written to the Enclosure tab of the Crush document." in html
     assert TIDIED["did"] in html and f"Why: {TIDIED['why']}" in html
-    assert "Retry write to Drive" not in html
+    assert '<span class="status status--done">Published</span>' in html  # a mark and the word
+    assert "Open in doc" in html and "Add a follow-up" in html
+    assert "Retry" not in html and "Edit draft" not in html
 
 
-def test_posting_in_a_browser_without_htmx_ends_on_the_notebook(session, as_user, doc):
+def test_publishing_in_a_browser_without_htmx_ends_on_earlier_and_says_where_it_went(session, as_user, doc):
     add_task(session)
+    client = as_user(MEMBER)
 
-    response = as_user(MEMBER).post(
-        "/worklog/post", data={"task": "M06", "did": "Sanded the lid"}, follow_redirects=False
+    response = client.post(
+        "/notebook/entry/publish", data={"task": "M06", "did": "Sanded the lid"}, follow_redirects=False
     )
 
-    assert response.status_code == 303 and response.headers["location"] == "/worklog?tab=notebook"
+    assert response.status_code == 303 and response.headers["location"] == "/notebook?tab=earlier"
     assert len(stored(session, WorkNote)) == 1
+    page = client.get(response.headers["location"])
+    assert "Published. Written to the Enclosure tab" in page.text and "Sanded the lid" in page.text
+    assert "Published. Written to" not in client.get("/notebook?tab=earlier").text  # said once
 
 
 def test_the_tab_follows_the_subsystem_and_says_when_it_used_general(session, as_user, doc):
@@ -473,7 +424,7 @@ def test_nothing_to_post_is_refused_and_the_text_stays(session, as_user, doc):
 
     response = post(as_user(MEMBER), did="  ", why="because")
 
-    assert response.status_code == 400 and "Write what you did before posting" in response.text
+    assert response.status_code == 400 and "Write what you did before publishing" in response.text
     assert "because" in response.text
     assert stored(session, WorkNote) == [] and doc.gets == 0
 
@@ -510,7 +461,7 @@ def test_a_note_is_markup_safe_in_every_page_it_appears_on(session, as_user, doc
 # --- when the document write fails -------------------------------------------------------------
 
 
-def test_a_failed_write_keeps_the_note_and_offers_a_retry(session, as_user, doc):
+def test_a_failed_write_keeps_the_entry_marks_it_failed_and_offers_a_retry(session, as_user, doc):
     add_task(session)
     doc.fail_get = http_error(503, "unavailable secret-token-123")
     client = as_user(MEMBER)
@@ -522,10 +473,13 @@ def test_a_failed_write_keeps_the_note_and_offers_a_retry(session, as_user, doc)
     (write,) = stored(session, DriveWrite)
     assert write.status == "failed"
     html = response.text
-    assert "Saved in your notebook." in html and "Google Docs didn" in html
-    assert "Retry write to Drive" in html and "secret-token-123" not in html
-    # The notebook says the same on a later visit.
-    assert "Retry write to Drive" in client.get("/worklog/panel?tab=notebook").text
+    assert "didn’t reach the Crush document" in html and "Google Docs didn" in html
+    assert '<span class="status status--review">Failed to publish</span>' in html
+    assert "Retry" in html and "secret-token-123" not in html
+    assert "Open in doc" not in html
+    # Earlier says the same on a later visit.
+    later = client.get("/notebook/panel?tab=earlier").text
+    assert "Failed to publish" in later and "/retry" in later
 
 
 def test_retry_writes_it_once_and_the_button_goes(session, as_user, doc):
@@ -536,11 +490,11 @@ def test_retry_writes_it_once_and_the_button_goes(session, as_user, doc):
     (note,) = stored(session, WorkNote)
     doc.fail_get = None
 
-    response = client.post(f"/worklog/notes/{note.id}/retry", headers=HTMX)
-    client.post(f"/worklog/notes/{note.id}/retry", headers=HTMX)  # a second press
+    response = client.post(f"/notebook/entries/{note.id}/retry", headers=HTMX)
+    client.post(f"/notebook/entries/{note.id}/retry", headers=HTMX)  # a second press
 
-    assert "Posted. Written to the Enclosure tab" in response.text
-    assert "Retry write to Drive" not in response.text
+    assert "Published. Written to the Enclosure tab" in response.text
+    assert "Retry" not in response.text
     assert doc.tab("Enclosure").text().count("Tack-welded") == 1
     assert stored(session, DriveWrite)[0].status == "written"
 
@@ -552,9 +506,9 @@ def test_retry_that_fails_again_says_so_and_keeps_the_button(session, as_user, d
     post(client)
     (note,) = stored(session, WorkNote)
 
-    response = client.post(f"/worklog/notes/{note.id}/retry", headers=HTMX)
+    response = client.post(f"/notebook/entries/{note.id}/retry", headers=HTMX)
 
-    assert "editor" in response.text and "Retry write to Drive" in response.text
+    assert "editor" in response.text and "Retry" in response.text
     assert stored(session, DriveWrite)[0].attempts == 2
 
 
@@ -572,11 +526,11 @@ def test_only_the_author_or_a_lead_can_retry_a_note(session, as_user, doc):
     task = add_task(session)
     note = add_note(session, task)
 
-    stranger = as_user(OTHER).post(f"/worklog/notes/{note.id}/retry", headers=HTMX)
+    stranger = as_user(OTHER).post(f"/notebook/entries/{note.id}/retry", headers=HTMX)
     assert stranger.status_code == 404
     assert doc.gets == 0
 
-    lead = as_user(LEAD).post(f"/worklog/notes/{note.id}/retry", headers=HTMX)
+    lead = as_user(LEAD).post(f"/notebook/entries/{note.id}/retry", headers=HTMX)
     assert lead.status_code == 200 and "Cut the panels." in doc.tab("Enclosure").text()
 
 
@@ -589,7 +543,7 @@ def test_the_notebook_has_only_my_notes_newest_first_grouped_by_day(session, as_
     add_note(session, task, did="Newer work.")
     add_note(session, task, member=OTHER, did="Riley's secret work.")
 
-    html = as_user(MEMBER).get("/worklog/panel?tab=notebook").text
+    html = as_user(MEMBER).get("/notebook/panel?tab=earlier").text
 
     assert html.index("Newer work.") < html.index("Older work.")
     assert "Riley" not in html
@@ -599,7 +553,7 @@ def test_the_notebook_has_only_my_notes_newest_first_grouped_by_day(session, as_
 def test_an_empty_notebook_says_so(session, as_user):
     add_task(session)
 
-    html = as_user(MEMBER).get("/worklog/panel?tab=notebook").text
+    html = as_user(MEMBER).get("/notebook/panel?tab=earlier").text
 
     assert "Nothing in your notebook yet" in html
 
@@ -622,7 +576,8 @@ def test_the_banner_names_the_task_the_member_worked_on_today(session, as_user):
     html = as_user(MEMBER).get("/").text
 
     assert 'class="banner"' in html and "You worked on" in html and "M06" in html
-    assert "Not today" in html and 'data-panel-url="/worklog/panel?tab=log&amp;task=M06"' in html
+    assert "Write today’s entry" in html and "Not today" in html
+    assert 'data-panel-url="/notebook/panel?tab=today&amp;task=M06"' in html
 
 
 def test_asking_the_coach_counts_as_being_active(session, as_user):
@@ -676,7 +631,7 @@ def test_not_today_hides_the_banner_until_tomorrow(session, as_user, monkeypatch
     client = as_user(MEMBER)
     assert 'class="banner"' in client.get("/").text
 
-    response = client.post("/worklog/dismiss", data={"next": "/"}, follow_redirects=False)
+    response = client.post("/notebook/dismiss", data={"next": "/"}, follow_redirects=False)
     assert response.status_code == 303 and response.headers["location"] == "/"
     assert 'class="banner"' not in client.get("/").text
 
@@ -686,7 +641,7 @@ def test_not_today_hides_the_banner_until_tomorrow(session, as_user, monkeypatch
 
 
 def test_not_today_cannot_send_you_to_another_site(session, as_user):
-    response = as_user(MEMBER).post("/worklog/dismiss", data={"next": "https://evil.example/"}, follow_redirects=False)
+    response = as_user(MEMBER).post("/notebook/dismiss", data={"next": "https://evil.example/"}, follow_redirects=False)
 
     assert response.headers["location"] == "/"
 
@@ -706,7 +661,7 @@ def test_a_failure_checking_the_banner_leaves_the_rest_of_home(session, as_user,
     def broken(*args, **kwargs):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(worklog, "active_task_today", broken)
+    monkeypatch.setattr(notebook, "active_task_today", broken)
     response = as_user(MEMBER).get("/")
 
     assert response.status_code == 200 and "Your task" in response.text
@@ -715,7 +670,7 @@ def test_a_failure_checking_the_banner_leaves_the_rest_of_home(session, as_user,
 # --- after "Mark step done" -------------------------------------------------------------------------------
 
 
-def test_mark_step_done_opens_the_log_on_that_task(session, as_user):
+def test_mark_step_done_opens_the_notebook_on_that_task(session, as_user):
     add_task(session)
     client = as_user(MEMBER)
 
@@ -726,7 +681,7 @@ def test_mark_step_done_opens_the_log_on_that_task(session, as_user):
     assert from_task_page.status_code == 303
     assert from_task_page.headers["location"] == "/tasks/M06?log=M06"
     page = client.get(from_task_page.headers["location"]).text
-    assert 'data-open-url="/worklog/panel?tab=log&amp;task=M06"' in page
+    assert 'data-open-url="/notebook/panel?tab=today&amp;task=M06"' in page
 
 
 def test_mark_step_done_from_home_opens_it_there(session, as_user):
@@ -849,7 +804,7 @@ def test_removing_a_task_keeps_the_notes_in_the_notebook(session, as_user):
 
     kept = stored(session, WorkNote)
     assert [n.id for n in kept] == [note.id] and kept[0].task_id is None and kept[0].task_code == "M06"
-    assert "Cut the panels." in as_user(MEMBER).get("/worklog/panel?tab=notebook").text
+    assert "Cut the panels." in as_user(MEMBER).get("/notebook/panel?tab=earlier").text
 
 
 def test_the_work_notes_text_in_the_prompt_files_exists():
@@ -942,14 +897,14 @@ def test_a_failed_write_never_stops_an_answer_being_recorded_and_the_lead_can_re
     record_page = client.get("/record").text
     assert "Baseplate gasket hole clearance:" in record_page and "0.050 in" in record_page
     assert "Google Docs didn" in record_page and "secret-token-123" not in record_page
-    assert "Retry write to Drive" in record_page
+    assert "Retry" in record_page
     doc.fail_get = None
 
-    retried = client.post(f"/worklog/answers/{decision.id}/retry", data={"part": "enclosure"}, follow_redirects=False)
+    retried = client.post(f"/record/answers/{decision.id}/retry", data={"part": "enclosure"}, follow_redirects=False)
 
     assert retried.status_code == 303 and retried.headers["location"] == f"/record?part=enclosure#answer-{decision.id}"
     assert doc.tab("Enclosure").text().count("Baseplate gasket hole clearance: 0.050 in") == 1
-    assert "Retry write to Drive" not in client.get("/record").text
+    assert "Retry" not in client.get("/record").text
 
 
 def test_members_cannot_retry_an_answers_write_and_see_no_button(session, as_user, doc):
@@ -959,8 +914,8 @@ def test_members_cannot_retry_an_answers_write_and_see_no_button(session, as_use
     session.commit()
     client = as_user(MEMBER)
 
-    assert client.post(f"/worklog/answers/{decision.id}/retry").status_code == 403
-    assert "Retry write to Drive" not in client.get("/record").text
+    assert client.post(f"/record/answers/{decision.id}/retry").status_code == 403
+    assert "Retry" not in client.get("/record").text
     assert doc.gets == 0
 
 
@@ -983,7 +938,313 @@ def test_a_lead_cannot_use_retry_to_write_an_answer_that_is_not_recorded(session
     session.add(decision)
     session.commit()
 
-    response = as_user(LEAD).post(f"/worklog/answers/{decision.id}/retry", follow_redirects=False)
+    response = as_user(LEAD).post(f"/record/answers/{decision.id}/retry", follow_redirects=False)
 
     assert response.status_code == 303
     assert doc.gets == 0 and stored(session, DriveWrite) == []
+
+
+# --- an entry's states: Draft, Published, Failed to publish ---------------------------------------
+
+
+def make_draft(client, **data):
+    data = {"task": "M06", "did": "Cut the first panel.", "why": "", **data}
+    return client.post("/notebook/entry/save", data=data, headers=HTMX)
+
+
+def only(session, model=WorkNote):
+    (row,) = stored(session, model)
+    return row
+
+
+def test_save_draft_keeps_it_private_and_writes_nothing_to_the_document(session, as_user, doc):
+    add_task(session)
+
+    response = make_draft(as_user(MEMBER), why="the latch holes moved")
+
+    assert response.status_code == 200 and "Draft saved." in response.text
+    note = only(session)
+    assert (note.state, note.did, note.why) == ("draft", "Cut the first panel.", "the latch holes moved")
+    assert note.member == "sam@example.edu"
+    assert doc.gets == 0 and stored(session, DriveWrite) == []
+    # The form comes back holding the draft, so the next save is the same entry.
+    assert f'name="entry" value="{note.id}"' in response.text
+    assert "Cut the first panel." in response.text
+
+
+def test_a_draft_shows_in_earlier_with_a_mark_and_the_word(session, as_user, doc):
+    add_task(session)
+    client = as_user(MEMBER)
+    make_draft(client)
+
+    html = client.get("/notebook/panel?tab=earlier").text
+
+    assert '<span class="status status--todo">Draft</span>' in html
+    assert "Only you can see this draft." in html and "Edit draft" in html
+    assert "Open in doc" not in html
+
+
+def test_saving_again_updates_the_same_draft(session, as_user, doc):
+    add_task(session)
+    client = as_user(MEMBER)
+    make_draft(client)
+    note = only(session)
+
+    make_draft(client, entry=str(note.id), did="Cut both panels.")
+
+    assert only(session).did == "Cut both panels." and len(stored(session, WorkNote)) == 1
+
+
+def test_reopening_today_shows_the_draft_being_written(session, as_user, doc):
+    add_task(session)
+    client = as_user(MEMBER)
+    make_draft(client, did="Half-written thought")
+
+    html = client.get("/notebook/panel?tab=today").text
+
+    assert "Half-written thought" in html and 'name="entry"' in html
+
+
+def test_today_defaults_to_the_task_the_member_is_working_on(session, as_user):
+    add_task(session, "M06")
+    two = add_task(session, "M07", title="Second task", status="todo")
+    active(session, two)
+
+    html = as_user(MEMBER).get("/notebook/panel").text
+
+    assert '<option value="M07" selected>' in html
+
+
+def test_publishing_a_draft_makes_it_published_and_read_only(session, as_user, doc):
+    add_task(session)
+    client = as_user(MEMBER)
+    make_draft(client)
+    note = only(session)
+
+    response = client.post(
+        "/notebook/entry/publish", data={"entry": str(note.id), "task": "M06", "did": "Cut both panels.", "why": "rev C"},
+        headers=HTMX,
+    )
+
+    assert "Published. Written to the Enclosure tab" in response.text
+    note = only(session)
+    assert (note.state, note.did) == ("published", "Cut both panels.")
+    assert doc.lines("Enclosure")[-1] == "Sam Example · M06: Cut both panels. Why: rev C."
+    # A published entry can't be edited: saving over it is refused and changes nothing.
+    again = client.post(
+        "/notebook/entry/save", data={"entry": str(note.id), "task": "M06", "did": "Changed my mind"},
+        headers=HTMX,
+    )
+    assert again.status_code == 404 and "isn't there any more" in again.text.replace("&#39;", "'")
+    assert only(session).did == "Cut both panels."
+    assert 'name="did"' in again.text and "Changed my mind" in again.text  # their words aren't lost
+    # ...and the page doesn't offer to edit it.
+    assert "Edit draft" not in client.get("/notebook/panel?tab=earlier").text
+
+
+def test_publishing_the_same_entry_twice_writes_it_once(session, as_user, doc):
+    add_task(session)
+    client = as_user(MEMBER)
+    make_draft(client)
+    note = only(session)
+    data = {"entry": str(note.id), "task": "M06", "did": "Cut the first panel."}
+
+    client.post("/notebook/entry/publish", data=data, headers=HTMX)
+    client.post("/notebook/entry/publish", data=data, headers=HTMX)
+
+    assert doc.tab("Enclosure").text().count("Cut the first panel.") == 1
+    assert len(stored(session, WorkNote)) == 1 and len(stored(session, DriveWrite)) == 1
+
+
+def test_publishing_needs_something_written(session, as_user, doc):
+    add_task(session)
+    client = as_user(MEMBER)
+    make_draft(client, did="Started this")
+    note = only(session)
+
+    response = client.post(
+        "/notebook/entry/publish", data={"entry": str(note.id), "task": "M06", "did": " "}, headers=HTMX
+    )
+
+    assert response.status_code == 400 and "Write what you did before publishing" in response.text
+    assert only(session).state == "draft" and doc.gets == 0
+
+
+def test_discarding_a_draft_removes_it(session, as_user, doc):
+    add_task(session)
+    client = as_user(MEMBER)
+    make_draft(client)
+    note = only(session)
+
+    response = client.post("/notebook/entry/discard", data={"entry": str(note.id), "task": "M06"}, headers=HTMX)
+
+    assert "Draft discarded." in response.text and stored(session, WorkNote) == []
+
+
+def test_a_published_entry_cannot_be_discarded(session, as_user, doc):
+    task = add_task(session)
+    note = add_note(session, task)
+
+    response = as_user(MEMBER).post(
+        "/notebook/entry/discard", data={"entry": str(note.id), "task": "M06"}, headers=HTMX
+    )
+
+    assert response.status_code == 404 and len(stored(session, WorkNote)) == 1
+
+
+def test_a_draft_is_not_written_up_for_the_banner(session, as_user):
+    task = add_task(session)
+    active(session, task)
+    make_draft(as_user(MEMBER))
+
+    assert 'class="banner"' in as_user(MEMBER).get("/").text  # only a published entry counts
+
+
+def test_a_published_entry_whose_write_worked_is_published_and_one_whose_write_failed_says_so(
+    session, as_user, doc
+):
+    task = add_task(session)
+    good, bad = add_note(session, task, did="Written one."), add_note(session, task, did="Unwritten one.")
+    drive_write.write_note(session, good)
+    doc.fail_get = http_error(503, "x")
+    drive_write.write_note(session, bad)
+
+    html = as_user(MEMBER).get("/notebook/panel?tab=earlier").text
+
+    assert html.count("status--done") == 1 and html.count("status--review") == 1
+    assert ">Published</span>" in html and ">Failed to publish</span>" in html
+    assert html.count('action="/notebook/entries/') == 1  # only the failed one has Retry
+
+
+def test_existing_notes_without_a_draft_state_are_published(session, as_user, doc):
+    task = add_task(session)
+    note = add_note(session, task)  # the way every note was made before the Notebook
+
+    assert note.state == "published"
+    drive_write.write_note(session, note)
+    assert ">Published</span>" in as_user(MEMBER).get("/notebook/panel?tab=earlier").text
+
+
+# --- adding to an earlier entry --------------------------------------------------------------------
+
+
+def test_a_follow_up_refers_to_the_earlier_entry_and_leaves_it_alone(session, as_user, doc):
+    task = add_task(session)
+    first = add_note(session, task, did="Cut the panel to 3 mm.", when=utc_now() - timedelta(days=2))
+    drive_write.write_note(session, first)
+    client = as_user(MEMBER)
+
+    form = client.get(f"/notebook/panel?tab=today&refers={first.id}").text
+    assert f'name="refers" value="{first.id}"' in form and "The earlier entry stays as it was." in form
+    assert "Cut the panel to 3 mm" in form
+
+    client.post(
+        "/notebook/entry/publish",
+        data={"task": "M06", "did": "Correction: it was 4 mm.", "refers": str(first.id)},
+        headers=HTMX,
+    )
+
+    second = max(stored(session, WorkNote), key=lambda n: n.id)
+    assert second.refers_to_id == first.id and second.id != first.id
+    assert stored(session, WorkNote)[0].did == "Cut the panel to 3 mm."  # never edited
+    line = doc.lines("Enclosure")[-1]
+    assert line.startswith("Sam Example · M06: Correction: it was 4 mm.") and "Adds to their entry of" in line
+    earlier = client.get("/notebook/panel?tab=earlier").text
+    assert "Adds to your" in earlier and "Cut the panel to 3 mm" in earlier
+
+
+def test_one_cannot_follow_up_someone_elses_entry(session, as_user, doc):
+    task = add_task(session)
+    theirs = add_note(session, task, member=OTHER, did="Riley's private-ish note.")
+    client = as_user(MEMBER)
+
+    form = client.get(f"/notebook/panel?tab=today&refers={theirs.id}").text
+    client.post(
+        "/notebook/entry/publish", data={"task": "M06", "did": "Mine.", "refers": str(theirs.id)}, headers=HTMX
+    )
+
+    assert "Riley" not in form and 'name="refers"' not in form
+    mine = next(n for n in stored(session, WorkNote) if n.did == "Mine.")
+    assert mine.refers_to_id is None
+
+
+# --- Earlier: 20 at a time, filter by task ------------------------------------------------------------
+
+
+def test_earlier_shows_twenty_at_a_time_and_more_on_request(session, as_user):
+    task = add_task(session)
+    for number in range(25):
+        add_note(session, task, did=f"Entry number {number:02d}.", when=utc_now() - timedelta(minutes=number))
+    client = as_user(MEMBER)
+
+    first = client.get("/notebook/panel?tab=earlier").text
+    more = client.get("/notebook/panel?tab=earlier&page=2").text
+
+    assert first.count('class="entry"') == 20 and "Entry number 19." in first and "Entry number 20." not in first
+    assert "Show 20 more" in first
+    assert more.count('class="entry"') == 25 and "Show 20 more" not in more
+
+
+def test_earlier_filters_by_task_and_only_offers_the_members_own_tasks(session, as_user):
+    one, two = add_task(session, "M06"), add_task(session, "M07", title="Second")
+    other = add_task(session, "M09", owner="Riley Sample", title="Riley's")
+    add_note(session, one, did="Work on six.")
+    add_note(session, two, did="Work on seven.")
+    add_note(session, other, member=OTHER, did="Work on nine.")
+    client = as_user(MEMBER)
+
+    html = client.get("/notebook/panel?tab=earlier&filter=M07").text
+
+    assert "Work on seven." in html and "Work on six." not in html
+    assert '<option value="M06">' in html and '<option value="M09">' not in html
+    assert "No entries on M99 yet." in client.get("/notebook/panel?tab=earlier&filter=M99").text
+
+
+# --- no one else sees a draft -------------------------------------------------------------------------
+
+
+def test_no_other_member_or_lead_sees_a_draft_anywhere(session, as_user, doc):
+    add_task(session)
+    client = as_user(MEMBER)
+    make_draft(client, did="SECRET-DRAFT-MARKER cut the lid", why="SECRET-WHY-MARKER")
+    note = only(session)
+
+    for who in (OTHER, LEAD):
+        viewer = as_user(who)
+        for path in (
+            "/", "/tasks", "/tasks/M06", "/record?notes=1", "/record?notes=1&part=thrusters",
+            "/notebook", "/notebook?tab=earlier", "/notebook?tab=private", "/notebook/panel?tab=earlier",
+            f"/notebook/panel?tab=today&entry={note.id}", f"/notebook?entry={note.id}", "/timeline", "/inbox",
+        ):
+            response = viewer.get(path)
+            assert "SECRET-DRAFT-MARKER" not in response.text and "SECRET-WHY-MARKER" not in response.text, (who["name"], path)
+        # They can't act on it either.
+        data = {"entry": str(note.id), "task": "M06", "did": "hijacked"}
+        for action in ("save", "publish", "discard", "tidy", "specs"):
+            assert viewer.post(f"/notebook/entry/{action}", data=data, headers=HTMX).status_code in (400, 404), action
+        assert viewer.post(f"/notebook/entries/{note.id}/retry", headers=HTMX).status_code == 404
+
+    assert only(session).did.startswith("SECRET-DRAFT") and only(session).state == "draft"
+    assert doc.gets == 0 and stored(session, DriveWrite) == []
+
+
+def test_a_draft_does_not_count_for_the_record_the_history_or_the_has_notes_toggle(session, as_user):
+    add_task(session)
+    client = as_user(MEMBER)
+    make_draft(client, did="Draft words")
+
+    assert "work notes" not in client.get("/record").text
+    assert "Draft words" not in client.get("/tasks/M06").text
+    assert notebook.has_notes(session, ("Enclosure",)) is False
+
+
+def test_the_model_is_not_called_by_saving_a_draft_or_opening_pages(session, as_user, monkeypatch):
+    add_task(session)
+    model = use_model(monkeypatch)
+    client = as_user(MEMBER)
+
+    make_draft(client)
+    for path in ("/notebook", "/notebook/panel", "/notebook/panel?tab=earlier", "/notebook/panel?tab=private"):
+        client.get(path)
+
+    assert model.requests == []

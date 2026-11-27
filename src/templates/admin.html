@@ -14,5 +14,23 @@
     <p class="panel__sub">Bring tasks in from the team’s tracker. You review every row before anything is saved.</p>
     <div class="actions"><a class="btn" href="/admin/import">Import tasks from the tracker CSV</a></div>
   </section>
+
+  <section class="panel" aria-labelledby="specs-heading">
+    <div class="panel__head"><h2 class="panel__title" id="specs-heading">Suggested specs</h2></div>
+    <p class="panel__sub">What members did with the specs the coach suggested for their notebook entries (published entries only).</p>
+    {% if spec_counts is none %}
+    <p class="notice notice--error" role="alert">Couldn’t count them from the database right now.</p>
+    {% elif not spec_counts.entries %}
+    <p class="empty">No entry has had specs suggested yet.</p>
+    {% else %}
+    <div class="counts" role="group" aria-label="What happened to suggested specs">
+      <div><small>Accepted</small><b>{{ spec_counts.accepted }}</b></div>
+      <div><small>Edited</small><b>{{ spec_counts.edited }}</b></div>
+      <div><small>Rejected</small><b>{{ spec_counts.rejected }}</b></div>
+      <div><small>No source</small><b>{{ spec_counts.dropped }}</b></div>
+    </div>
+    <p class="meta">{{ spec_counts.suggested }} suggested with a source across {{ spec_counts.entries }} published {{ "entry" if spec_counts.entries == 1 else "entries" }}. Edited means kept after the member changed the wording; no source means dropped before the member saw it.</p>
+    {% endif %}
+  </section>
 </div>
 {% endblock %}

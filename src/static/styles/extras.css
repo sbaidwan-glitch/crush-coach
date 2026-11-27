@@ -188,9 +188,9 @@ input[type="radio"] { accent-color: var(--color-ink); }
   .record-line { flex-wrap: wrap; }
 }
 
-/* ---------- Work log: side panel, tidy and ask-back boxes ----------
+/* ---------- Notebook: side panel, tidy and ask-back boxes ----------
    Folded in from docs/concepts' flow.css (task-log.html), converted to tokens. The panel
-   is a <dialog> drawer on the right (worklog.js), or a plain panel on /worklog. */
+   is a <dialog> drawer on the right (notebook.js), or a plain panel on /notebook. */
 .sidepanel { background: var(--color-sheet); border: 1px solid var(--color-rule); border-top: var(--panel-rule) solid var(--color-ink); padding: 0; color: var(--color-ink); }
 .sidepanel--drawer { position: fixed; inset: 0 0 0 auto; margin: 0; width: calc(var(--space-10) * 11); max-width: 100%; height: 100%; max-height: none; overflow-y: auto; }
 .sidepanel--drawer::backdrop { background: color-mix(in srgb, var(--color-ink) 45%, transparent); }
@@ -202,8 +202,8 @@ input[type="radio"] { accent-color: var(--color-ink); }
 .sidepanel__tabs a { flex: 1; text-align: center; padding: var(--space-3); font-weight: var(--weight-semibold); font-size: var(--text-sm); text-decoration: none; color: var(--color-muted); border-bottom: var(--panel-rule) solid transparent; }
 .sidepanel__tabs a[aria-current="true"] { color: var(--color-ink); border-bottom-color: var(--color-ink); }
 .sidepanel__body { padding: var(--space-5); }
-.worklog-form .field-label:first-child, .worklog-form legend + .field-label { margin-top: 0; }
-.worklog-form textarea.field-input { min-height: calc(var(--space-10) * 2); }
+.notebook-form .field-label:first-child, .notebook-form legend + .field-label { margin-top: 0; }
+.notebook-form textarea.field-input { min-height: calc(var(--space-10) * 2); }
 .optional { text-transform: none; letter-spacing: 0; font-weight: var(--weight-regular); }
 .tidy { border: 1px solid var(--color-accent); border-left-width: var(--panel-rule); padding: var(--space-3) var(--space-4); margin-top: var(--space-4); background: var(--color-sheet); }
 .tidy h3 { font-size: var(--text-sm); margin: 0 0 var(--space-2); font-weight: var(--weight-semibold); }
@@ -211,12 +211,56 @@ input[type="radio"] { accent-color: var(--color-ink); }
 .tidy .notice { margin: var(--space-2) 0 0; }
 .ask-back { background: var(--color-field); border: 1px solid var(--color-review); padding: var(--space-2) var(--space-3); font-size: var(--text-sm); margin-top: var(--space-3); }
 .ask-back p { margin: 0 0 var(--space-2); }
-.worklog-original { margin-top: var(--space-3); font-size: var(--text-sm); }
-.worklog-original summary { cursor: pointer; padding: var(--space-1) 0; }
-.worklog-original p { margin: var(--space-1) 0 0; overflow-wrap: anywhere; }
-.worklog-form .actions { align-items: center; }
+.notebook-original { margin-top: var(--space-3); font-size: var(--text-sm); }
+.notebook-original summary { cursor: pointer; padding: var(--space-1) 0; }
+.notebook-original p { margin: var(--space-1) 0 0; overflow-wrap: anywhere; }
+.notebook-form .actions { align-items: center; }
 .sidepanel .entry form { margin: var(--space-2) 0 0; }
 .sidepanel .day:first-child { margin-top: 0; }
+.sidepanel__links { display: flex; align-items: center; gap: var(--space-3); }
+.sidepanel__links form { margin: 0; }
+.sidepanel__links a { font-size: var(--text-sm); font-weight: var(--weight-semibold); white-space: nowrap; }
+.sidepanel__messages:empty { display: none; }
+.actions--quiet { margin-top: var(--space-2); }
+.notebook-page .panel__head { align-items: center; flex-wrap: wrap; }
+.notebook-page .segmented { flex-wrap: wrap; }
+.notebook-page .notice:first-child { margin-top: var(--space-3); }
+/* Photos on an entry: thumbnails with Remove, and the two "add" buttons (a file input hidden
+   inside each, so the label is the button and the camera opens on a phone). */
+.photos { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(var(--space-10) * 3), 1fr)); gap: var(--space-3); }
+.photos li { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); min-width: 0; }
+.photos img { display: block; width: 100%; height: calc(var(--space-10) * 3); object-fit: cover; border: 1px solid var(--color-rule); background: var(--color-field); }
+.photos--small { grid-template-columns: repeat(auto-fill, minmax(calc(var(--space-10) * 2), 1fr)); }
+.photos--small img { height: calc(var(--space-10) * 2); }
+.photo-add { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+.filebtn { position: relative; cursor: pointer; }
+.filebtn:focus-within { outline: var(--panel-rule) solid var(--color-accent); }
+/* Suggested specs: a tick, the spec (editable), its unit and where it comes from. */
+.specs { border: 1px solid var(--color-rule); border-left: var(--panel-rule) solid var(--color-accent); padding: var(--space-3) var(--space-4); margin: var(--space-4) 0 0; min-width: 0; }
+.specs legend { padding: 0 var(--space-1); }
+.spec-list { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.spec { display: flex; align-items: flex-start; gap: var(--space-3); }
+.spec input[type="checkbox"] { flex: none; width: var(--space-5); height: var(--space-5); margin: var(--space-2) 0 0; }
+.spec__body { flex: 1; min-width: 0; }
+.spec__source { margin: var(--space-1) 0 0; overflow-wrap: anywhere; }
+.entry__head { display: flex; align-items: center; gap: var(--space-3); }
+.entry__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
+.entry__actions form { margin: 0; }
+.private-text { white-space: pre-wrap; }
+.private-list { margin-top: var(--space-4); }
+
+/* "Plan my next steps": the labelled parts of a plan, and its ready-to-paste prompt box. */
+.coach-actions { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); }
+.coach-actions form { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.plan { display: flex; flex-direction: column; gap: var(--space-3); }
+.plan__title { font-size: var(--text-sm); font-weight: var(--weight-semibold); margin: 0 0 var(--space-1); }
+.plan__part .msg-md { margin: 0; }
+.plan__now .plan__title { margin-bottom: var(--space-1); }
+.plan__now > .msg-md, .plan__now.next.msg-md p { display: block; margin: 0; }
+.promptbox { border: 1px solid var(--color-rule); background: var(--color-field); margin-top: var(--space-2); }
+.promptbox__text { margin: 0; padding: var(--space-3) var(--space-4); white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: var(--text-sm); max-height: calc(var(--space-10) * 8); overflow-y: auto; }
+.promptbox__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--color-rule); }
+.promptbox__warning { margin: 0; flex: 1; min-width: calc(var(--space-10) * 4); }
 
 /* Home banner: "You worked on M06 today..." */
 .banner { display: flex; align-items: center; gap: var(--space-4); background: var(--color-blueprint); border: 1px solid var(--color-rule); border-left: var(--panel-rule) solid var(--color-accent); padding: var(--space-3) var(--space-4); margin-bottom: var(--space-5); }

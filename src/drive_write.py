@@ -1,11 +1,17 @@
-"""Writing to the Crush document: the only module with a Google write scope.
+"""Writing to Google: the only module with a Google write scope.
 
 The Crush document (`DECISIONS_DOC_ID`) is the team's running log. Two things are added
 to it, each as one entry under a tab and a date heading:
 
-- a member's **work note**, as "Name · CODE: what. Why: ..." (posted without approval);
+- a member's **notebook entry**, as "Name · CODE: what. Why: ..." plus the specs they
+  accepted and a link to each photo (published without approval);
 - a **recorded answer**, when a lead records it: a bold statement, why, what it replaces,
   sources and who recorded it.
+
+An entry's photos are uploaded first, to a "Notebook photos" folder inside the writable
+Drive folder (`DRIVE_WRITE_FOLDER_ID`), with the narrow `drive.file` scope (the app can only
+touch files it made). If an upload fails the text is still published and the photos stay in
+the app.
 
 Rules this module keeps:
 
@@ -29,9 +35,11 @@ come back as new evidence against the record it was written from.
 Functions take plain values and a Session so tests can use them with a fake Docs client.
 """
 
+import io
 import logging
 import os
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
@@ -40,19 +48,35 @@ import google_auth_httplib2
 import httplib2
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaIoBaseUpload
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import defer
 from sqlmodel import Session, col, select, update
 
 import drive
 import localtime
 from drive_exclude import CRUSH_DOC_ENV_VAR
-from models import Decision, DecisionTask, DriveWrite, Task, WorkNote, utc_now
+from models import (
+    Decision,
+    DecisionTask,
+    DriveWrite,
+    NotePhoto,
+    NoteSpec,
+    Task,
+    WorkNote,
+    utc_now,
+)
 from progress import SUBSYSTEM_GROUPS
 
 log = logging.getLogger("crush_coach")
 
 # The one write scope in the app. Every other module asks Google for read-only access.
 DOCS_WRITE_SCOPE = "https://www.googleapis.com/auth/documents"
+# Photos: only files this app created (not the whole Drive).
+DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
+WRITE_FOLDER_ENV_VAR = "DRIVE_WRITE_FOLDER_ID"  # the Drive folder shared with the app as Editor
+PHOTO_FOLDER_NAME = "Notebook photos"
+FOLDER_MIME = "application/vnd.google-apps.folder"
 GENERAL_TAB = "General"
 DATE_HEADING_STYLE = "HEADING_3"
 BODY_STYLE = "NORMAL_TEXT"
@@ -130,15 +154,43 @@ def _sentence(value: str) -> str:
     return value if not value or value[-1] in ".!?" else value + "."
 
 
-def note_entry(note: WorkNote) -> Entry:
-    """"Name · CODE: what. Why: ..." as one paragraph."""
+def note_entry(
+    note: WorkNote,
+    specs: Sequence[NoteSpec] = (),
+    photo_links: Sequence[str] = (),
+    follows: str = "",
+) -> Entry:
+    """"Name · CODE: what. Why: ..." as one paragraph, then a line per accepted spec
+    ("Spec: ... Source: Title", linked) and one line of photo links. `follows` names the
+    earlier entry this one adds to ("12 Nov 2026")."""
     text = f"{_one_line(note.member_name, 80)} · {_one_line(note.task_code, 20)}: " + _sentence(
         _one_line(note.did)
     )
     why = _one_line(note.why)
     if why:
         text += f" Why: {_sentence(why)}"
-    return Entry([Para([Run(text)])])
+    if follows:
+        text += f" Adds to their entry of {_one_line(follows, 40)}."
+    paragraphs = [Para([Run(text)])]
+    for spec in specs:
+        value = _one_line(spec.text, 300)
+        if not value:
+            continue
+        unit = _one_line(spec.unit, 30)
+        runs = [Run(f"Spec: {value}{(' ' + unit) if unit else ''}. Source: ")]
+        title = _one_line(spec.source_title, 200) or "source"
+        link = spec.source_link if spec.source_link.startswith("https://") else None
+        runs.append(Run(title, link=link))
+        paragraphs.append(Para(runs))
+    links = [link for link in photo_links if link.startswith("https://")]
+    if links:
+        runs = [Run("Photos: ")]
+        for number, link in enumerate(links, start=1):
+            if number > 1:
+                runs.append(Run(", "))
+            runs.append(Run(f"Photo {number}", link=link))
+        paragraphs.append(Para(runs))
+    return Entry(paragraphs)
 
 
 def answer_entry(
@@ -549,17 +601,243 @@ def _write(
     return row
 
 
+def accepted_specs(session: Session, note: WorkNote) -> list[NoteSpec]:
+    return list(
+        session.exec(
+            select(NoteSpec)
+            .where(NoteSpec.note_id == note.id, col(NoteSpec.accepted).is_(True))
+            .order_by(NoteSpec.position, NoteSpec.id)
+        ).all()
+    )
+
+
+def _photos(session: Session, note: WorkNote) -> list[NotePhoto]:
+    """The entry's photos without their bytes."""
+    return list(
+        session.exec(
+            select(NotePhoto)
+            .options(defer(NotePhoto.data))
+            .where(NotePhoto.note_id == note.id)
+            .order_by(NotePhoto.position, NotePhoto.id)
+        ).all()
+    )
+
+
 def write_note(session: Session, note: WorkNote, docs: Any | None = None) -> DriveWrite:
-    """Append a work note to the Crush document (once). Never raises."""
+    """Append a notebook entry to the Crush document (once), with the specs the member
+    accepted and a link to each photo that reached Drive. Never raises."""
+    follows = ""
+    if note.refers_to_id:
+        earlier = session.get(WorkNote, note.refers_to_id)
+        if earlier is not None:
+            follows = localtime.heading(localtime.local_date(earlier.posted_at))
+    links = [p.drive_link for p in _photos(session, note) if p.drive_link]
     return _write(
         session,
         "note",
         note.id,
         note.subsystem,
         localtime.local_date(note.posted_at),
-        note_entry(note),
+        note_entry(note, accepted_specs(session, note), links, follows),
         docs,
     )
+
+
+# --- photos: uploaded to the "Notebook photos" folder before the entry is written ----
+
+
+def write_folder_id() -> str | None:
+    return (os.environ.get(WRITE_FOLDER_ENV_VAR) or "").strip() or None
+
+
+def build_drive() -> Any:
+    """The Drive API client that may create files this app makes (`drive.file`)."""
+    credentials = drive._load_credentials([DRIVE_FILE_SCOPE])
+    try:
+        http = google_auth_httplib2.AuthorizedHttp(
+            credentials, http=httplib2.Http(timeout=REQUEST_TIMEOUT_SECONDS)
+        )
+        return build("drive", "v3", http=http, cache_discovery=False)
+    except Exception:  # noqa: BLE001  (initialization failures need one safe error)
+        raise drive.DriveError("Google Drive could not be initialized.") from None
+
+
+def _photo_folder(service: Any, parent_id: str) -> str:
+    """The id of the "Notebook photos" folder inside the writable folder, made if it isn't
+    there yet. Raises WriteError."""
+    escaped = PHOTO_FOLDER_NAME.replace("'", "\\'")
+    try:
+        found = (
+            service.files()
+            .list(
+                q=(
+                    f"name = '{escaped}' and '{parent_id}' in parents and "
+                    f"mimeType = '{FOLDER_MIME}' and trashed = false"
+                ),
+                fields="files(id)",
+                pageSize=1,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            )
+            .execute(num_retries=2)
+        )
+        if found.get("files"):
+            return str(found["files"][0]["id"])
+        made = (
+            service.files()
+            .create(
+                body={"name": PHOTO_FOLDER_NAME, "mimeType": FOLDER_MIME, "parents": [parent_id]},
+                fields="id",
+                supportsAllDrives=True,
+            )
+            .execute(num_retries=2)
+        )
+        return str(made["id"])
+    except HttpError as exc:
+        raise _photo_error(exc) from None
+
+
+def _photo_error(exc: HttpError) -> WriteError:
+    status = getattr(exc.resp, "status", None)
+    if status in (401, 403):
+        return WriteError(
+            "Google wouldn't let the app add photos to the Drive folder. Share the folder "
+            "with the app's service account as an editor."
+        )
+    if status == 404:
+        return WriteError("Google couldn't find the Drive folder. Check DRIVE_WRITE_FOLDER_ID.")
+    if status == 429:
+        return WriteError("Google Drive is busy (rate limit). Try again in a minute.")
+    return WriteError(f"Google Drive didn't accept the photo (error {status or 'unknown'}).")
+
+
+def _upload(service: Any, folder_id: str, name: str, data: bytes) -> tuple[str, str]:
+    """(file id, link) of a JPEG uploaded to the folder. Raises WriteError."""
+    try:
+        made = (
+            service.files()
+            .create(
+                body={"name": name, "parents": [folder_id]},
+                media_body=MediaIoBaseUpload(io.BytesIO(data), mimetype="image/jpeg"),
+                fields="id, webViewLink",
+                supportsAllDrives=True,
+            )
+            .execute(num_retries=2)
+        )
+    except HttpError as exc:
+        raise _photo_error(exc) from None
+    link = str(made.get("webViewLink") or "")
+    if not link.startswith("https://"):
+        raise WriteError("Google Drive didn't give a link for the photo.")
+    return str(made["id"]), link
+
+
+@dataclass
+class PhotoUpload:
+    """How the photos of one entry went: `done` have a Drive link, `stayed` don't."""
+
+    done: int = 0
+    stayed: int = 0
+    error: str | None = None
+
+
+def upload_photos(
+    session: Session, note: WorkNote, service: Any | None = None
+) -> PhotoUpload:
+    """Upload the entry's photos that aren't in Drive yet, each once (a `drive_write` row of
+    kind "photo"). Stops at the first failure, since the rest would fail the same way. Never
+    raises: a photo that can't be uploaded stays in the app and the entry is published
+    anyway."""
+    photos = _photos(session, note)
+    result = PhotoUpload(done=sum(1 for p in photos if p.drive_link))
+    todo = [p for p in photos if not p.drive_link]
+    if not todo:
+        return result
+    result.stayed = len(todo)
+    parent = write_folder_id()
+    try:
+        if not parent:
+            raise WriteError(
+                "No Drive folder is set up for photos (DRIVE_WRITE_FOLDER_ID is missing)."
+            )
+        service = service or build_drive()
+        folder = _photo_folder(service, parent)
+    except (WriteError, drive.DriveError) as exc:
+        result.error = str(exc)
+        return result
+    except Exception as exc:  # noqa: BLE001  (a photo upload must never break publishing)
+        log.error("Could not reach Google Drive for photos (%s)", type(exc).__name__)
+        result.error = "Couldn't reach Google Drive."
+        return result
+    for photo in todo:
+        row = _claim(session, "photo", photo.id)
+        if row is None:  # written already, or another request has it
+            continue
+        error = None
+        try:
+            data = session.exec(select(NotePhoto.data).where(NotePhoto.id == photo.id)).one()
+            name = f"{note.task_code}-entry{note.id}-photo{photo.position + 1}.jpg"
+            file_id, link = _upload(service, folder, name, data)
+        except WriteError as exc:
+            error = str(exc)
+        except Exception as exc:  # noqa: BLE001
+            log.error("Could not upload a notebook photo (%s)", type(exc).__name__)
+            error = "Couldn't reach Google Drive."
+        now = utc_now()
+        row.updated_at = now
+        if error is None:
+            row.status, row.error, row.written_at = "written", None, now
+            session.add(row)
+            session.execute(
+                update(NotePhoto)
+                .where(col(NotePhoto.id) == photo.id)
+                .values(drive_file_id=file_id, drive_link=link)
+            )
+            session.commit()
+            result.done += 1
+            result.stayed -= 1
+        else:
+            row.status, row.error = "failed", error
+            session.add(row)
+            session.commit()
+            result.error = error
+            break
+    return result
+
+
+@dataclass
+class Published:
+    """What publishing an entry did: the write of its text, and how its photos went."""
+
+    write: DriveWrite
+    photos: PhotoUpload
+
+
+def publish_note(
+    session: Session,
+    note: WorkNote,
+    docs: Any | None = None,
+    service: Any | None = None,
+) -> Published:
+    """Publish an entry: upload its photos, then append it to the Crush document once.
+
+    A failed photo upload never stops the text. An entry whose text is already in the
+    document is left as it is (its photos can't be added to what is already written).
+    Never raises."""
+    existing = session.exec(
+        select(DriveWrite).where(DriveWrite.kind == "note", DriveWrite.ref_id == note.id)
+    ).first()
+    if existing is not None and existing.status == "written":
+        photos = _photos(session, note)
+        done = sum(1 for p in photos if p.drive_link)
+        return Published(existing, PhotoUpload(done=done, stayed=len(photos) - done))
+    try:
+        uploaded = upload_photos(session, note, service)
+    except Exception as exc:  # noqa: BLE001
+        log.error("Could not upload photos (%s)", type(exc).__name__)
+        photos = _photos(session, note)
+        uploaded = PhotoUpload(stayed=len(photos), error="Couldn't reach Google Drive.")
+    return Published(write_note(session, note, docs), uploaded)
 
 
 def write_answer(session: Session, decision: Decision, docs: Any | None = None) -> DriveWrite:
@@ -594,7 +872,9 @@ def retry(session: Session, kind: str, ref_id: int, docs: Any | None = None) -> 
     isn't recorded: a suggested or replaced one is never written)."""
     if kind == "note":
         note = session.get(WorkNote, ref_id)
-        return write_note(session, note, docs) if note else None
+        if note is None or note.state != "published":  # a draft is never written
+            return None
+        return publish_note(session, note, docs).write
     decision = session.get(Decision, ref_id)
     if decision is None or decision.status != "confirmed":  # only a recorded answer is written
         return None

@@ -12,12 +12,17 @@
 #               worded several ways.
 #   cite        a file/doc name the answer should link (substring match)
 #   must_not    things a good answer must NOT do (phrases or behaviors)
-#   kind        lookup | how-to | why | conflict | unknown | follow-up | recommend
+#   kind        lookup | how-to | why | conflict | unknown | follow-up | recommend | plan
 #               (conflict = sources disagree; unknown = nothing in the Drive answers it;
 #               follow-up = a second message in the same chat, see `after`)
 #   recommend   (true on one question) asked like pressing the Recommend button after
 #               `after`: the coach searches the reference books and calculates.
 #               `question` is then the button's own text, "Give me your recommendation."
+#   plan        (true on a plan question) asked like pressing "Plan my next steps" after
+#               `after`: one short call, no tools, a fixed shape (What I found, What's
+#               missing, Do this now, If you need more help, You should end up with) and
+#               then the app's own "Then" from the task's steps. `question` is the button's
+#               own text, "Plan my next steps." The answer should stay under about 250 tokens.
 #   after       (follow-ups only) the id of an earlier question. It is asked in the same
 #               chat, after that question and its answer, the way a member would type it.
 #               Running a follow-up with ONLY=<id> asks the question it follows too.
@@ -178,3 +183,47 @@
   cite: ""
   must_not: ["couldn't put an answer together", "which season"]
   kind: recommend
+
+# Plans: the "Plan my next steps" button after an answer. Every plan has the five parts the
+# coach writes and the "Then" the app adds. It should say what the Drive already holds
+# (with the sources), what is missing, one thing to do now, and a prompt to paste elsewhere.
+- id: lid-latch-plan
+  task: M08
+  after: lid-latch
+  plan: true
+  question: Plan my next steps.
+  expect: ["What I found", "What's missing", "Do this now", "If you need more help", "You should end up with", "Then", "6082A12"]
+  cite: "6082A12_Draw Latch"
+  must_not: ["which season", "should I search", "couldn't put an answer together"]
+  kind: plan
+
+- id: gasket-clearance-plan
+  task: M03
+  after: gasket-clearance
+  plan: true
+  question: Plan my next steps.
+  expect: ["What I found", "Do this now", "If you need more help", "You should end up with", "Then", ".030", ".050"]
+  cite: "Seal"
+  must_not: ["which season", "couldn't put an answer together"]
+  kind: plan
+
+- id: lubricant-plan
+  task: M10
+  after: oring-lubricant
+  plan: true
+  question: Plan my next steps.
+  # Nothing in the Drive decides this, so the plan must say what is missing, not invent it.
+  expect: ["What's missing", "Do this now", "If you need more help", "You should end up with", "Then"]
+  cite: ""
+  must_not: ["use silicone grease.", "which season", "couldn't put an answer together"]
+  kind: plan
+
+- id: side-panel-router-plan
+  task: M03.5
+  after: side-panel-router
+  plan: true
+  question: Plan my next steps.
+  expect: ["What I found", "Do this now", "If you need more help", "You should end up with", "Then", "router"]
+  cite: "Process Router"
+  must_not: ["which season", "should I search", "couldn't put an answer together"]
+  kind: plan
