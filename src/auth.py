@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+import dev_login
 import static_version
 
 log = logging.getLogger("crush_coach")
@@ -71,11 +72,13 @@ def session_user(request: Request) -> User | None:
         return None
 
     normalized_email = email.strip().casefold()
-    if not email_is_allowed(normalized_email):
+    # The two made-up preview identities, only while dev login is on (see dev_login.py).
+    preview_role = dev_login.role_for(normalized_email)
+    if preview_role is None and not email_is_allowed(normalized_email):
         request.session.clear()
         return None
 
-    current_role = (
+    current_role = preview_role or (
         "lead" if normalized_email in _comma_separated("LEAD_EMAILS") else "member"
     )
     user: User = {"name": name, "email": normalized_email, "role": current_role}

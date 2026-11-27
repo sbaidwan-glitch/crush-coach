@@ -5,7 +5,7 @@
 TAG ?= $(shell git describe --tags --abbrev=0 2>/dev/null)
 
 .DEFAULT_GOAL := help
-.PHONY: help dev test eval screenshots submit
+.PHONY: help dev test eval screenshots process-shots submit
 
 help:  ## show this help
 	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -23,6 +23,13 @@ eval:  ## score the coach on evals/coach_questions.yaml (real model + Drive, cos
 
 screenshots:  ## screenshot the main pages (incl. the lead Inbox and the Record) at 375px and 1280px into .context/screenshots/
 	cd src && ../.venv/bin/python scripts/screenshots.py
+
+# PAGES: paths or screenshot names, space separated (see PAGES in src/scripts/screenshots.py).
+PAGES ?= / /tasks
+
+process-shots:  ## save screenshots for the process log: make process-shots NAME=home-redesign [PAGES="/ /tasks"] -> process/YYYY-MM-DD-NAME-page-width.png (never overwrites)
+	@test -n "$(NAME)" || { echo 'Give it a name:  make process-shots NAME=home-redesign'; exit 2; }
+	cd src && ../.venv/bin/python scripts/process_shots.py "$(NAME)" $(PAGES)
 
 # Package a tagged snapshot for Canvas.
 #

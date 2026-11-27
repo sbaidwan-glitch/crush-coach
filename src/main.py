@@ -15,6 +15,7 @@ import auth
 import board
 import coach
 import db
+import dev_login
 import facts
 import home
 import inbox
@@ -56,6 +57,7 @@ app.add_middleware(
 )
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(auth.router)
+app.include_router(dev_login.router)
 app.include_router(home.router)
 app.include_router(board.router)
 app.include_router(workflow.router)
