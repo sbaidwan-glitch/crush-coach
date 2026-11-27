@@ -667,3 +667,34 @@ def test_a_recommend_question_needs_the_question_it_follows():
         [entry(id="a"), entry(id="b", after="a", recommend=True, kind="recommend")]
     )
     assert first.recommend is False and second.recommend is True
+
+
+# --- plan questions ---
+
+
+def test_a_plan_question_needs_the_question_it_follows_and_is_not_a_recommendation():
+    with pytest.raises(QuestionFileError, match="plan"):
+        parse_questions([entry(plan=True)])
+    with pytest.raises(QuestionFileError):
+        parse_questions([entry(id="a"), entry(id="b", after="a", plan="yes")])
+    with pytest.raises(QuestionFileError, match="not both"):
+        parse_questions([entry(id="a"), entry(id="b", after="a", plan=True, recommend=True)])
+    [first, second] = parse_questions(
+        [entry(id="a"), entry(id="b", after="a", plan=True, kind="plan")]
+    )
+    assert first.plan is False and second.plan is True
+
+
+def test_the_shipped_questions_include_four_plans_that_follow_real_questions():
+    from pathlib import Path
+
+    from coach_eval import load_questions
+
+    questions = load_questions(Path(__file__).resolve().parents[2] / "evals" / "coach_questions.yaml")
+    plans = [q for q in questions if q.plan]
+
+    assert len(plans) == 4 and all(q.kind == "plan" and q.after for q in plans)
+    by_id = {q.id: q for q in questions}
+    for q in plans:
+        assert by_id[q.after].task == q.task and q.question == "Plan my next steps."
+        assert "Do this now" in q.expect and "You should end up with" in q.expect

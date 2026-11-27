@@ -1,6 +1,7 @@
 import os
 
 import pytest
+from fake_crush_doc import DOC_ID, FakeCrushDoc
 from fake_google import (
     DOC,
     FOLDER,
@@ -47,6 +48,9 @@ def session():
         DriveWrite,
         LlmCall,
         MemberProfile,
+        NotePhoto,
+        NoteSpec,
+        PrivateNote,
         SyncState,
         Task,
         TaskEvent,
@@ -60,6 +64,9 @@ def session():
         # Children first: they all point at task (or at decision, or at a file).
         for table in (
             DriveWrite,
+            NotePhoto,
+            NoteSpec,
+            PrivateNote,
             WorkNote,
             AnswerRequest,
             TaskSuggestion,
@@ -168,3 +175,40 @@ def real_demote_rules():
     drive_index.demote_rules = lambda: drive_rank.DemoteRules.none()
     yield real
     drive_index.demote_rules = real
+
+
+@pytest.fixture
+def as_user(monkeypatch):
+    """Sign in as a made-up person: `client = as_user(MEMBER)`. Call it again to switch who
+    is signed in; every client it made is closed after the test."""
+    from fastapi.testclient import TestClient
+
+    import auth
+    import main
+
+    clients = []
+
+    def make(user):
+        monkeypatch.setattr(auth, "session_user", lambda request: user)
+        main.app.dependency_overrides[auth.require_user] = lambda: user
+        main.app.dependency_overrides[auth.optional_user] = lambda: user
+        c = TestClient(main.app)
+        c.__enter__()
+        clients.append(c)
+        return c
+
+    yield make
+    for c in clients:
+        c.__exit__(None, None, None)
+    main.app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def doc(monkeypatch):
+    """The Crush document, as a fake with a tab per part of Crush."""
+    import drive_write
+
+    document = FakeCrushDoc("Enclosure", "Seals", "Thrusters", "Actuators", "General")
+    monkeypatch.setenv("DECISIONS_DOC_ID", DOC_ID)
+    monkeypatch.setattr(drive_write, "build_docs", lambda: document)
+    return document

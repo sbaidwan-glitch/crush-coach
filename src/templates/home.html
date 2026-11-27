@@ -12,11 +12,11 @@
 {% if error %}{{ error_state(error, "/", "Try again") }}{% endif %}
 {% if notice %}{{ notice_box(notice, "error") }}{% endif %}
 {% if log_banner %}
-<div class="banner" role="region" aria-label="Work log">
-  <p>You worked on <a class="code" href="/tasks/{{ log_banner.code }}">{{ log_banner.code }}</a> today. Log what you did and why while you remember it.</p>
+<div class="banner" role="region" aria-label="Notebook">
+  <p>You worked on <a class="code" href="/tasks/{{ log_banner.code }}">{{ log_banner.code }}</a> today. Write today’s entry while you remember it.</p>
   <div class="banner__actions">
-    <a class="btn btn--primary" href="/worklog?tab=log&amp;task={{ log_banner.code }}" data-worklog-open data-panel-url="/worklog/panel?tab=log&amp;task={{ log_banner.code }}">Log today’s work</a>
-    <form method="post" action="/worklog/dismiss"><input type="hidden" name="next" value="/"><button class="btn" type="submit">Not today</button></form>
+    <a class="btn btn--primary" href="/notebook?task={{ log_banner.code }}" data-notebook-open data-panel-url="/notebook/panel?tab=today&amp;task={{ log_banner.code }}">Write today’s entry</a>
+    <form method="post" action="/notebook/dismiss"><input type="hidden" name="next" value="/"><button class="btn" type="submit">Not today</button></form>
   </div>
 </div>
 {% endif %}

@@ -1,0 +1,123 @@
+{#- Today's entry: the compose form. Used in the side panel (`panel` true: htmx swaps
+    #notebook-body) and on /notebook (plain posts that redirect back). Every button posts the
+    same multipart form to /notebook/entry/<action>. Expects: tasks, task, entry (the draft
+    being written, or none), form, refers, tidy_limit, specs_limit, max_photos,
+    max_photo_bytes, load_errors, panel. -#}
+{% from "components/feedback.html" import empty_state, error_state, loading_indicator %}
+{% set hx = panel %}
+{% macro act(name) -%}formaction="/notebook/entry/{{ name }}"{% if hx %} hx-post="/notebook/entry/{{ name }}"{% endif %}{%- endmacro %}
+{% if load_errors.today %}
+{{ error_state(load_errors.today, "/notebook", "Try again") }}
+{% elif not tasks %}
+{{ empty_state("You don’t own a task yet. Start one on the Tasks page, then write your entry here.", "/tasks", "Go to Tasks") }}
+{% else %}
+<form class="notebook-form" id="notebook-form" method="post" action="/notebook/entry/save" enctype="multipart/form-data"
+      {% if hx %}hx-post="/notebook/entry/save" hx-encoding="multipart/form-data" hx-target="#notebook-body" hx-swap="innerHTML" hx-indicator="#notebook-working" hx-disabled-elt="find fieldset"{% endif %}
+      data-max-photos="{{ max_photos }}" data-max-bytes="{{ max_photo_bytes }}">
+  <fieldset class="form-group">
+    <legend class="visually-hidden">Today’s entry</legend>
+    {% if entry %}<input type="hidden" name="entry" value="{{ entry.id }}">{% endif %}
+    {% if refers %}
+    <input type="hidden" name="refers" value="{{ refers.id }}">
+    <p class="notice" role="status">This entry adds to your {{ refers.date }} entry on <a class="code" href="/tasks/{{ refers.task_code }}">{{ refers.task_code }}</a>: “{{ refers.snippet }}” The earlier entry stays as it was.</p>
+    {% endif %}
+
+    <label class="field-label" for="nb-task">Which task?</label>
+    <select class="field-input" id="nb-task" name="task">
+      {% for t in tasks %}<option value="{{ t.code }}"{% if task and t.code == task.code %} selected{% endif %}>{{ t.code }} · {{ t.title }}</option>{% endfor %}
+    </select>
+
+    <div class="field-label" id="nb-photos-label">Photos <span class="optional">(up to {{ max_photos }})</span></div>
+    {% if entry and entry.photos %}
+    <ul class="photos" aria-labelledby="nb-photos-label">
+      {% for p in entry.photos %}
+      <li><img src="/notebook/photos/{{ p.id }}" alt="Photo {{ p.number }} of this entry" loading="lazy">
+        <button class="btn btn--small" type="submit" {{ act("remove-photo-" ~ p.id) }} aria-label="Remove photo {{ p.number }}">Remove</button></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <div class="photo-add" data-photo-add data-photos-left="{{ photos_left }}">
+      {#- A real file input in each button: on a phone the first opens the camera. notebook.js
+          shrinks what is chosen and sends it; without JavaScript, "Upload" below (or Save
+          draft) sends it as it is, and the server shrinks it. -#}
+      <label class="btn btn--small filebtn">Add photos<input class="visually-hidden" type="file" name="photos" accept="image/*" capture="environment" data-photo-input></label>
+      <label class="btn btn--small filebtn">Choose from files<input class="visually-hidden" type="file" name="photos" accept="image/*" multiple data-photo-input></label>
+      <button class="btn btn--small" type="submit" hidden data-photo-send {{ act("photos") }}>Add the chosen photos</button>
+      <noscript><button class="btn btn--small" type="submit" {{ act("photos") }}>Upload the chosen photos</button></noscript>
+    </div>
+    <p class="hint" id="nb-photo-hint" data-photo-status role="status">Up to {{ max_photos }} photos. Each is shrunk to about 1,600 px and under 1.5 MB, and its location data is removed.</p>
+
+    {% if form.tidied %}
+    <div class="tidy">
+      <h3>Tidied note · check it before you publish</h3>
+      <p>Edit anything below. Nothing is saved until you save a draft or publish.</p>
+      {% if form.kept_original %}<p class="notice" role="status">The rewrite added a detail that isn’t in your note, your coach chat or a linked source, so your own words are kept. Edit them yourself if you like.</p>{% endif %}
+    </div>
+    {% endif %}
+
+    <label class="field-label" for="nb-did">What I did</label>
+    <textarea class="field-input" id="nb-did" name="did" rows="4" maxlength="1500">{{ form.did }}</textarea>
+    <label class="field-label" for="nb-why">Why <span class="optional">(recommended)</span></label>
+    <textarea class="field-input" id="nb-why" name="why" rows="3" maxlength="1500">{{ form.why }}</textarea>
+
+    {% if form.tidied %}
+    <input type="hidden" name="original_did" value="{{ form.original_did }}">
+    <input type="hidden" name="original_why" value="{{ form.original_why }}">
+    {% if form.question %}
+    <div class="ask-back">
+      <p><b>One thing is missing:</b> <span id="nb-question">{{ form.question }}</span></p>
+      <input type="hidden" name="asked" value="{{ form.question }}">
+      <label class="visually-hidden" for="nb-reply">Your answer to: {{ form.question }}</label>
+      <div class="record-line">
+        <input id="nb-reply" type="text" name="reply" maxlength="300" placeholder="Add it here, then tidy again" autocomplete="off">
+        <button class="btn btn--small" type="submit" {{ act("tidy") }}>Tidy again</button>
+      </div>
+    </div>
+    {% endif %}
+    <details class="notebook-original">
+      <summary>Your own words</summary>
+      <p>{{ form.original_did }}</p>
+      {% if form.original_why %}<p class="why">Why: {{ form.original_why }}</p>{% endif %}
+    </details>
+    {% endif %}
+
+    {% if entry and (entry.specs or entry.specs_dropped) %}
+    <fieldset class="specs">
+      <legend class="field-label">Suggested specs</legend>
+      {% if entry.specs_dropped %}<p class="notice" role="status">{{ entry.specs_dropped }} suggestion{{ "s" if entry.specs_dropped != 1 }} dropped: no source to open.</p>{% endif %}
+      {% if entry.specs %}
+      <p class="hint">Tick the ones to keep. Change the wording if you need to. Only ticked specs go into the Crush document. A lead decides what the team uses.</p>
+      <ul class="spec-list">
+        {% for s in entry.specs %}
+        <li class="spec">
+          <input type="checkbox" id="spec-keep-{{ s.id }}" name="keep" value="{{ s.id }}"{% if s.accepted %} checked{% endif %}>
+          <div class="spec__body">
+            <label class="visually-hidden" for="spec-keep-{{ s.id }}">Keep this spec</label>
+            <label class="visually-hidden" for="spec-text-{{ s.id }}">Spec wording</label>
+            <input class="field-input" id="spec-text-{{ s.id }}" type="text" name="spec_text_{{ s.id }}" value="{{ s.text }}" maxlength="300">
+            <p class="meta spec__source"><span class="spec__unit">Unit: {{ s.unit or "none given" }}</span> · Source: {% if s.source_link.startswith("/") %}<a href="{{ s.source_link }}">{{ s.source_title }}</a>{% else %}<a href="{{ s.source_link }}" target="_blank" rel="noopener noreferrer">{{ s.source_title }}</a>{% endif %}</p>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </fieldset>
+    {% endif %}
+
+    <div class="actions">
+      <button class="btn" type="submit" {{ act("tidy") }}>{{ "Tidy again" if form.tidied and not form.question else "Tidy my note" }}</button>
+      <button class="btn" type="submit" {{ act("specs") }}>Suggest specs</button>
+      <button class="btn" type="submit" {{ act("save") }}>Save draft</button>
+      <button class="btn btn--primary" type="submit" {{ act("publish") }}>Publish to Crush doc</button>
+      {{ loading_indicator("notebook-working", "Working…") }}
+    </div>
+    {% if entry %}
+    <div class="actions actions--quiet">
+      <button class="btn btn--small" type="submit" {{ act("discard") }}>Discard this draft</button>
+    </div>
+    {% endif %}
+  </fieldset>
+  <p class="hint">Tidy my note rewords what you wrote using the AI, using only your text, your coach chat on this task or a linked source ({{ tidy_limit }} a day). Suggest specs looks in the Drive and the reference books for values your entry needs, each with a source ({{ specs_limit }} a day). Neither runs unless you press it, and neither saves anything.</p>
+  <p class="hint">Save draft keeps it private to you. Publish adds it to the Crush document under the tab for the task’s subsystem and today’s date, with your name, the specs you ticked and a link to each photo. Nothing already there is changed. A published entry can’t be edited: to fix one, add a new entry that refers to it. No lead approves it.</p>
+</form>
+{% endif %}

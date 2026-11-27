@@ -11,6 +11,7 @@ from datetime import datetime
 
 from sqlmodel import Session, col, select
 
+import plan as plan_shape
 import profiles
 import steps
 import workflow
@@ -80,7 +81,9 @@ def note_text(note: WorkNote) -> str:
 def history(session: Session, task_id: int) -> list[dict]:
     """The task's moves and the work notes members logged on it, newest first."""
     events = session.exec(select(TaskEvent).where(TaskEvent.task_id == task_id)).all()
-    notes = session.exec(select(WorkNote).where(WorkNote.task_id == task_id)).all()
+    notes = session.exec(  # a draft is its member's alone: only published entries show
+        select(WorkNote).where(WorkNote.task_id == task_id, WorkNote.state == "published")
+    ).all()
     rows: list[tuple[datetime, int, int, dict]] = [
         (
             e.created_at,
@@ -230,6 +233,9 @@ def latest_next_steps(session: Session, task_ids: list[int]) -> dict[int, dict]:
         if message is None:
             continue
         text = next_step_from(message.content)
+        if not text:  # a plan has no "Next step:" line: its "Do this now" is the step
+            text = _plain(plan_shape.do_this_now(message.content)) or None
+            text = text[0].upper() + text[1:] if text else None
         if text:
             found[task_id] = {"text": text, "date": short_date(message.created_at)}
     return found
@@ -239,6 +245,12 @@ def latest_next_steps(session: Session, task_ids: list[int]) -> dict[int, dict]:
 
 _BLOCK_BREAK = re.compile(r"\n\s*\n")
 _CONFLICT = re.compile(r"^[\s*_]*likely current\b", re.IGNORECASE)
+
+
+def plan_parts(content: str) -> list[dict]:
+    """The labelled parts of a "Plan my next steps" answer (see `plan.py`), or an empty
+    list when the content isn't shaped like one. Presentation only."""
+    return plan_shape.parse(content)
 
 
 def message_parts(content: str) -> list[dict]:

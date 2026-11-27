@@ -1,0 +1,7 @@
+{#- What just happened, at the top of the Notebook (panel and page). `posted` marks an entry
+    that was just published or retried, so notebook.js refreshes the page behind the panel
+    when it closes (the task's History shows the entry). -#}
+{% from "components/feedback.html" import notice as notice_box %}
+{% if error %}{{ notice_box(error, "error") }}{% endif %}
+{% if notice %}{{ notice_box(notice) }}{% endif %}
+{% if posted %}<span data-posted="{{ posted.id }}" hidden></span>{% endif %}

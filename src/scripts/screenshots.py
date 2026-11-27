@@ -5,7 +5,7 @@
 Starts the app against a throwaway SQLite database seeded with the made-up sample
 tasks, signs in with a forged session cookie for a made-up member, and saves
 /, /tasks, /tasks/E01 (a member's own task in progress), /tasks/G01 (waiting for a lead),
-/tasks/G01 as a member (a conflicting coach answer with "Ask a lead to settle this"), the lead Inbox (one card of each kind), the Record, the Timeline and /profile, /admin and /admin/import at 375px and 1280px into
+/tasks/G01 as a member (a conflicting coach answer with "Ask a lead to settle this"), /tasks/M02 (a "Plan my next steps" answer), the Notebook (page and side panel), the lead Inbox (one card of each kind), the Record, the Timeline and /profile, /admin and /admin/import at 375px and 1280px into
 .context/screenshots/ (gitignored).
 It never touches your real database, your .env secrets, the model or Google.
 
@@ -52,9 +52,13 @@ PAGES = (
     ("record-empty", "/record?part=thrusters", "member"),
     ("record-notes", "/record?notes=1", "member"),
     ("record-notes-lead", "/record?notes=1", "lead"),
-    # The work log as a page (the side panel shows the same content; see DRAWERS)
-    ("worklog", "/worklog?task=E01", "member"),
-    ("worklog-notebook", "/worklog?tab=notebook", "member"),
+    # The Notebook as a page: compose on the left, history on the right (the side panel shows
+    # the same content; see DRAWERS). E01 has a draft with photos and suggested specs.
+    ("notebook", "/notebook?task=E01", "member"),
+    ("notebook-blank", "/notebook?task=M04", "member"),
+    ("notebook-private", "/notebook?tab=private", "member"),
+    ("notebook-lead", "/notebook", "lead"),
+    ("task-plan", "/tasks/M02", "member"),
     ("admin", "/admin", "lead"),
     ("admin-import", "/admin/import", "lead"),
     # Signed out: a read-only preview (the task and decision pages are a sign-in prompt, 401)
@@ -65,8 +69,10 @@ PAGES = (
     ("record-guest", "/record", "guest"),
 )
 EXPECTED_STATUS = {"task-guest": 401, "record-guest": 401, "timeline-guest": 401}
-# Pages where the work log button is pressed, and the panel (a drawer) is photographed open.
+# Pages where the Notebook button is pressed, and the panel (a drawer) is photographed open, on
+# its Today's entry tab and then on Earlier and Private notes.
 DRAWERS = (("drawer-task", "/tasks/E01"), ("drawer-home", "/"))
+DRAWER_TABS = (("earlier", "Earlier"), ("private", "Private notes"))
 
 # Made-up values; nothing here is a real secret, person or team data.
 SESSION_SECRET = "screenshots-only-not-a-secret"
@@ -88,6 +94,25 @@ def session_cookie(user: dict[str, str]) -> str:
     return TimestampSigner(SESSION_SECRET).sign(payload).decode("utf-8")
 
 
+def sample_photo(number: int) -> tuple[bytes, int, int]:
+    """A made-up photo: a gradient with a few shapes, as a JPEG."""
+    import io
+
+    from PIL import Image, ImageDraw
+
+    width, height = 640, 480
+    image = Image.new("RGB", (width, height))
+    draw = ImageDraw.Draw(image)
+    for y in range(height):
+        shade = 70 + int(110 * y / height)
+        draw.line([(0, y), (width, y)], fill=(shade, shade + 15 + number * 10, shade + 35))
+    draw.rectangle([120 + number * 40, 140, 360 + number * 40, 340], outline=(240, 240, 240), width=6)
+    draw.ellipse([420, 100 + number * 30, 540, 220 + number * 30], fill=(30, 50, 70))
+    buffer = io.BytesIO()
+    image.save(buffer, "JPEG", quality=80)
+    return buffer.getvalue(), width, height
+
+
 def seed() -> None:
     """Create the schema, import the sample tasks, add one made-up coach exchange."""
     sys.path.insert(0, str(SRC))
@@ -102,6 +127,9 @@ def seed() -> None:
         DecisionTask,
         DriveWrite,
         MemberProfile,
+        NotePhoto,
+        NoteSpec,
+        PrivateNote,
         SyncState,
         Task,
         TaskEvent,
@@ -174,6 +202,53 @@ def seed() -> None:
                                 }
                             ],
                             "notes": [],
+                        }
+                    ),
+                ),
+            ]
+        )
+        planned = session.exec(select(Task).where(Task.code == "M02")).one()
+        planned.owner = MEMBER["name"]
+        planned.status = "in_progress"
+        planned.stage = "Drawing"
+        session.add_all(
+            [
+                CoachMessage(task_id=planned.id, member=MEMBER["email"], role="user",
+                             content="What is the latch seating procedure for the lid?"),
+                CoachMessage(
+                    task_id=planned.id, member="coach", role="assistant",
+                    content="The two-point latch holds the lid shut. I found no seating procedure, only the latch choice.",
+                    meta=json.dumps({"sources": [], "notes": []}),
+                ),
+                CoachMessage(task_id=planned.id, member=MEMBER["email"], role="user",
+                             content="Plan my next steps."),
+                CoachMessage(
+                    task_id=planned.id, member="coach", role="assistant",
+                    content=(
+                        "**What I found**\n"
+                        "- The latch is a two-point draw latch ([Latch design notes (example)](https://docs.google.com/document/d/example)).\n"
+                        "- Alfie's latch notes exist but are possibly old.\n\n"
+                        "**What's missing**\n"
+                        "- No document says how the latch is seated on the lid.\n\n"
+                        "**Do this now**\n"
+                        "Open the latch notes and write down which lid faces the latch touches.\n\n"
+                        "**If you need more help**\n"
+                        "```\nI am making the lid for a small underwater robot. It uses a two-point draw latch. "
+                        "What do published guides say about seating a draw latch against a gasketed lid? "
+                        "Name your sources.\n```\n\n"
+                        "**You should end up with**\n"
+                        "- A short note listing which faces the latch touches, with a link to the notes.\n"
+                        "- A labelled sketch of the lid and latch.\n\n"
+                        "**Then:** Lead review comes after Drawing: ask for review, and a lead checks the work before it moves on."
+                    ),
+                    meta=json.dumps(
+                        {
+                            "sources": [
+                                {"title": "Latch design notes (example)",
+                                 "link": "https://docs.google.com/document/d/example", "modified": "2026-09-30"}
+                            ],
+                            "notes": [],
+                            "plan": True,
                         }
                     ),
                 ),
@@ -359,10 +434,55 @@ def seed() -> None:
                 original="cut four wall panels", posted_at=now - timedelta(days=4),
             ),
         ]
+        # Notebook: a published entry with photos and an accepted spec, a follow-up, and a draft
+        # with photos and suggested specs (one with no source was dropped), plus a private note.
+        notes[0].refers_to_id = None
+        notes.append(
+            WorkNote(
+                member=MEMBER["email"], member_name=MEMBER["name"], task_id=mine.id,
+                task_code=mine.code, subsystem=mine.subsystem,
+                did="Correction: the sled has six mounting holes, not four.",
+                why="I miscounted when marking in place.", original="six holes", state="published",
+                posted_at=now - timedelta(hours=1), updated_at=now - timedelta(hours=1),
+            )
+        )
+        draft = WorkNote(
+            member=MEMBER["email"], member_name=MEMBER["name"], task_id=mine.id,
+            task_code=mine.code, subsystem=mine.subsystem,
+            did="Drilled the tray's corner holes and test-fitted two boards.",
+            why="Drilling before fitting lets me adjust the board spacing.", original="drilled",
+            state="draft", specs_dropped=1, posted_at=now - timedelta(minutes=10),
+            updated_at=now - timedelta(minutes=10),
+        )
         session.add_all(notes)
+        session.add(draft)
         session.flush()
+        notes[3].refers_to_id = notes[0].id
+        session.add(PrivateNote(member=MEMBER["email"], text="Ask Sam about the tray rails before Friday."))
+        session.add(PrivateNote(member=MEMBER["email"], text="The sled rails look slightly bowed. Re-measure with the long straightedge."))
+        for owner_note, count in ((notes[0], 2), (draft, 3)):
+            for number in range(count):
+                data, width, height = sample_photo(number)
+                session.add(NotePhoto(note_id=owner_note.id, member=MEMBER["email"], position=number,
+                                      size=len(data), width=width, height=height, data=data,
+                                      drive_link=("https://drive.google.com/file/d/example/view" if owner_note is notes[0] else None)))
         session.add_all(
             [
+                NoteSpec(note_id=notes[0].id, position=0, text="Sled mounting hole spacing 60", original_text="Sled mounting hole spacing 60",
+                         unit="mm", source_title="Electrical component sheet (example)",
+                         source_link="https://docs.google.com/spreadsheets/d/example", accepted=True),
+                NoteSpec(note_id=draft.id, position=0, text="Corner hole diameter 3.4", original_text="Corner hole diameter 3.4",
+                         unit="mm", source_title="Electrical component sheet (example)",
+                         source_link="https://docs.google.com/spreadsheets/d/example"),
+                NoteSpec(note_id=draft.id, position=1, text="Board standoff height 6, edited from 5", original_text="Board standoff height 5",
+                         unit="mm", source_title="Tray sub-assembly notes (example)",
+                         source_link="https://docs.google.com/document/d/example", accepted=True, edited=True),
+            ]
+        )
+        session.add_all(
+            [
+                DriveWrite(kind="note", ref_id=notes[3].id, status="written",
+                           tab_title="Enclosure", tab_id="t.0", written_at=now),
                 DriveWrite(kind="note", ref_id=notes[0].id, status="written",
                            tab_title="Enclosure", tab_id="t.0", written_at=now),
                 DriveWrite(kind="note", ref_id=notes[1].id, status="failed", attempts=1,
@@ -531,16 +651,26 @@ def main() -> int:
                                 f"{path} scrolls sideways by {overflow}px at {width}px ({scheme})"
                             )
                         page.close()
-                    # The side panel, open: press the top bar button on a task page and on Home.
-                    for name, path in DRAWERS if scheme == "light" else ():
+                    # The Notebook side panel, open: press the top bar button on a task page and
+                    # on Home, then look at its other two tabs.
+                    for name, path in DRAWERS:
                         page = contexts["member"].new_page()
                         page.goto(f"{base}{path}")
                         page.wait_for_load_state("networkidle")
-                        page.click("[data-worklog-open]")
-                        page.wait_for_selector("#worklog[open] textarea")
+                        page.click("[data-notebook-open]")
+                        page.wait_for_selector("#notebook[open] textarea")
+                        page.wait_for_load_state("networkidle")
                         target = OUT / f"{name}{suffix}-{width}.png"
                         page.screenshot(path=str(target))
-                        print(f"opened the work log on {path} at {width}px ({scheme}) -> {target.relative_to(ROOT)}")
+                        print(f"opened the Notebook on {path} at {width}px ({scheme}) -> {target.relative_to(ROOT)}")
+                        if name == "drawer-task":
+                            for slug, label in DRAWER_TABS:
+                                page.click(f'#notebook-body .sidepanel__tabs a:has-text("{label}")')
+                                page.wait_for_selector(f'#notebook-body .sidepanel__tabs a[aria-current="true"]:has-text("{label}")')
+                                page.wait_for_load_state("networkidle")
+                                target = OUT / f"drawer-{slug}{suffix}-{width}.png"
+                                page.screenshot(path=str(target))
+                                print(f"opened the Notebook's {label} tab at {width}px ({scheme}) -> {target.relative_to(ROOT)}")
                         page.close()
                     for context in contexts.values():
                         context.close()

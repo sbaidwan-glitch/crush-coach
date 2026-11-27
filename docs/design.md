@@ -19,6 +19,8 @@ Empty states: no task yet → "You haven't started a task. Pick one on the right
 
 **Tasks**: filters All / Mine / Unclaimed / Needs review; counts box (Done x/total, In progress, Review, Unclaimed); one flush panel per subsystem with a ruler progress bar (one tick per task) and task rows; right column: Recent decisions (3 newest, proposed ones marked "needs a lead") and, for leads only, Waiting for review.
 
+**Notebook** (`/notebook`, and the side panel): Today's entry on the left, Earlier / Private notes on the right (stacked on a phone). An entry's state uses the status marks with words: Draft = open circle, Published = filled circle, Failed to publish = filled square. A plan answer ("Plan my next steps") shows its parts as labelled sections, "Do this now" in the blueprint box, and its prompt in a ruled box with a Copy button and the Drive warning beside it.
+
 **Task**: left: Coach thread; right: Progress (stage strip, owner, Next step done / Start / Unclaim, or Approve / Send back for leads), Type and steps (leads only: change the type, edit the steps), About this task (tracker description, related decisions), History (TaskEvent list).
 
 ## Rules

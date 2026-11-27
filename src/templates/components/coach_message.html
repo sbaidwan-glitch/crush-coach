@@ -1,6 +1,9 @@
 {# One turn of the coach thread. `m` has role, member, content, notes and sources; `code` is the task's code (for
    the "Ask a lead to settle this" form). `m.settle` is "ask" (show the button), "asked" (a lead has it) or empty.
-   With `m.can_recommend`, a Recommend button sits under the answer.
+   With `m.can_recommend`, a Recommend button sits under the answer, and with `m.can_plan` a
+   "Plan my next steps" button next to it. `m.plan` is an answer to that button: its labelled
+   parts are shown as sections (the "If you need more help" part holds a ready-to-paste prompt
+   in a box with a Copy button and a warning that it quotes the team Drive).
    The member's message is a filled box offset right; the coach's has a blue left rule,
    a ruled list of sources, and its "Next step:" in a blueprint box at the end. #}
 {% from "components/feedback.html" import notice %}
@@ -13,6 +16,32 @@
 {%- else -%}
 <article class="msg msg--coach">
   <div class="msg__who">Coach</div>
+  {%- set plan_sections = (m.content | plan_parts) if m.plan else [] %}
+  {%- if plan_sections %}
+  <div class="plan">
+    {%- for p in plan_sections %}
+    {%- if p.key == "now" %}
+    <div class="next msg-md plan__now"><h3 class="plan__title">{{ p.title }}</h3>{{ p.text | markdown }}</div>
+    {%- else %}
+    <section class="plan__part" aria-label="{{ p.title }}">
+      <h3 class="plan__title">{{ p.title }}</h3>
+      {%- if p.text %}<div class="msg-md">{{ p.text | markdown }}</div>{% endif %}
+      {%- if p.prompt %}
+      {%- set box = "plan-prompt-" ~ (m.id or "new") %}
+      <div class="promptbox">
+        <pre class="promptbox__text" id="{{ box }}" tabindex="0" aria-label="Prompt to paste into a search or AI tool">{{ p.prompt }}</pre>
+        <div class="promptbox__bar">
+          <button class="btn btn--small" type="button" data-copy-target="{{ box }}" hidden>Copy</button>
+          <p class="meta promptbox__warning">{{ plan_copy_warning }}</p>
+          <span class="visually-hidden" role="status" data-copy-status></span>
+        </div>
+      </div>
+      {%- endif %}
+    </section>
+    {%- endif %}
+    {%- endfor %}
+  </div>
+  {%- else %}
   {%- for part in m.content | message_parts %}
   {%- if part.kind == "conflict" %}
   <div class="conflict">
@@ -24,6 +53,7 @@
   <div class="msg-md">{{ part.text | markdown }}</div>
   {%- endif %}
   {%- endfor %}
+  {%- endif %}
   {%- for note in m.notes %}{{ notice(note) }}{% endfor %}
   {%- if m.sources %}
   <ul class="sources" aria-label="Sources">
@@ -47,14 +77,27 @@
   {%- elif m.settle == "asked" %}
   <p class="meta settle">Sent to the leads. Their answer will appear in the Team record.</p>
   {%- endif %}
-  {%- if m.can_recommend and code %}
-  {#- Offered under the latest answer only. Sends one fixed message; the coach then
-      searches the reference books and does the arithmetic with a calculator tool. #}
-  <form method="post" action="/tasks/{{ code }}/coach" data-coach-recommend data-message="Give me your recommendation.">
-    <input type="hidden" name="recommend" value="1">
-    <button class="btn btn--small" type="submit">Recommend</button>
-    <span class="meta">Checks the reference books and shows its calculation. Uses one of your daily messages.</span>
-  </form>
+  {%- if (m.can_recommend or m.can_plan) and code %}
+  <div class="coach-actions">
+    {%- if m.can_recommend %}
+    {#- Offered under the latest answer only. Sends one fixed message; the coach then
+        searches the reference books and does the arithmetic with a calculator tool. #}
+    <form method="post" action="/tasks/{{ code }}/coach" data-coach-recommend data-message="Give me your recommendation.">
+      <input type="hidden" name="recommend" value="1">
+      <button class="btn btn--small" type="submit">Recommend</button>
+      <span class="meta">Checks the reference books and shows its calculation. Uses one of your daily messages.</span>
+    </form>
+    {%- endif %}
+    {%- if m.can_plan %}
+    {#- Also under the latest answer only. One short call over what the Drive already holds:
+        what was found, what is missing, what to do now, a prompt to take elsewhere. #}
+    <form method="post" action="/tasks/{{ code }}/coach" data-coach-plan data-message="Plan my next steps.">
+      <input type="hidden" name="plan" value="1">
+      <button class="btn btn--small" type="submit">Plan my next steps</button>
+      <span class="meta">A short plan from what the Drive holds, and a prompt for other tools. Uses one of your daily messages.</span>
+    </form>
+    {%- endif %}
+  </div>
   {%- endif %}
 </article>
 {%- endif -%}

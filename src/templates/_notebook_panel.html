@@ -1,0 +1,14 @@
+{#- The Notebook's three tabs, as loaded into the side panel by notebook.js (htmx swaps the
+    contents of #notebook-body). Expects: tab, tabs, plus what the tab's partial needs. -#}
+{% set task_q = ("&task=" ~ task.code) if task and tab == "today" else "" %}
+<nav class="sidepanel__tabs" aria-label="Notebook sections">
+  {% for slug, label in tabs %}
+  <a href="/notebook?tab={{ slug }}{{ task_q }}" hx-get="/notebook/panel?tab={{ slug }}{{ task_q }}" hx-target="#notebook-body" hx-swap="innerHTML"{% if tab == slug %} aria-current="true"{% endif %}>{{ label }}</a>
+  {% endfor %}
+</nav>
+<div class="sidepanel__body">
+  {% include "_notebook_messages.html" %}
+  {% if tab == "today" %}{% include "_notebook_today.html" %}
+  {% elif tab == "earlier" %}{% include "_notebook_earlier.html" %}
+  {% else %}{% include "_notebook_private.html" %}{% endif %}
+</div>

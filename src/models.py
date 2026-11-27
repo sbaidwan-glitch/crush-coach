@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     Text,
     UniqueConstraint,
 )
@@ -170,6 +171,9 @@ class LlmCall(SQLModel, table=True):
     finish_reason: str | None = None  # stop, length (hit the output cap), tool_calls
     reasoning_tokens: int | None = None  # hidden thinking tokens, if the model says
     tool_called: bool = False  # the model asked for the live Drive read
+    # What the call was for: coach, recommend, plan, settle, tidy or specs. Null on calls
+    # logged before this column existed.
+    purpose: str | None = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=utc_now)
 
 
@@ -450,7 +454,84 @@ class WorkNote(SQLModel, table=True):
     did: str  # what they did (the tidied text if they used Tidy and kept it)
     why: str = ""  # why they did it that way (recommended, not required)
     original: str  # the member's own words before any tidying
+    # `draft`: only its member can see it, and it can still be edited. `published`: the
+    # member pressed Publish; it is read-only from then on. Whether the Crush document
+    # got it is the `drive_write` row (a failed write shows as "Failed to publish").
+    # Notes from before the Notebook are published.
+    state: str = Field(default="published", index=True)
+    # The earlier entry this one adds to or corrects (a published entry is never edited).
+    refers_to_id: int | None = Field(
+        default=None, foreign_key="work_note.id", index=True
+    )
+    # How many suggested specs the last "Suggest specs" dropped for having no source.
+    specs_dropped: int = 0
+    # For a draft: when it was last saved. For a published entry: `posted_at` is the
+    # moment it was published.
+    updated_at: datetime = Field(default_factory=utc_now)
     posted_at: datetime = Field(default_factory=utc_now, index=True)
+
+
+NOTE_STATES = ("draft", "published")
+# What a member sees. "failed" isn't stored: it is a published entry whose write to the Crush
+# document failed (see notebook.state_of).
+NOTE_STATE_LABELS = {"draft": "Draft", "published": "Published", "failed": "Failed to publish"}
+
+
+class NotePhoto(SQLModel, table=True):
+    """A photo on a notebook entry. The bytes are a re-encoded JPEG with no location data
+    (`photos.py`), kept here so a draft's photos never leave the app. A draft's photos are
+    served only to its member; a published entry's to any signed-in member. At Publish each
+    is uploaded to the "Notebook photos" folder and `drive_link` says where."""
+
+    __tablename__ = "note_photo"
+
+    id: int | None = Field(default=None, primary_key=True)
+    note_id: int = Field(foreign_key="work_note.id", index=True)
+    member: str = Field(index=True)  # the member's email
+    position: int = 0
+    content_type: str = "image/jpeg"
+    size: int = 0
+    width: int = 0
+    height: int = 0
+    data: bytes = Field(sa_column=Column(LargeBinary, nullable=False))
+    created_at: datetime = Field(default_factory=utc_now)
+    drive_file_id: str | None = None
+    drive_link: str | None = None
+
+
+class NoteSpec(SQLModel, table=True):
+    """One spec the model suggested for an entry, and what the member did with it.
+
+    `original_text` is the model's wording, `text` what the member kept (they may edit
+    it), `accepted` whether they ticked it, `edited` whether `text` differs. Counting
+    accepted / edited / rejected over published entries is the measurement of how useful
+    the suggestions are. Only suggestions with a source are saved."""
+
+    __tablename__ = "note_spec"
+
+    id: int | None = Field(default=None, primary_key=True)
+    note_id: int = Field(foreign_key="work_note.id", index=True)
+    position: int = 0
+    text: str
+    original_text: str
+    unit: str = ""
+    source_title: str = ""
+    source_link: str = ""
+    accepted: bool = False
+    edited: bool = False
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class PrivateNote(SQLModel, table=True):
+    """A member's private note: no task, never written to Drive, never sent to a model,
+    and visible to nobody else (no lead either). Every query for it filters on `member`."""
+
+    __tablename__ = "private_note"
+
+    id: int | None = Field(default=None, primary_key=True)
+    member: str = Field(index=True)  # the member's email
+    text: str
+    created_at: datetime = Field(default_factory=utc_now, index=True)
 
 
 class DriveWrite(SQLModel, table=True):

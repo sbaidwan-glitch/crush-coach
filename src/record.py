@@ -1,27 +1,28 @@
 """Record (`/record`): what the team has settled, by part of Crush, newest first.
 
 Answers (recorded by a lead from the Inbox: `inbox.py`) and, behind a "Show work notes"
-toggle, members' work notes (`worklog.py`), each with whether it reached the Crush document.
+toggle, members' notebook entries (`notebook.py`), each with whether it reached the Crush document.
 Nothing here changes data except the Retry write button on an answer. The old `/decisions` addresses still
 work: the coach's saved answers link to `/decisions/12`, which lands on that entry.
 """
 
 import logging
+import re
 from datetime import date
 from itertools import groupby
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlmodel import Session
 
 import db
 import decisions
 import drive_write
+import notebook
 import progress
 import shell
-import worklog
-from auth import MaybeUser, locked_page
+from auth import CurrentUser, MaybeUser, locked_page
 
 log = logging.getLogger("crush_coach")
 templates = shell.templates()
@@ -38,9 +39,9 @@ def _by_day(entries: list[dict[str, Any]]) -> list[tuple[date, list[dict[str, An
 
 def _add_answer_writes(session: Session, entries: list[dict[str, Any]]) -> None:
     """Say on each answer whether it reached the Crush document."""
-    writes = worklog.writes_for(session, "answer", [e["id"] for e in entries])
+    writes = notebook.writes_for(session, "answer", [e["id"] for e in entries])
     for entry in entries:
-        entry["write"] = worklog.write_state(writes.get(entry["id"]), entry["subsystem"])
+        entry["write"] = notebook.write_state(writes.get(entry["id"]), entry["subsystem"])
 
 
 @router.get("/record", response_class=HTMLResponse)
@@ -67,9 +68,9 @@ def record_page(
     try:
         entries = decisions.recorded_entries(session, spec["subsystems"], q)
         _add_answer_writes(session, entries)
-        notes_exist = worklog.has_notes(session, spec["subsystems"])
+        notes_exist = notebook.has_notes(session, spec["subsystems"])
         if show_notes and notes_exist:
-            entries += worklog.note_entries(session, spec["subsystems"], q)
+            entries += notebook.note_entries(session, spec["subsystems"], q)
             entries.sort(key=lambda e: e["when"], reverse=True)
         days = _by_day(entries)
     except Exception as exc:  # noqa: BLE001  (a DB failure must not break the page)
@@ -94,6 +95,27 @@ def record_page(
     }
     return templates.TemplateResponse(
         request, "record.html", context, status_code=503 if error else 200
+    )
+
+
+@router.post("/record/answers/{decision_id}/retry", response_class=Response)
+def retry_answer_write(
+    decision_id: int,
+    session: Annotated[Session, Depends(db.get_session)],
+    user: CurrentUser,
+    part: Annotated[str, Form()] = "",
+):
+    """Retry write to Drive, for a recorded answer. Leads only (they record answers)."""
+    if user["role"] != "lead":
+        raise HTTPException(status_code=403)
+    try:
+        drive_write.retry(session, "answer", decision_id)
+    except Exception as exc:  # noqa: BLE001  (the Record page says what happened)
+        session.rollback()
+        log.error("Could not retry an answer's write (%s)", type(exc).__name__)
+    slug = part if re.fullmatch(r"[a-z]+", part or "") else ""
+    return RedirectResponse(
+        f"/record?part={slug}#answer-{decision_id}" if slug else "/record", status_code=303
     )
 
 
