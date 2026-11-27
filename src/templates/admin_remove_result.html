@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Tasks removed – Crush Coach{% endblock %}
 {% block page_title %}Tasks removed{% endblock %}
-{% block topbar_actions %}<a class="btn" href="/tasks">All tasks</a>{% endblock %}
+{% block topbar_actions %}<a class="btn" href="/tasks?show=all">All tasks</a>{% endblock %}
 {% block main %}
 <section class="panel" aria-labelledby="removed-heading">
   <h2 class="panel__title" id="removed-heading">What happened</h2>
@@ -13,6 +13,6 @@
     {{ done.llm_calls }} model call{{ "" if done.llm_calls == 1 else "s" }} kept, with no task.
   </p>
   <div class="field">{% for t in done.tasks %}<span class="code">{{ t.code }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</div>
-  <div class="actions"><a class="btn btn--primary" href="/admin/import#remove-tasks">Back to import and remove</a><a class="btn" href="/tasks">Go to all tasks</a></div>
+  <div class="actions"><a class="btn btn--primary" href="/admin/import#remove-tasks">Back to import and remove</a><a class="btn" href="/tasks?show=all">Go to all tasks</a></div>
 </section>
 {% endblock %}

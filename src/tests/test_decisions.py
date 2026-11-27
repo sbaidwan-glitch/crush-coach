@@ -172,7 +172,7 @@ def test_record_lists_recorded_answers_by_part_and_date_newest_first(client, ses
 
     html = client.get("/record").text
 
-    assert "<h1 class=\"page-title\">Record</h1>" in html
+    assert "<h1 class=\"page-title\">Team record</h1>" in html
     assert html.index("Gasket gap") < html.index("Latch style")  # newest first
     assert "Hole size" in html  # Electronics Mounts sit under Enclosure
     assert "Thruster bolt" not in html  # another part
@@ -241,10 +241,21 @@ def test_record_survives_a_database_failure(client, session, monkeypatch):
     assert 'href="/tasks"' in response.text  # the rest of the page still works
 
 
+def test_team_record_says_what_it_holds_and_where_your_own_entries_are(client, session):
+    html = client.get("/record").text
+
+    assert "<title>Team record – Crush Coach</title>" in html
+    assert (
+        '<p class="page-sub">What the team has settled. Your own entries are in your Notebook.</p>'
+        in html
+    )
+    assert "<span>Team record</span>" in html
+
+
 def test_the_sidebar_says_record_not_decisions(client, session):
     html = client.get("/tasks").text
 
-    assert 'href="/record"' in html and "<span>Record</span>" in html
+    assert 'href="/record"' in html and "<span>Team record</span>" in html
     assert "<span>Decisions</span>" not in html
 
 

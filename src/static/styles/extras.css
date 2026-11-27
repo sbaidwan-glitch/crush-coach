@@ -121,6 +121,8 @@ input[type="checkbox"] { accent-color: var(--color-ink); width: var(--space-4); 
 /* On phones the tab bar holds up to five links and the theme and bubbles buttons: share the width (theme.css gives the buttons a fixed one). */
 @media (max-width: 820px) {
   .sidebar__link, .sidebar__btn { width: auto; flex: 1 1 0; min-width: 0; }
+  /* "Team record" wraps to two lines; keep every icon on the same line. */
+  .sidebar__link { align-self: stretch; text-align: center; }
 }
 .sidebar__badge { position: absolute; top: 0; left: calc(50% + var(--space-2)); min-width: var(--space-5); padding: 0 var(--space-1); background: var(--color-review); color: var(--color-on-ink); font-size: var(--text-xs); font-weight: var(--weight-semibold); line-height: var(--space-5); text-align: center; }
 .steps-editor summary { cursor: pointer; padding: var(--space-2) 0; font-weight: var(--weight-semibold); }
@@ -171,6 +173,15 @@ input[type="radio"] { accent-color: var(--color-ink); }
 .tag { font-size: var(--text-xs); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-label); text-transform: uppercase; padding: 0 var(--space-2); border: 1px solid currentColor; margin-right: var(--space-2); }
 .tag--answer { color: var(--color-accent); }
 .tag--note { color: var(--color-muted); }
+.tag--mine { color: var(--color-accent); margin: 0; }
+.task-row__meta--mine { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+
+/* ---------- Mine on All tasks, and a member's own suggestions ---------- */
+.panel--flush .task-row--mine { border-left: var(--panel-rule) solid var(--color-accent); padding-left: calc(var(--space-5) - var(--panel-rule)); }
+.suggestions { list-style: none; margin: 0; padding: 0; }
+.suggestion { display: grid; grid-template-columns: 1fr auto; gap: var(--space-1) var(--space-3); align-items: baseline; padding: var(--space-3) var(--space-5); border-top: 1px solid var(--color-rule); }
+.suggestion__title { overflow-wrap: anywhere; }
+.suggestion .task-row__meta { grid-column: 1 / -1; }
 @media (max-width: 900px) {
   .card { grid-template-columns: 1fr; gap: var(--space-2); }
   .card__actions { justify-content: flex-start; }

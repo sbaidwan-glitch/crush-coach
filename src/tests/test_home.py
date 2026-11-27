@@ -174,7 +174,7 @@ def test_build_progress_comes_from_statuses(session, signed_in):
     assert "<b>25</b>" in html  # percent
     assert 'aria-label="Enclosure: 1 of 2 done, 1 in progress"' in html
     assert 'aria-label="Thrusters: 0 of 2 done, 1 in progress"' in html
-    assert 'href="/tasks#thrusters"' in html
+    assert 'href="/tasks?show=all#thrusters"' in html
     assert "1 open task<" in html  # singular
 
 
@@ -186,9 +186,9 @@ def test_crush_render_has_a_tag_per_part_linking_to_its_tasks(session, signed_in
     html = signed_in.get("/").text
 
     assert '<img src="/static/img/crush.png" alt="CAD render of Crush">' in html
-    assert 'href="/tasks#enclosure" style="left:54%;top:31%"' in html
+    assert 'href="/tasks?show=all#enclosure" style="left:54%;top:31%"' in html
     for slug in ("seals", "thrusters", "actuators"):
-        assert f'class="render__tag" href="/tasks#{slug}"' in html
+        assert f'class="render__tag" href="/tasks?show=all#{slug}"' in html
     assert "Actuators 0/2" in html and "Enclosure 1/1" in html
     # a mark and words in each tag: all done / started / not started
     assert "Done: " in html and "Started: " in html and "Not started: " in html

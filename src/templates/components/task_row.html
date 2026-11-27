@@ -1,16 +1,17 @@
 {# One task as a row: code, title with owner (or Unclaimed) under it, then its status.
    Pass `claim_next` to show a Claim button instead (Home's "Pick up a task").
    With preview=True (a signed-out visitor) the title and owner are stand-ins: blurred, not
-   a link, hidden from screen readers and the keyboard, and the Claim button is disabled. #}
+   a link, hidden from screen readers and the keyboard, and the Claim button is disabled.
+   With mine=True (the signed-in member owns it) the row gets a "Yours" tag and an accent rule. #}
 {% from "components/status.html" import status_label %}
 {% from "components/icons.html" import owner as owner_line %}
-{% macro task_row(task, status_labels, preview=False, chips=[]) -%}
-<div class="task-row">
+{% macro task_row(task, status_labels, preview=False, chips=[], mine=False) -%}
+<div class="task-row{% if mine %} task-row--mine{% endif %}">
   <span class="code">{{ task.code }}</span>
   {% if preview -%}
   <span class="is-blurred" aria-hidden="true"><span class="task-row__title">{{ task.title }}</span><span class="task-row__meta">{{ task.owner or "Unclaimed" }}</span></span>
   {%- else -%}
-  <span><a class="task-row__title" href="/tasks/{{ task.code }}">{{ task.title }}</a><span class="task-row__meta{% if not task.owner %} unclaimed{% endif %}"><span class="visually-hidden">Owner: </span>{{ owner_line(task.owner, chips) }}</span></span>
+  <span><a class="task-row__title" href="/tasks/{{ task.code }}">{{ task.title }}</a><span class="task-row__meta{% if not task.owner %} unclaimed{% endif %}{% if mine %} task-row__meta--mine{% endif %}"><span class="visually-hidden">Owner: </span>{{ owner_line(task.owner, chips) }}{% if mine %}<span class="tag tag--mine">Yours</span>{% endif %}</span></span>
   {%- endif %}
   {{ status_label(task.status, status_labels.get(task.status, task.status)) }}
 </div>

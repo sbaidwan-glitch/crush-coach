@@ -2,12 +2,13 @@
 {% from "components/feedback.html" import notice as notice_box, empty_state, error_state, preview_notice %}
 {% from "components/progress_bar.html" import pbar, diamond %}
 {% from "components/task_row.html" import task_row %}
+{% from "components/status.html" import status_label %}
 {% block title %}All tasks – Crush Coach{% endblock %}
 {% block heading %}
 <div class="topbar__title">
   <h1 class="page-title">All tasks</h1>
   <nav class="segmented" aria-label="Filter tasks">
-    {% for key, label in filters.items() %}<a href="/tasks{% if key != 'all' %}?show={{ key }}{% endif %}"{% if key == show %} aria-current="true"{% endif %}>{{ label }}</a>{% endfor %}
+    {% for key, label in filters.items() %}<a href="/tasks?show={{ key }}"{% if key == show %} aria-current="true"{% endif %}>{{ label }}</a>{% endfor %}
   </nav>
 </div>
 <div class="counts" role="group" aria-label="Task counts">
@@ -21,7 +22,7 @@
 <section class="panel panel--flush" data-tone="{{ g.tone }}" id="{{ g.slug }}" aria-labelledby="h-{{ g.slug }}">
   <div class="panel__head"><h2 class="panel__title" id="h-{{ g.slug }}">{{ diamond(g) }}{{ g.label }}</h2><span class="meta">{{ g.done }} of {{ g.total }} done</span></div>
   {{ pbar(g) }}
-  {% for t in tasks %}{{ task_row(t, status_labels, preview, [] if preview else owner_chips(t.owner)) }}{% endfor %}
+  {% for t in tasks %}{{ task_row(t, status_labels, preview, [] if preview else owner_chips(t.owner), mine=mine(t)) }}{% endfor %}
 </section>
 {% endmacro %}
 {% block main %}
@@ -33,7 +34,7 @@
   {% elif total_count == 0 %}
   <div class="stack grid-tasks__wide">{{ empty_state("No tasks yet. A team lead can import the tracker from the Admin page.") }}</div>
   {% elif not panels %}
-  <div class="stack grid-tasks__wide">{{ empty_state("No tasks match this filter.", "/tasks", "Show all tasks") }}</div>
+  <div class="stack grid-tasks__wide">{% if show == "mine" %}{{ empty_state("You haven't claimed a task yet. Claim one from Unclaimed, or suggest a new one below.", "/tasks?show=unclaimed", "See unclaimed tasks") }}{% else %}{{ empty_state("No tasks match this filter.", "/tasks?show=all", "Show all tasks") }}{% endif %}</div>
   {% else %}
   <div class="stack">{% for g, tasks in left %}{{ panel(g, tasks, preview) }}{% endfor %}</div>
   <div class="stack">{% for g, tasks in right %}{{ panel(g, tasks, preview) }}{% endfor %}</div>
@@ -51,6 +52,22 @@
         <div class="actions"><button class="btn" type="submit">Suggest this task</button></div>
       </form>
     </section>
+    {% if suggestions %}
+    <section class="panel panel--flush" id="your-suggestions" aria-labelledby="your-suggestions-heading">
+      <div class="panel__head"><h2 class="panel__title" id="your-suggestions-heading">Your suggestions</h2><span class="meta">{{ suggestions | length }}</span></div>
+      <ul class="suggestions">
+        {% for s in suggestions %}
+        <li class="suggestion">
+          <span class="suggestion__title">{{ s.title }}</span>
+          {% if s.status == "added" %}{{ status_label("done", "Added") }}
+          {% elif s.status == "dismissed" %}{{ status_label("todo", "Not now") }}
+          {% else %}{{ status_label("review", "Waiting for a lead") }}{% endif %}
+          <span class="task-row__meta">Suggested {{ s.created_at.strftime("%-d %b") }}{% if s.status == "added" and s.task_code %} · now <a class="code" href="/tasks/{{ s.task_code }}">{{ s.task_code }}</a>{% endif %}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
   </div>
   {% endif %}
 </div>
