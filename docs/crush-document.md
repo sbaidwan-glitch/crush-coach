@@ -3,12 +3,20 @@
 The Crush document is one Google Doc where the app **appends** two kinds of entry, so the
 team's running log lives in Drive as well as in the app:
 
-- a member's **work note** (posted from the work log, no lead needed): `Name · M06: what. Why: …`
+- a member's **notebook entry** (published from the Notebook, no lead needed): `Name · M06: what. Why: …`, then a line per spec they accepted and a link to each photo
 - a **recorded answer**, written when a lead records it: a bold statement, why, what it
   replaces, sources, who recorded it.
 
 All of it is in `src/drive_write.py`, the only module with a Google write scope
-(`https://www.googleapis.com/auth/documents`).
+(`https://www.googleapis.com/auth/documents`, and `https://www.googleapis.com/auth/drive.file` for photos).
+
+## Photos
+
+Before an entry is written, its photos are uploaded to a **"Notebook photos"** folder (made on
+first use) inside the folder named by `DRIVE_WRITE_FOLDER_ID`. Share that folder with the service
+account as **Editor**. The `drive.file` scope lets the app touch only files it made. Each photo
+uploads once (a `drive_write` row of kind `photo`). If an upload fails, or the variable is unset,
+the text is still published and the page says the photos stayed in the app.
 
 ## Set it up
 
@@ -36,7 +44,7 @@ inserts and formatting for the text it inserts.
 A `drive_write` row per entry makes a write happen once. A repeated request, a double click
 or a retry never adds a second copy, and text already under the day's heading isn't added
 again. If Google fails, the entry stays in the app with **Retry write to Drive**: members
-retry their own notes in the notebook; leads retry answers on the Record.
+retry their own entries in the Notebook (**Failed to publish**, **Retry**); leads retry answers on the Record.
 
 ## The Drive sync never reads it back
 
@@ -49,4 +57,4 @@ a copy that was indexed earlier.
 ## Tests
 
 `src/tests/fake_crush_doc.py` is a fake Docs client with the real index rules; the tests
-(`test_drive_write.py`, `test_worklog.py`) never touch Google and use a placeholder id.
+(`test_drive_write.py`, `test_notebook.py`, `test_notebook_photos.py`, with `fake_drive_upload.py` for Drive) never touch Google and use a placeholder id.

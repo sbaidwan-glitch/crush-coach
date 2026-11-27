@@ -59,6 +59,7 @@ import db
 import llm
 import recommend as recommend_tools
 import retrieval
+import steps
 from models import Task
 
 log = logging.getLogger("crush_coach")
@@ -139,15 +140,17 @@ def answer_question(
     calls: list[llm.CallRecord],
     earlier: coach_eval.Result | None = None,
     recommend: bool = False,
+    plan: bool = False,
 ) -> llm.CoachAnswer:
     """Retrieval, then one streamed answer: the same two steps the web page runs. A
     recommendation searches for the question it follows, as `coach.converse` does, and
-    gets the reference-book search and calculator tools."""
+    gets the reference-book search and calculator tools. A plan searches the same way, is
+    one short call with no tools, and ends with the "Then" part from the task's steps."""
     from sqlmodel import Session
 
     history, previous, sources = chat_so_far(earlier)
     asked = question
-    if recommend and earlier is not None:
+    if (recommend or plan) and earlier is not None:
         asked, previous = earlier.question, ""
     with Session(db.engine) as session:
         found = retrieval.retrieve(
@@ -170,11 +173,14 @@ def answer_question(
         today=coach.today(),
         record=calls.append,
         recommend=kit,
+        plan=plan,
     )
     for event in run:  # show where a slow answer is (searching, calculating...)
         if event["type"] == "step":
             print(f"      ... {event['text']}", flush=True)
     assert run.answer is not None
+    if plan:
+        run.answer.text = coach.with_then(run.answer.text, steps.then_text(task))
     return run.answer
 
 
@@ -190,7 +196,7 @@ def ask(
     started = time.monotonic()
     try:
         answer = answer_question(
-            task, question.question, calls, earlier, question.recommend
+            task, question.question, calls, earlier, question.recommend, question.plan
         )
     except llm.LLMError as exc:
         outcome.error, outcome.error_kind = exc.message, exc.kind

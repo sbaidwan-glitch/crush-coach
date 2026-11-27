@@ -69,15 +69,15 @@ def _code(value: object) -> str:
 
 
 def _context(request: Request) -> dict:
-    """`worklog_task`: the task whose page this is (the work log opens on it).
-    `worklog_open`: a task code in `?log=`, which opens the work log on load (after "Mark
+    """`notebook_task`: the task whose page this is (the Notebook opens on it).
+    `notebook_open`: a task code in `?log=`, which opens the Notebook on load (after "Mark
     step done")."""
     on_task = request.url.path.startswith("/tasks/")
     return {
         "needs_you": needs_you_count(request),
         "my_chip": my_chip(request),
-        "worklog_task": _code(request.path_params.get("code")) if on_task else "",
-        "worklog_open": _code(request.query_params.get("log")),
+        "notebook_task": _code(request.path_params.get("code")) if on_task else "",
+        "notebook_open": _code(request.query_params.get("log")),
     }
 
 

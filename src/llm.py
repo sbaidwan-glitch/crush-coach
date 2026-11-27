@@ -49,12 +49,19 @@ MAX_TOOL_CALLS_PER_ROUND = 4
 # sentence. A call that comes back empty is tried once more with RETRY_ANSWER_TOKENS.
 MAX_ANSWER_TOKENS = 2000
 RETRY_ANSWER_TOKENS = 4000
+# "Plan my next steps": the prompt asks for about 250 tokens; the cap leaves room for the
+# model's hidden thinking, which counts against it.
+PLAN_MAX_TOKENS = 1000
+SPECS_SECONDS = 40.0  # "Suggest specs": a reference-book search or two, then the list
+SPECS_ROUNDS = 2
 MAX_DOC_CHARS = 12_000  # of a live-read document
 MAX_SETTLE_CHARS = 6_000  # of a coach answer sent to be turned into options
 MAX_OPTIONS = 4
 SYSTEM_PROMPT_PATH = Path(__file__).parent / "prompts" / "coach_system.md"
 SETTLE_PROMPT_PATH = Path(__file__).parent / "prompts" / "settle_options.md"
 RECOMMEND_PROMPT_PATH = Path(__file__).parent / "prompts" / "coach_recommend.md"
+PLAN_PROMPT_PATH = Path(__file__).parent / "prompts" / "coach_plan.md"
+SPECS_PROMPT_PATH = Path(__file__).parent / "prompts" / "suggest_specs.md"
 TIDY_PROMPT_PATH = Path(__file__).parent / "prompts" / "tidy_note.md"
 DEFAULT_TIDY_MODEL = "claude-haiku-4-5"  # TIDY_MODEL overrides; a rewrite needs no more
 MAX_NOTE_CHARS = 1500  # of each box of a work note
@@ -170,6 +177,7 @@ class CoachAnswer:
     drive_failed: bool = False  # the one live read failed
     decisions_failed: bool = False
     unsourced_numbers: bool = False
+    plan_numbers: bool = False  # a plan's "You should end up with" part has digits
     ungrounded_links: bool = False
     cut_short: bool = False  # stopped at the time limit or a dropped stream
     shortened: bool = (
@@ -200,6 +208,18 @@ def settle_prompt() -> str:
 def recommend_prompt() -> str:
     """Added to the system prompt in recommendation mode (replaces the answer shape)."""
     return RECOMMEND_PROMPT_PATH.read_text(encoding="utf-8")
+
+
+@lru_cache(maxsize=1)
+def plan_prompt() -> str:
+    """Added to the system prompt for "Plan my next steps" (replaces the answer shape)."""
+    return PLAN_PROMPT_PATH.read_text(encoding="utf-8")
+
+
+@lru_cache(maxsize=1)
+def specs_prompt() -> str:
+    """Added to the system prompt for "Suggest specs" (the answer is a JSON list)."""
+    return SPECS_PROMPT_PATH.read_text(encoding="utf-8")
 
 
 @lru_cache(maxsize=1)
@@ -317,6 +337,7 @@ class CoachStream:
         max_rounds: int = 1,
         record: Callable[[CallRecord], None] | None = None,
         seconds: float | None = None,
+        max_tokens: int = MAX_ANSWER_TOKENS,
     ) -> None:
         self.messages: list[dict[str, Any]] = [
             {"role": "system", "content": system},
@@ -327,6 +348,7 @@ class CoachStream:
         self.record = record
         self.seconds = ANSWER_SECONDS if seconds is None else seconds
         self.max_rounds = max_rounds
+        self.max_tokens = max_tokens
         self._tools: dict[str, Tool] = {}
         if read_file is not None:
             self._tools["read_file"] = Tool(
@@ -371,7 +393,9 @@ class CoachStream:
         rounds = 0
         while True:
             allow_tool = bool(self._tools) and rounds < self.max_rounds
-            requests = yield from self._one_call(allow_tool=allow_tool)
+            requests = yield from self._one_call(
+                allow_tool=allow_tool, max_tokens=self.max_tokens
+            )
             if not requests:
                 return
             # The model asked for tools. Whatever it wrote before asking is dropped.
@@ -805,7 +829,7 @@ def ground_answer(
 # --- Drafting a decision -----------------------------------------------------
 
 
-def _parse_json_object(text: str) -> dict[str, Any]:
+def parse_json_object(text: str) -> dict[str, Any]:
     """The first {...} in the model's reply, as a dict. Raises ValueError if none."""
     start, end = text.find("{"), text.rfind("}")
     if start == -1 or end <= start:
@@ -859,7 +883,7 @@ def settle_options(
         record(call)
 
     try:
-        parsed = _parse_json_object(content)
+        parsed = parse_json_object(content)
     except (ValueError, TypeError):  # ValueError includes json.JSONDecodeError
         raise LLMError(
             "error", "The coach couldn't list the options. Try again."
@@ -1081,7 +1105,7 @@ def tidy_note(
         record(call)
 
     try:
-        parsed = _parse_json_object(content)
+        parsed = parse_json_object(content)
     except (ValueError, TypeError):  # ValueError includes json.JSONDecodeError
         raise LLMError("error", "The note couldn't be tidied. Try again.") from None
     new_did, new_why = parsed.get("did"), parsed.get("why")

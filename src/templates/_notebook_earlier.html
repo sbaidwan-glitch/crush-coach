@@ -1,0 +1,66 @@
+{#- Earlier: the member's entries, newest first, 20 at a time, each with its state. A draft
+    can be opened and edited; a published entry can't be changed, only followed up. Expects:
+    days, more, page, filter, filter_options, load_errors, doc_link, panel. -#}
+{% from "components/feedback.html" import empty_state, error_state %}
+{% from "components/status.html" import status_label %}
+{% set hx = panel %}
+{% set base = "/notebook?tab=earlier" ~ (("&filter=" ~ filter) if filter else "") %}
+{% set panel_base = "/notebook/panel?tab=earlier" ~ (("&filter=" ~ filter) if filter else "") %}
+{% if load_errors.earlier %}
+{{ error_state(load_errors.earlier, "/notebook?tab=earlier", "Try again") }}
+{% else %}
+{% if filter_options %}
+<form class="filter" method="get" action="/notebook"{% if hx %} hx-get="/notebook/panel" hx-target="#notebook-body" hx-swap="innerHTML"{% endif %}>
+  <input type="hidden" name="tab" value="earlier">
+  <div>
+    <label class="field-label" for="nb-filter">Task</label>
+    <select class="field-input" id="nb-filter" name="filter">
+      <option value="">All tasks</option>
+      {% for code in filter_options %}<option value="{{ code }}"{% if code == filter %} selected{% endif %}>{{ code }}</option>{% endfor %}
+    </select>
+  </div>
+  <button class="btn btn--small" type="submit">Show</button>
+</form>
+{% endif %}
+{% for day, entries in days %}
+<h3 class="day">{{ day.day }} {{ day.strftime("%b %Y") }}</h3>
+{% for e in entries %}
+<div class="entry" id="entry-{{ e.id }}">
+  <p class="entry__head">{{ status_label(e.state, e.state_label) }} <a class="code" href="/tasks/{{ e.task_code }}">{{ e.task_code }}</a></p>
+  {% if e.refers %}<p class="why">Adds to your {{ e.refers.date }} entry: “{{ e.refers.snippet }}”</p>{% endif %}
+  <p>{% if e.did %}{{ e.did }}{% else %}<span class="meta">Nothing written yet.</span>{% endif %}</p>
+  {% if e.why %}<p class="why">Why: {{ e.why }}</p>{% endif %}
+  {% for s in e.specs %}
+  <p class="why">Spec{% if e.state == "draft" and not s.accepted %} (not ticked){% endif %}: {{ s.text }}{% if s.unit %} {{ s.unit }}{% endif %}. Source: {% if s.source_link.startswith("/") %}<a href="{{ s.source_link }}">{{ s.source_title }}</a>{% else %}<a href="{{ s.source_link }}" target="_blank" rel="noopener noreferrer">{{ s.source_title }}</a>{% endif %}</p>
+  {% endfor %}
+  {% if e.photos %}
+  <ul class="photos photos--small" aria-label="Photos">
+    {% for p in e.photos %}<li><a href="/notebook/photos/{{ p.id }}" target="_blank" rel="noopener noreferrer"><img src="/notebook/photos/{{ p.id }}" alt="Photo {{ p.number }} of this entry" loading="lazy"></a></li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if e.state == "draft" %}
+  <p class="why">Only you can see this draft.</p>
+  <p><a class="btn btn--small" href="/notebook?tab=today&amp;entry={{ e.id }}"{% if hx %} hx-get="/notebook/panel?tab=today&amp;entry={{ e.id }}" hx-target="#notebook-body" hx-swap="innerHTML"{% endif %}>Edit draft</a></p>
+  {% else %}
+  <p class="why write write--{{ e.write.status }}">{{ e.write.text }}{% if e.photos_stayed %} {{ e.photos_stayed }} photo{{ "s" if e.photos_stayed != 1 }} stayed in the app.{% endif %}</p>
+  <div class="entry__actions">
+    {% if e.write.link %}<a class="btn btn--small" href="{{ e.write.link }}" target="_blank" rel="noopener noreferrer">Open in doc</a>{% endif %}
+    {% if e.state == "failed" %}
+    <form method="post" action="/notebook/entries/{{ e.id }}/retry"{% if hx %} hx-post="/notebook/entries/{{ e.id }}/retry" hx-target="#notebook-body" hx-swap="innerHTML" hx-disabled-elt="find button"{% endif %}>
+      <button class="btn btn--small" type="submit">Retry</button>
+    </form>
+    {% endif %}
+    <a class="btn btn--small" href="/notebook?tab=today&amp;refers={{ e.id }}"{% if hx %} hx-get="/notebook/panel?tab=today&amp;refers={{ e.id }}" hx-target="#notebook-body" hx-swap="innerHTML"{% endif %}>Add a follow-up</a>
+  </div>
+  {% endif %}
+</div>
+{% endfor %}
+{% else %}
+{% if filter %}{{ empty_state("No entries on " ~ filter ~ " yet.", "/notebook?tab=earlier", "Show all tasks") }}
+{% else %}{{ empty_state("Nothing in your notebook yet. Write today’s entry and it appears here.") }}{% endif %}
+{% endfor %}
+{% if more %}
+<p><a class="btn" href="{{ base }}&amp;page={{ page + 1 }}"{% if hx %} hx-get="{{ panel_base }}&amp;page={{ page + 1 }}" hx-target="#notebook-body" hx-swap="innerHTML"{% endif %}>Show 20 more</a></p>
+{% endif %}
+{% if days %}<p class="hint">Everything you publish is also in the Team record, under Show work notes. Drafts are not: only you can see them.</p>{% endif %}
+{% endif %}

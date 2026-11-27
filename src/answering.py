@@ -26,6 +26,7 @@ from typing import Any
 
 import drive
 import llm
+import plan as plan_shape
 import recommend as recommend_tools
 import retrieval
 
@@ -58,6 +59,10 @@ NOTE_NO_SEARCH = (
     "team's own sources."
 )
 NOTE_NO_CALC = "The calculator failed, so check every number in this answer by hand."
+NOTE_PLAN_NUMBERS = (
+    "The “You should end up with” part of this plan has numbers in it, and it shouldn't. "
+    "Check them against a source before you use them."
+)
 NOTE_CUT_SHORT = (
     "This answer stopped early (time limit or connection). "
     "Ask again if something is missing."
@@ -85,6 +90,8 @@ def notes_for(answer: llm.CoachAnswer) -> list[str]:
         notes.append(NOTE_LINKS)
     if answer.unsourced_numbers:
         notes.append(NOTE_NUMBERS)
+    if answer.plan_numbers:
+        notes.append(NOTE_PLAN_NUMBERS)
     return notes
 
 
@@ -216,16 +223,29 @@ class AnswerRun:
         read_doc: ReadDoc | None = None,
         seconds: float | None = None,
         recommend: recommend_tools.RecommendKit | None = None,
+        plan: bool = False,
     ) -> None:
         self.found = found
         self.numbered = retrieval.numbered_sources(found)
         self.recommend = recommend
+        self.plan = plan
         self.answer: llm.CoachAnswer | None = None
         system = llm.system_prompt()
         if recommend is not None:
             system += llm.recommend_prompt()
+        if plan:
+            system += llm.plan_prompt()
         system += "\n\n" + retrieval.system_context(task, found.facts, today)
-        if recommend is None:
+        if plan:  # one short call over the same retrieval: no tools, no live read
+            self._stream = llm.CoachStream(
+                system,
+                history,
+                retrieval.user_content(found, question),
+                record=record,
+                seconds=seconds,
+                max_tokens=llm.PLAN_MAX_TOKENS,
+            )
+        elif recommend is None:
             self._stream = llm.CoachStream(
                 system,
                 history,
@@ -292,6 +312,7 @@ class AnswerRun:
             drive_failed=stream.read_failed,
             decisions_failed=self.found.decisions_failed,
             unsourced_numbers=llm.has_unsourced_numbers(text, sources),
+            plan_numbers=self.plan and plan_shape.has_numbers_in_outputs(text),
             ungrounded_links=ungrounded,
             cut_short=stream.cut_short,
             shortened=stream.truncated,

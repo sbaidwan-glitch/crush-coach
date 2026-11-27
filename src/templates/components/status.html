@@ -1,9 +1,11 @@
 {# A status mark: the shape comes from CSS (open circle, half circle, filled square, filled
    circle) and the words are always there, so it is never colour alone.
-   Tasks: todo, in_progress, needs_review, done. Recorded answers: proposed (Suggested), confirmed (Recorded), superseded (Replaced). #}
+   Tasks: todo, in_progress, needs_review, done. Recorded answers: proposed (Suggested), confirmed (Recorded), superseded (Replaced).
+   Notebook entries: draft (Draft, open circle), published (Published, filled circle), failed (Failed to publish, filled square). #}
 {% set MARKS = {
   "todo": "todo", "in_progress": "in-progress", "needs_review": "review", "done": "done",
   "proposed": "review", "confirmed": "done", "superseded": "todo",
+  "draft": "todo", "published": "done", "failed": "review",
 } %}
 {% macro status_label(value, label) -%}
 <span class="status status--{{ MARKS.get(value, 'todo') }}">{{ label }}</span>

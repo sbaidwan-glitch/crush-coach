@@ -16,11 +16,11 @@ from sqlmodel import Session
 import auth
 import board
 import db
+import notebook
 import progress
 import shell
 import steps
 import taskpage
-import worklog
 from models import STATUS_LABELS, Task
 
 log = logging.getLogger("crush_coach")
@@ -84,7 +84,7 @@ def render_home(
     log_banner = None
     if not preview:
         try:
-            log_banner = worklog.banner(session, request, user)
+            log_banner = notebook.banner(session, request, user)
         except Exception as exc:  # noqa: BLE001  (the rest of the page still works)
             session.rollback()
             log.error("Could not check the work log banner (%s)", type(exc).__name__)

@@ -211,6 +211,25 @@ def next_step(task: Task) -> Step | None:
     return steps[here + 1] if here + 1 < len(steps) else None
 
 
+def then_text(task: Task) -> str:
+    """The "Then" of a plan (Plan my next steps): where the task goes after the step it is on.
+    Read from the task's steps, with no model call."""
+    steps = steps_for(task)
+    here = current_index(task, steps)
+    if here >= len(steps):
+        return "Every step of this task is done."
+    current = steps[here].name
+    if here + 1 >= len(steps):
+        return f"{current} is the last step. When it is done, the task is finished."
+    following = steps[here + 1]
+    if following.review:
+        return (
+            f"{following.name} comes after {current}: ask for review, and a lead checks "
+            "the work before it moves on."
+        )
+    return f"{following.name} is the next step after {current}."
+
+
 # --- changing a task's type ---
 
 

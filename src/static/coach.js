@@ -10,6 +10,9 @@
 //   rejected  nothing was saved (too long, over the daily limit): a plain message
 // The member's message is shown at once and never removed by a failure.
 //
+// "Recommend" and "Plan my next steps" under the latest answer post one fixed message the
+// same way; a plan's prompt box has a Copy button (shown here: it needs JavaScript).
+//
 // Without fetch streaming (or JavaScript) the forms post normally and the server
 // answers the old way: htmx for the main form, a redirect for Retry.
 (function () {
@@ -90,19 +93,82 @@
 
   function insertHtml(html) {
     var pending = byId("coach-pending");
-    // A newer message makes any earlier "Recommend" button stale; the new answer
-    // brings its own.
-    var stale = document.querySelectorAll("[data-coach-recommend]");
-    for (var i = 0; i < stale.length; i++) stale[i].parentNode.removeChild(stale[i]);
+    // A newer message makes any earlier "Recommend" and "Plan my next steps" buttons
+    // stale; the new answer brings its own.
+    var stale = document.querySelectorAll(".coach-actions, [data-coach-recommend], [data-coach-plan]");
+    for (var i = 0; i < stale.length; i++) {
+      if (stale[i].parentNode) stale[i].parentNode.removeChild(stale[i]);
+    }
     if (pending) pending.insertAdjacentHTML("beforebegin", html);
+    showCopyButtons();
   }
+
+  // The Copy buttons in a plan's prompt box do nothing without JavaScript, so the page
+  // sends them hidden and they are shown here.
+  function showCopyButtons() {
+    var buttons = document.querySelectorAll("[data-copy-target][hidden]");
+    for (var i = 0; i < buttons.length; i++) buttons[i].hidden = false;
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      var area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.select();
+      var ok = false;
+      try {
+        ok = document.execCommand("copy");
+      } catch (err) {
+        ok = false;
+      }
+      document.body.removeChild(area);
+      if (ok) resolve();
+      else reject(new Error("copy failed"));
+    });
+  }
+
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest && event.target.closest("[data-copy-target]");
+    if (!button) return;
+    var source = byId(button.getAttribute("data-copy-target"));
+    var bar = button.closest(".promptbox__bar");
+    var status = bar ? bar.querySelector("[data-copy-status]") : null;
+    if (!source) return;
+    copyText(source.textContent).then(
+      function () {
+        if (status) status.textContent = "Copied to the clipboard.";
+        button.textContent = "Copied";
+        window.setTimeout(function () {
+          button.textContent = "Copy";
+          if (status) status.textContent = "";
+        }, 2500);
+      },
+      function () {
+        // Say so, and leave the text selected so it can be copied by hand.
+        if (status) status.textContent = "Couldn't copy. Select the text and copy it yourself.";
+        var range = document.createRange();
+        range.selectNodeContents(source);
+        var selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+    );
+  });
+  showCopyButtons();
 
   function setBusy(on) {
     busy = on;
     var fields = document.querySelector("#coach-form fieldset");
     if (fields) fields.disabled = on;
     var retries = document.querySelectorAll(
-      "[data-coach-retry] button, [data-coach-recommend] button"
+      "[data-coach-retry] button, [data-coach-recommend] button, [data-coach-plan] button"
     );
     for (var i = 0; i < retries.length; i++) retries[i].disabled = on;
   }
@@ -188,13 +254,13 @@
     return pump();
   }
 
-  function send(form, isRetry, isRecommend) {
+  function send(form, isRetry, isRecommend, isPlan) {
     if (busy) return;
     var body = new URLSearchParams();
     var echoed = null;
-    if (isRecommend) {
-      // The Recommend button sends one fixed message; the text box is left alone.
-      body.set("recommend", "1");
+    if (isRecommend || isPlan) {
+      // These buttons send one fixed message; the text box is left alone.
+      body.set(isPlan ? "plan" : "recommend", "1");
       echoed = echoMemberMessage(form.getAttribute("data-message") || "");
     } else if (isRetry) {
       body.set("retry", form.querySelector('input[name="retry"]').value);
@@ -214,7 +280,7 @@
 
     var state = {
       isRetry: isRetry,
-      keepBox: isRetry || isRecommend,
+      keepBox: isRetry || isRecommend || isPlan,
       sawText: false,
       finished: false,
       rejected: false,
@@ -271,10 +337,11 @@
       var isRetry = form.hasAttribute && form.hasAttribute("data-coach-retry");
       var isRecommend =
         form.hasAttribute && form.hasAttribute("data-coach-recommend");
-      if (form.id !== "coach-form" && !isRetry && !isRecommend) return;
+      var isPlan = form.hasAttribute && form.hasAttribute("data-coach-plan");
+      if (form.id !== "coach-form" && !isRetry && !isRecommend && !isPlan) return;
       event.preventDefault();
       event.stopPropagation();
-      send(form, isRetry, isRecommend);
+      send(form, isRetry, isRecommend, isPlan);
     },
     true
   );

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{#- The Notebook as a whole page: compose on the left, history on the right (stacked on a
+    phone). The same partials as the side panel, with plain posts instead of htmx, so it works
+    without JavaScript. The panel's own dialog is left out so the ids stay unique. -#}
+{% block title %}Notebook – Crush Coach{% endblock %}
+{% block heading %}
+<div class="topbar__title">
+  <h1 class="page-title">Notebook</h1>
+  <p class="page-sub">What you did on a task, and why. Drafts and private notes are yours alone.</p>
+</div>
+{% endblock %}
+{% block notebook_dialog %}{% endblock %}
+{% block main %}
+<div class="sidepanel__messages">{% include "_notebook_messages.html" %}</div>
+<div class="grid-2 notebook-page">
+  <section class="panel panel--strong" aria-labelledby="nb-today-heading">
+    <div class="panel__head"><h2 class="panel__title" id="nb-today-heading">Today’s entry</h2></div>
+    {% include "_notebook_today.html" %}
+  </section>
+  <section class="panel" aria-labelledby="nb-side-heading">
+    <div class="panel__head">
+      <h2 class="panel__title" id="nb-side-heading">{{ "Private notes" if side == "private" else "Earlier" }}</h2>
+      <nav class="segmented" aria-label="History">
+        <a href="/notebook?tab=earlier"{% if side == "earlier" %} aria-current="true"{% endif %}>Earlier</a>
+        <a href="/notebook?tab=private"{% if side == "private" %} aria-current="true"{% endif %}>Private notes</a>
+      </nav>
+    </div>
+    {% if side == "private" %}{% include "_notebook_private.html" %}{% else %}{% include "_notebook_earlier.html" %}{% endif %}
+  </section>
+</div>
+{% endblock %}

@@ -32,9 +32,11 @@ import decisions
 import inbox
 import llm
 import localtime
+import plan as plan_shape
 import recommend as recommend_tools
 import retrieval
 import shell
+import steps
 import taskpage
 from auth import CurrentUser, MaybeUser, User, locked_page
 from markup import render_markdown
@@ -88,6 +90,8 @@ def linkify(text: str) -> Markup:
 templates.env.filters["linkify"] = linkify
 templates.env.filters["markdown"] = render_markdown
 templates.env.filters["message_parts"] = taskpage.message_parts  # presentation only
+templates.env.filters["plan_parts"] = taskpage.plan_parts  # presentation only
+templates.env.globals["plan_copy_warning"] = plan_shape.COPY_WARNING
 
 # --- configuration (read per request so tests and Railway env changes apply) ---
 
@@ -155,6 +159,7 @@ def _view(
         }
     mine = message.member == user["email"]
     sources = meta.get("sources", [])
+    plan = bool(meta.get("plan"))
     return {
         "id": message.id,
         "role": message.role,
@@ -162,10 +167,14 @@ def _view(
         "content": message.content,
         "sources": sources,
         "notes": meta.get("notes", []),
-        "settle": _settle_state(
+        # A plan has nothing for a lead to settle: it points at what to find out.
+        "settle": None
+        if plan
+        else _settle_state(
             message.role, message.id, message.content, sources, asked or set()
         ),
         "recommendation": bool(meta.get("recommend")),
+        "plan": plan,
     }
 
 
@@ -181,11 +190,13 @@ def _views(
         if message.role == "error" and last:
             retry_id = _meta(message).get("retry_of")
         view = _view(message, user, retry_id, asked)
-        # "Recommend" is offered under the latest answer, once: not under a
-        # recommendation itself, or anything older.
+        # "Recommend" and "Plan my next steps" are offered under the latest answer, once:
+        # not under older ones, and not Recommend under a plan or a recommendation.
+        latest = bool(last and message.role == "assistant")
         view["can_recommend"] = bool(
-            last and message.role == "assistant" and not view["recommendation"]
+            latest and not view["recommendation"] and not view["plan"]
         )
+        view["can_plan"] = bool(latest and not view["plan"])
         views.append(view)
     return views
 
@@ -315,9 +326,14 @@ def _render_page(
 
 
 def _add_llm_calls(
-    session: Session, task_id: int, member: str, calls: list[llm.CallRecord]
+    session: Session,
+    task_id: int | None,
+    member: str,
+    calls: list[llm.CallRecord],
+    purpose: str | None = None,
 ) -> None:
-    """Queue one `llm_call` row per model call (the caller commits)."""
+    """Queue one `llm_call` row per model call (the caller commits). `purpose` says what
+    the calls were for (coach, recommend, plan, settle, tidy, specs)."""
     for call in calls:
         session.add(
             LlmCall(
@@ -332,6 +348,7 @@ def _add_llm_calls(
                 finish_reason=call.finish_reason,
                 reasoning_tokens=call.reasoning_tokens,
                 tool_called=call.tool_called,
+                purpose=purpose,
                 created_at=utc_now(),
             )
         )
@@ -372,6 +389,8 @@ RECOMMEND_REQUEST = "Give me your recommendation."  # what the Recommend button 
 NOTHING_TO_RECOMMEND = (
     "Ask the coach about this design question first, then ask for a recommendation."
 )
+PLAN_REQUEST = "Plan my next steps."  # what the Plan my next steps button sends
+NOTHING_TO_PLAN = "Ask the coach about this task first, then ask it to plan your next steps."
 NO_INDEX = "Drive index is empty: ask a lead to sync."
 DB_DOWN = "Couldn't reach the database right now. Try again in a moment."
 UNEXPECTED = "The coach hit an unexpected problem. Try again in a moment."
@@ -388,12 +407,13 @@ def _save_failure(
     user_message_id: int | None,
     text: str,
     calls: list[llm.CallRecord],
+    purpose: str | None = None,
 ) -> None:
     """Keep what failed in the thread (with the call costs) so a reload still shows it
     with a Retry button. Never raises: the failure is shown either way."""
     try:
         with Session(db.engine) as session:
-            _add_llm_calls(session, task_id, member, calls)
+            _add_llm_calls(session, task_id, member, calls, purpose)
             if user_message_id is not None:
                 session.add(
                     CoachMessage(
@@ -409,11 +429,18 @@ def _save_failure(
         log.error("Coach could not save a failure (%s)", type(exc).__name__)
 
 
+def with_then(text: str, then: str) -> str:
+    """A plan with its closing "Then" part (from `steps.then_text`) added."""
+    return f"{text.rstrip()}\n\n**Then:** {then}" if then else text
+
+
 def _design_question(chat: list[CoachMessage]) -> tuple[str, str]:
     """(the member's latest real question, the one before it): what a recommendation is
     about. The Recommend button's own message doesn't count."""
     asked = [
-        m.content for m in chat if m.role == "user" and m.content != RECOMMEND_REQUEST
+        m.content
+        for m in chat
+        if m.role == "user" and m.content not in (RECOMMEND_REQUEST, PLAN_REQUEST)
     ]
     return (asked[-1] if asked else ""), (asked[-2] if len(asked) > 1 else "")
 
@@ -424,6 +451,7 @@ def converse(
     message: str,
     retry_of: int | None = None,
     recommend: bool = False,
+    plan: bool = False,
 ) -> Iterator[dict[str, Any]]:
     """Answer one message from a member, yielding what the page needs as it happens.
 
@@ -440,16 +468,24 @@ def converse(
     and the coach answers the design question discussed so far with the reference-book
     search and the calculator (`recommend.py`), under a longer time limit. Retrying a
     failed recommendation is a recommendation again.
+
+    With `plan` (the Plan my next steps button), the message is always PLAN_REQUEST and the
+    coach writes a short fixed-shape plan over the same retrieval in one call with no tools;
+    the "Then" part is added here from the task's steps (`steps.then_text`), not by the model.
     """
     member = user["email"]
     message = message.strip()
     calls: list[llm.CallRecord] = []
     user_message_id: int | None = None
     task_id: int | None = None
+    then = ""
+
+    def purpose() -> str:
+        return "plan" if plan else "recommend" if recommend else "coach"
 
     def failed(text: str) -> dict[str, Any]:
         if task_id is not None:
-            _save_failure(task_id, member, user_message_id, text, calls)
+            _save_failure(task_id, member, user_message_id, text, calls, purpose())
         return {"type": "failed", "message": text, "retry_id": user_message_id}
 
     try:
@@ -459,6 +495,7 @@ def converse(
                 yield {"type": "rejected", "message": f"There is no task “{code}”."}
                 return
             task_id = task.id
+            then = steps.then_text(task)
             thread = _history(session, task_id)
             if retry_of is not None:
                 original = next((m for m in thread if m.id == retry_of), None)
@@ -480,6 +517,7 @@ def converse(
                     return
                 message = original.content
                 recommend = recommend or message == RECOMMEND_REQUEST
+                plan = plan or message == PLAN_REQUEST
                 user_message_id = original.id
                 for old in thread:  # the failure being retried goes away
                     if old.role == "error" and _meta(old).get("retry_of") == retry_of:
@@ -487,10 +525,13 @@ def converse(
                 session.commit()
                 thread = _history(session, task_id)
             else:
-                if recommend:
-                    message = RECOMMEND_REQUEST
+                if recommend or plan:
+                    message = PLAN_REQUEST if plan else RECOMMEND_REQUEST
                     if not any(m.role == "assistant" for m in _chat(thread)):
-                        yield {"type": "rejected", "message": NOTHING_TO_RECOMMEND}
+                        yield {
+                            "type": "rejected",
+                            "message": NOTHING_TO_PLAN if plan else NOTHING_TO_RECOMMEND,
+                        }
                         return
                 if not message or len(message) > MAX_MESSAGE_CHARS:
                     yield {
@@ -520,7 +561,7 @@ def converse(
             history = _model_history(chat)
             previous = next((m.content for m in reversed(chat) if m.role == "user"), "")
             asked = message
-            if recommend:  # search for what is being discussed, not for "recommend"
+            if recommend or plan:  # search for what is being discussed, not the button
                 asked, previous = _design_question(chat)
                 asked = asked or message
             context = task_context(task)
@@ -547,7 +588,13 @@ def converse(
     yield {
         "type": "step",
         "text": f"Found {count} passage{'' if count == 1 else 's'} in the Drive index. "
-        + ("Looking at the reference books…" if recommend else "Writing the answer…"),
+        + (
+            "Looking at the reference books…"
+            if recommend
+            else "Planning…"
+            if plan
+            else "Writing the answer…"
+        ),
     }
     kit = (
         recommend_tools.RecommendKit(found, lambda: Session(db.engine))
@@ -562,6 +609,7 @@ def converse(
         today=today(),
         record=calls.append,
         recommend=kit,
+        plan=plan,
     )
     events = iter(run)
     try:
@@ -580,11 +628,13 @@ def converse(
 
     answer = run.answer
     assert answer is not None
+    if plan:  # the last part comes from the task's steps, not from the model
+        answer.text = with_then(answer.text, then)
     notes = answering.notes_for(answer)
     saved_id: int | None = None
     try:
         with Session(db.engine) as session:
-            _add_llm_calls(session, task_id, member, calls)
+            _add_llm_calls(session, task_id, member, calls, purpose())
             saved = CoachMessage(
                 task_id=task_id,
                 member="Coach",
@@ -595,6 +645,7 @@ def converse(
                         "sources": answer.sources,
                         "notes": notes,
                         "recommend": recommend,
+                        "plan": plan,
                         "tools": answer.tools_used,
                     }
                 ),
@@ -620,10 +671,14 @@ def converse(
             "content": answer.text,
             "sources": answer.sources,
             "notes": notes,
-            "settle": _settle_state(
+            "settle": None
+            if plan
+            else _settle_state(
                 "assistant", saved_id, answer.text, answer.sources, set()
             ),
-            "can_recommend": not recommend,
+            "can_recommend": not recommend and not plan,
+            "can_plan": not plan,
+            "plan": plan,
         },
     }
 
@@ -658,6 +713,7 @@ def stream_coach(
     message: Annotated[str, Form()] = "",
     retry: Annotated[str, Form()] = "",
     recommend: Annotated[str, Form()] = "",
+    plan: Annotated[str, Form()] = "",
 ):
     """The coach's answer as it is written: one JSON object per line.
 
@@ -670,7 +726,9 @@ def stream_coach(
         raise HTTPException(status_code=404)
 
     def lines() -> Iterator[str]:
-        for event in converse(code, user, message, _retry_id(retry), recommend == "1"):
+        for event in converse(
+            code, user, message, _retry_id(retry), recommend == "1", plan == "1"
+        ):
             kind = event["type"]
             if kind == "text":
                 out = {"type": "text", "html": str(render_markdown(event["text"]))}
@@ -703,6 +761,7 @@ def ask_coach(
     message: Annotated[str, Form()] = "",
     retry: Annotated[str, Form()] = "",
     recommend: Annotated[str, Form()] = "",
+    plan: Annotated[str, Form()] = "",
     hx_request: Annotated[str | None, Header()] = None,
 ):
     """The same answer without streaming: a plain form post (no JavaScript) or htmx."""
@@ -712,7 +771,9 @@ def ask_coach(
         raise HTTPException(status_code=404)
 
     last: dict[str, Any] = {}
-    for event in converse(code, user, message, _retry_id(retry), recommend == "1"):
+    for event in converse(
+        code, user, message, _retry_id(retry), recommend == "1", plan == "1"
+    ):
         if event["type"] in ("done", "failed", "rejected"):
             last = event
 
@@ -816,7 +877,7 @@ def ask_a_lead(
                 "Listing the options failed unexpectedly (%s)", type(exc).__name__
             )
     try:
-        _add_llm_calls(session, task_id, user["email"], calls)
+        _add_llm_calls(session, task_id, user["email"], calls, "settle")
         inbox.create_answer_request(
             session, task, answer, question, user, sources, options, suggested
         )
