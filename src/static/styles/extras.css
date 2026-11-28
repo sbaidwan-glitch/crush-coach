@@ -215,8 +215,23 @@ input[type="radio"] { accent-color: var(--color-ink); }
 .sidepanel__links a { font-size: var(--text-sm); font-weight: var(--weight-semibold); white-space: nowrap; }
 .sidepanel__messages:empty { display: none; }
 .actions--quiet { margin-top: var(--space-2); }
-.notify { margin-top: var(--space-4); }   /* the message for a lead, above Tidy / Publish / Notify */
-.notify .hint button { margin-left: var(--space-2); }
+/* The pop-up after "Notify team lead for review": centred over a blurred page (templates/
+   _notify_modal.html). The bar at its foot is the 10-second timer (notebook.js). */
+.modal { border: 1px solid var(--color-rule); border-radius: var(--radius); background: var(--color-sheet); color: var(--color-ink); padding: 0; width: calc(100% - var(--space-8)); max-width: calc(var(--space-10) * 10); overflow: hidden; }
+.modal[open]:not(:modal) { position: fixed; inset: 0; height: fit-content; margin: auto; z-index: 40; }
+.modal::backdrop { background: color-mix(in srgb, var(--color-ink) 35%, transparent); backdrop-filter: blur(var(--space-1)); }
+.modal__card { position: relative; }
+.modal__body { padding: var(--space-6) var(--space-6) var(--space-5); }
+.modal__x { position: absolute; top: var(--space-2); right: var(--space-2); margin: 0; }
+.modal__close { font: inherit; font-size: var(--text-xl); line-height: 1; width: var(--space-10); height: var(--space-10); border: 0; border-radius: var(--radius); background: transparent; color: var(--color-muted); cursor: pointer; }
+.modal__close:hover { background: var(--color-field); color: var(--color-ink); }
+.modal__title { font-size: var(--text-lg); font-weight: var(--weight-semibold); line-height: 1.2; margin: 0 var(--space-8) var(--space-2) 0; }
+.modal__text { margin: 0 0 var(--space-3); color: var(--color-muted); }
+.modal__form textarea { width: 100%; resize: vertical; }
+.modal__form .actions { margin-top: var(--space-3); }
+.modal__form .notice { margin-top: 0; }
+.modal__bar { height: var(--space-1); background: var(--color-track); }
+.modal__bar i { display: block; height: 100%; background: var(--color-info); transform-origin: left; }
 .notebook-page .panel__head { align-items: center; flex-wrap: wrap; }
 .notebook-page .segmented { flex-wrap: wrap; }
 .notebook-page .notice:first-child { margin-top: var(--space-3); }

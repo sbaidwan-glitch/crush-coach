@@ -27,19 +27,18 @@ def kinds(session, kind):
     return [e for e in stored(session, TaskEvent) if e.kind == kind]
 
 
-# --- the button and the box ------------------------------------------------------------
+# --- the button ------------------------------------------------------------------------
 
 
-def test_the_entry_form_has_a_blue_notify_button_and_a_message_box_beside_publish(session, as_user):
+def test_the_entry_form_has_a_blue_notify_button_beside_publish_and_no_message_box(session, as_user):
     add_task(session)
 
     html = as_user(MEMBER).get("/notebook/panel?task=M06", headers=HTMX).text
 
     assert 'class="btn btn--notify"' in html and "Notify team lead for review</button>" in html
     assert 'formaction="/notebook/entry/notify"' in html and 'hx-post="/notebook/entry/notify"' in html
-    assert 'name="message"' in html and 'maxlength="280"' in html
-    assert "Please confirm the hole spacing" in html
-    # Publish is still its own button, and the words say they are independent.
+    # The message is asked for in a pop-up afterwards, not in the (messy) side panel.
+    assert 'name="message"' not in html and "Please confirm the hole spacing" not in html
     assert "Publish to Crush doc</button>" in html
     assert "publishing doesn’t notify anyone" in html
     assert html.index("Publish to Crush doc</button>") < html.index("Notify team lead for review</button>")
@@ -50,7 +49,8 @@ def test_the_button_is_in_the_page_version_too(session, as_user):
 
     html = as_user(MEMBER).get("/notebook?task=M06").text
 
-    assert "Notify team lead for review</button>" in html and 'name="message"' in html
+    assert "Notify team lead for review</button>" in html and 'name="message"' not in html
+    assert 'id="notify-modal"' not in html  # nothing pops up until it is pressed
 
 
 def test_no_task_no_button(session, as_user):
@@ -62,26 +62,42 @@ def test_no_task_no_button(session, as_user):
 # --- pressing it -----------------------------------------------------------------------
 
 
-def test_it_records_the_message_and_the_stage_says_so_and_does_not_move_or_publish(session, as_user, doc):
+def test_pressing_it_records_the_notification_and_pops_up_outside_the_side_panel(session, as_user, doc):
     task = add_task(session, status="needs_review")
     task.stage = "Lead review"
     session.add(task)
     session.commit()
 
-    response = notify(as_user(MEMBER), message="  Please confirm the\nhole spacing ", did="half a thought")
+    response = notify(as_user(MEMBER), did="half a thought")
 
     assert response.status_code == 200
-    assert "Your team lead can see this in their inbox." in response.text
-    assert f"Sent at {localtime.clock(stored(session, TaskEvent)[0].created_at)}" in response.text
     (event,) = kinds(session, "review_requested")
-    assert event.actor == "Sam Example" and event.detail == "Please confirm the hole spacing"
+    assert event.actor == "Sam Example" and event.detail is None  # the pop-up asks for a message next
     assert review.meta(event) == {"stage": "Lead review", "entry": None}
     assert (event.from_status, event.to_status) == ("needs_review", "needs_review")
     session.expire_all()
     assert (task.status, task.stage) == ("needs_review", "Lead review")  # nothing moved
     assert stored(session, WorkNote) == [] and stored(session, DriveWrite) == []  # nothing saved or published
     assert doc.gets == 0
-    assert "half a thought" in response.text  # what they typed is still there
+    panel, _, popup = response.text.partition('id="notify-slot"')
+    assert "half a thought" in panel  # what they typed is still in the form
+    # The pop-up is sent out of band to the page's slot, never inside the side panel.
+    assert 'hx-swap-oob="true"' in popup and 'id="notify-modal"' in popup
+    assert "Your team lead has been notified" not in panel and "Do you want to add a message" not in panel
+    assert "Your team lead has been notified" in popup
+    assert "Do you want to add a message for them?" in popup
+    assert 'name="message"' in popup and 'maxlength="280"' in popup
+    assert 'aria-label="Close"' in popup  # the X
+    assert '<i data-seconds="10"></i>' in popup  # the 10-second bar at its foot
+
+
+def test_the_page_has_one_slot_for_the_pop_up_outside_the_notebook_dialog(session, as_user):
+    add_task(session)
+
+    html = as_user(MEMBER).get("/tasks/M06").text
+
+    assert html.count('id="notify-slot"') == 1
+    assert html.index('id="notify-slot"') < html.index('<dialog id="notebook"')  # a sibling, not inside it
 
 
 def test_the_message_is_optional(session, as_user):
@@ -93,7 +109,7 @@ def test_the_message_is_optional(session, as_user):
     assert event.detail is None
 
 
-def test_a_message_over_280_characters_is_refused_and_keeps_the_text(session, as_user):
+def test_a_message_sent_with_the_press_over_280_characters_is_refused(session, as_user):
     add_task(session)
 
     response = notify(as_user(MEMBER), message="x" * 281)
@@ -102,24 +118,100 @@ def test_a_message_over_280_characters_is_refused_and_keeps_the_text(session, as
     assert kinds(session, "review_requested") == []
 
 
-def test_a_message_of_exactly_280_is_fine(session, as_user):
-    add_task(session)
-
-    assert notify(as_user(MEMBER), message="x" * 280).status_code == 200
+# --- the pop-up's message ---------------------------------------------------------------
 
 
-def test_the_second_press_adds_nothing_and_says_already_sent_with_a_follow_up_option(session, as_user):
+def message_url(event):
+    return f"/notebook/notify/{event.id}/message"
+
+
+def test_send_message_adds_the_line_to_the_notification_and_says_so(session, as_user):
     add_task(session)
     client = as_user(MEMBER)
-    notify(client, message="First")
+    notify(client)
+    (event,) = kinds(session, "review_requested")
+
+    response = client.post(message_url(event), data={"message": "  Please confirm the\nhole spacing "}, headers=HTMX)
+
+    assert response.status_code == 200
+    assert "Message sent" in response.text and "Your team lead can see it in their inbox." in response.text
+    assert '<i data-seconds="3"></i>' in response.text  # closes itself sooner now
+    assert "<dialog" not in response.text and "notify-slot" not in response.text  # only the card is swapped
+    session.expire_all()
+    assert kinds(session, "review_requested")[0].detail == "Please confirm the hole spacing"
+    assert len(kinds(session, "review_requested")) == 1  # the same notification, not a new one
+
+
+def test_an_empty_or_over_long_message_is_refused_and_the_pop_up_stays(session, as_user):
+    add_task(session)
+    client = as_user(MEMBER)
+    notify(client)
+    (event,) = kinds(session, "review_requested")
+
+    empty = client.post(message_url(event), data={"message": "  "}, headers=HTMX)
+    long = client.post(message_url(event), data={"message": "x" * 281}, headers=HTMX)
+
+    assert empty.status_code == 400 and "Write a message first" in empty.text and 'name="message"' in empty.text
+    assert long.status_code == 400 and "280 characters" in long.text and "Message sent" not in long.text
+    session.expire_all()
+    assert kinds(session, "review_requested")[0].detail is None
+
+
+def test_a_message_of_exactly_280_is_fine(session, as_user):
+    add_task(session)
+    client = as_user(MEMBER)
+    notify(client)
+    (event,) = kinds(session, "review_requested")
+
+    assert client.post(message_url(event), data={"message": "x" * 280}, headers=HTMX).status_code == 200
+
+
+def test_only_the_owner_or_a_lead_can_add_to_it_and_not_after_a_lead_answered(session, as_user):
+    task = add_task(session)
+    owner = as_user(MEMBER)
+    notify(owner)
+    (event,) = kinds(session, "review_requested")
+
+    stranger = as_user(OTHER).post(message_url(event), data={"message": "Mine now"}, headers=HTMX)
+    assert stranger.status_code == 403
+    assert as_user(LEAD).post(message_url(event), data={"message": "From a lead"}, headers=HTMX).status_code == 200
+
+    review.mark_seen(session, LEAD, event.id)
+    late = as_user(MEMBER).post(message_url(event), data={"message": "Too late"}, headers=HTMX)
+    assert late.status_code == 409 and "already answered" in late.text
+    session.expire_all()
+    assert kinds(session, "review_requested")[0].detail == "From a lead"
+    assert task.status == "in_progress"
+
+
+def test_a_message_for_a_notification_that_does_not_exist_is_a_404(session, as_user):
+    add_task(session)
+
+    assert as_user(MEMBER).post("/notebook/notify/999/message", data={"message": "x"}, headers=HTMX).status_code == 404
+
+
+def test_the_message_reaches_the_lead_in_the_inbox(session, as_user):
+    add_task(session)
+    notify(as_user(MEMBER))
+    (event,) = kinds(session, "review_requested")
+    as_user(MEMBER).post(message_url(event), data={"message": "Please confirm the hole spacing"}, headers=HTMX)
+
+    html = as_user(LEAD).get("/inbox").text
+
+    assert "Please confirm the hole spacing" in html and "Work to check" in html
+
+
+def test_the_second_press_adds_nothing_and_the_pop_up_says_when_it_was_sent(session, as_user):
+    add_task(session)
+    client = as_user(MEMBER)
+    notify(client)
     (first,) = kinds(session, "review_requested")
 
-    again = notify(client, message="Second")
+    again = notify(client)
 
     assert len(kinds(session, "review_requested")) == 1
-    assert f"Already sent at {localtime.clock(first.created_at)}." in again.text
-    assert 'name="follow_up" value="1"' in again.text and "Send a follow-up message" in again.text
-    assert "Second" in again.text  # their words are kept for the follow-up
+    assert f"Your team lead was already notified at {localtime.clock(first.created_at)}" in again.text
+    assert "Do you want to add a message for them?" in again.text  # and can still add or change one
 
 
 def test_a_follow_up_adds_a_new_event(session, as_user):
@@ -130,7 +222,7 @@ def test_a_follow_up_adds_a_new_event(session, as_user):
     response = notify(client, message="Any news?", follow_up="1")
 
     assert [e.detail for e in kinds(session, "review_requested")] == ["First", "Any news?"]
-    assert "Your team lead can see this in their inbox." in response.text
+    assert "Your team lead has been notified" in response.text
 
 
 def test_at_most_three_a_day_per_task_checked_on_the_server(session, as_user):
@@ -144,7 +236,7 @@ def test_at_most_three_a_day_per_task_checked_on_the_server(session, as_user):
     plain = notify(client, message="5")  # not a follow-up either: still can't go over
 
     assert fourth.status_code == 429 and "3 times today" in fourth.text
-    assert plain.status_code == 200 and "Already sent at" in plain.text
+    assert plain.status_code == 200 and "already notified at" in plain.text
     assert [e.detail for e in kinds(session, "review_requested")] == ["1", "2", "3"]
     page = client.get("/notebook/panel?task=M06", headers=HTMX).text
     assert "disabled>Notify team lead for review" in page.replace("\n", "")
@@ -188,15 +280,23 @@ def test_a_lead_can_notify_about_any_task_even_their_own(session, as_user):
     assert response.status_code == 200 and len(kinds(session, "review_requested")) == 1
 
 
-def test_it_works_without_javascript_and_keeps_the_page(session, as_user):
+def test_without_javascript_the_page_comes_back_with_the_pop_up_open_and_the_text_kept(session, as_user):
     add_task(session)
+    client = as_user(MEMBER)
 
-    response = as_user(MEMBER).post(
-        "/notebook/entry/notify", data={**HTMX_FORM, "message": "Look", "did": "typed"}, follow_redirects=False
+    response = client.post(
+        "/notebook/entry/notify", data={**HTMX_FORM, "did": "typed"}, follow_redirects=False
     )
 
     assert response.status_code == 200  # the page itself, not a redirect that would drop the text
-    assert "typed" in response.text and "Your team lead can see this in their inbox." in response.text
+    assert "typed" in response.text
+    assert '<dialog class="modal" id="notify-modal" aria-labelledby="notify-title" open>' in response.text
+    assert response.text.count('id="notify-slot"') == 1 and "Your team lead has been notified" in response.text
+    (event,) = kinds(session, "review_requested")
+
+    sent = client.post(message_url(event), data={"message": "Look"}, follow_redirects=False)
+
+    assert sent.status_code == 200 and "Message sent" in sent.text and "<title>Notebook" in sent.text
 
 
 def test_an_unknown_task_is_refused_plainly(session, as_user):

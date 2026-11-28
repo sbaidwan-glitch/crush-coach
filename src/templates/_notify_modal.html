@@ -1,0 +1,8 @@
+{#- The pop-up in the middle of the screen after "Notify team lead for review", over a blurred
+    page. A <dialog>, so focus stays inside it and Esc closes it; rendered `open` so it also
+    shows without JavaScript, where notebook.js (if it runs) turns it into a modal. It is
+    never inside the Notebook side panel: base.html's #notify-slot holds it (a full page puts
+    it there directly, a panel response sends it out of band). -#}
+<dialog class="modal" id="notify-modal" aria-labelledby="notify-title" open>
+  {% include "_notify_card.html" %}
+</dialog>

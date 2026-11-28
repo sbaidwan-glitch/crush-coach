@@ -104,17 +104,7 @@
     </fieldset>
     {% endif %}
 
-    {% if task %}
-    <div class="notify">
-      <label class="field-label" for="nb-message">Message for your team lead <span class="optional">(optional)</span></label>
-      <input class="field-input" id="nb-message" type="text" name="message" maxlength="280" value="{{ form.message }}" placeholder="e.g. Please confirm the hole spacing" autocomplete="off">
-      {% if review and review.waiting %}
-      <p class="hint" role="status">Your team lead can see this in their inbox. Sent at {{ review.clock }}.{% if review.message %} You wrote: “{{ review.message }}”{% endif %}
-        {% if not review.limit_reached %}<button class="btn btn--small" type="submit" name="follow_up" value="1" {{ act("notify") }}>Send a follow-up message</button>{% endif %}</p>
-      {% endif %}
-      {% if review and review.limit_reached %}<p class="hint">You have notified a lead about {{ task.code }} {{ review.limit }} times today. Talk to them in person, or try again tomorrow.</p>{% endif %}
-    </div>
-    {% endif %}
+    {% if review and review.limit_reached %}<p class="hint">You have notified a lead about {{ task.code }} {{ review.limit }} times today. Talk to them in person, or try again tomorrow.</p>{% endif %}
     <div class="actions">
       <button class="btn" type="submit" {{ act("tidy") }}>{{ "Tidy again" if form.tidied and not form.question else "Tidy my note" }}</button>
       <button class="btn" type="submit" {{ act("specs") }}>Suggest specs</button>
@@ -130,6 +120,6 @@
     {% endif %}
   </fieldset>
   <p class="hint">Tidy my note rewords what you wrote using the AI, using only your text, your coach chat on this task or a linked source ({{ tidy_limit }} a day). Suggest specs looks in the Drive and the reference books for values your entry needs, each with a source ({{ specs_limit }} a day). Neither runs unless you press it, and neither saves anything.</p>
-  <p class="hint">Save draft keeps it private to you. Publish adds it to the Crush document under the tab for the task’s subsystem and today’s date, with your name, the specs you ticked and a link to each photo. Nothing already there is changed. A published entry can’t be edited: to fix one, add a new entry that refers to it. No lead approves it. “Notify team lead for review” is separate: it puts the task, your message and (if you have saved or published one) a link to this entry in a lead’s inbox. It doesn’t publish anything, and publishing doesn’t notify anyone.</p>
+  <p class="hint">Save draft keeps it private to you. Publish adds it to the Crush document under the tab for the task’s subsystem and today’s date, with your name, the specs you ticked and a link to each photo. Nothing already there is changed. A published entry can’t be edited: to fix one, add a new entry that refers to it. No lead approves it. “Notify team lead for review” is separate: it puts the task and (if you have saved or published one) a link to this entry in a lead’s inbox, then asks if you want to add a message. It doesn’t publish anything, and publishing doesn’t notify anyone.</p>
 </form>
 {% endif %}

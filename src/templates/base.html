@@ -92,6 +92,7 @@
       </div>
     </aside>
     {% endif %}
+    {% if user %}<div id="notify-slot">{% if notify and not panel %}{% include "_notify_modal.html" %}{% endif %}</div>{% endif %}
     {% block notebook_dialog %}{% if user %}
     {#- The Notebook side panel. notebook.js fills #notebook-body from /notebook/panel and opens
         it; Esc or Close shuts it. -#}

@@ -12,3 +12,5 @@
   {% elif tab == "earlier" %}{% include "_notebook_earlier.html" %}
   {% else %}{% include "_notebook_private.html" %}{% endif %}
 </div>
+{#- The "your team lead has been notified" pop-up goes to the page, not into the side panel. -#}
+{% if notify %}<div id="notify-slot" hx-swap-oob="true">{% include "_notify_modal.html" %}</div>{% endif %}
