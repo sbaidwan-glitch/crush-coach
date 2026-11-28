@@ -3,7 +3,7 @@
 Reference: `docs/concepts/timeline.html`, `profile.html` (+ `timeline-light-1440.png`, `timeline-dark-1440.png`, `timeline-light-390.png`, `profile-light-1440.png`). Styles: `src/static/styles/timeline.css`, loaded after `theme.css`.
 
 ## Timeline (`/timeline`)
-- One panel per subsystem, in its tone (same colour as its progress bar). One row per task: code, title, status mark with text, then a bar.
+- One panel per subsystem; its bars take the subsystem's colour (the same as its progress ruler, set as `--tone` on the panel). One row per task: code, title, status mark with text, then a bar.
 - **A bar runs from the day the task was picked up to the day it was finished.** Both come from `TaskEvent`, no new date fields:
   - start = the task's latest "start/claim" event (a task unclaimed and picked up again starts again);
   - end = its "done" event; an open task runs to today;
