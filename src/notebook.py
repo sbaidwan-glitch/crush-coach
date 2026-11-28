@@ -108,6 +108,12 @@ def _limit(name: str, default: int) -> int:
         return default
 
 
+# How long the "your team lead has been notified" pop-up stays before it closes itself, and
+# the shorter time for its "message sent" state.
+NOTIFY_POPUP_SECONDS = 10
+NOTIFY_SAVED_SECONDS = 3
+
+
 def tidy_limit() -> int:
     return _limit("TIDY_DAILY_LIMIT", DEFAULT_TIDY_LIMIT)
 
@@ -723,8 +729,9 @@ class Submitted:
     original_why: str = ""
     asked: str = ""
     reply: str = ""
-    message: str = ""  # the optional line to a lead, for "Notify team lead for review"
-    follow_up: bool = False  # "Send a follow-up message": another notification while one waits
+    message: str = ""  # a line to a lead sent along with "Notify team lead for review" (the form no
+    # longer has a box: the pop-up asks for it afterwards)
+    follow_up: bool = False  # another notification while one is unanswered (not offered on the page)
     keep: set[int] = field(default_factory=set)
     spec_text: dict[int, str] = field(default_factory=dict)
     files: list[tuple[str, bytes]] = field(default_factory=list)
@@ -977,6 +984,7 @@ def panel_context(
     form: dict[str, Any] | None = None,
     error: str | None = None,
     notice: str | None = None,
+    notify: dict[str, Any] | None = None,
     posted: dict[str, Any] | None = None,
     status: int = 200,
     task_filter: str = "",
@@ -994,6 +1002,7 @@ def panel_context(
         "show": show,
         "error": error,
         "notice": notice,
+        "notify": notify,
         "posted": posted,
         "form": form or {},
         "tasks": [],
@@ -1345,12 +1354,64 @@ def notify_form(request: Request, session: Session, user: User, sub: Submitted, 
         )
     except review.ReviewError as exc:
         raise LogError(exc.message, exc.status) from exc
-    if not done.sent:  # keep their words: a follow-up reuses them
-        form["message"] = " ".join(sub.message.split())
+    # No message in the side panel: the pop-up (`_notify_modal.html`) says a lead was
+    # notified and asks whether to add one.
     return render_panel(
         request, session, user, entry_id=sub.entry, form=form, code=sub.task,
-        refers_id=sub.refers, notice=review.sent_text(done),
+        refers_id=sub.refers, notify=notify_state(done),
     )
+
+
+def notify_state(done: review.Notified, *, saved: bool = False, error: str | None = None) -> dict[str, Any]:
+    """What the "your team lead has been notified" pop-up shows."""
+    return {
+        "event_id": done.event.id,
+        "sent": done.sent,
+        "clock": done.clock,
+        "message": done.event.detail or "",
+        "saved": saved,
+        "error": error,
+        "seconds": NOTIFY_SAVED_SECONDS if saved else NOTIFY_POPUP_SECONDS,
+    }
+
+
+@router.post("/notebook/notify/{event_id}/message", response_class=HTMLResponse)
+def notify_message(
+    request: Request,
+    event_id: int,
+    session: Annotated[Session, Depends(db.get_session)],
+    user: CurrentUser,
+    message: Annotated[str, Form()] = "",
+):
+    """The pop-up's "Send message": adds the line to the notification already sent. With
+    htmx only the pop-up's card comes back; without, the Notebook page with the pop-up."""
+    status = 200
+    try:
+        event = review.add_message(session, event_id, user, message)
+        state = notify_state(review.Notified(True, event), saved=True)
+    except review.ReviewError as exc:
+        session.rollback()
+        event = session.get(TaskEvent, event_id)
+        if event is None:
+            raise HTTPException(status_code=404) from exc
+        state = notify_state(review.Notified(True, event), error=exc.message)
+        state["message"] = " ".join(message.split())[: review.MAX_MESSAGE_CHARS + 1]
+        status = exc.status
+    except HTTPException:
+        raise
+    except Exception as exc:
+        session.rollback()
+        log.error("Could not add a message to a notification (%s)", type(exc).__name__)
+        event = session.get(TaskEvent, event_id)
+        if event is None:
+            raise HTTPException(status_code=404) from exc
+        state = notify_state(review.Notified(True, event), error=DB_ERROR)
+        state["message"] = " ".join(message.split())[: review.MAX_MESSAGE_CHARS + 1]
+        status = 503
+    if is_htmx(request):
+        return templates.TemplateResponse(request, "_notify_card.html", {"notify": state}, status_code=status)
+    task = session.get(Task, event.task_id)
+    return render_page(request, session, user, code=task.code if task else "", notify=state, status=status)
 
 
 def tidy_form(request: Request, session: Session, user: User, sub: Submitted, form: dict[str, Any]) -> Response:

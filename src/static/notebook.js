@@ -343,3 +343,70 @@
     if (event.target.closest("[data-toast-close]")) toast.hidden = true;
   });
 })();
+
+// The pop-up after "Notify team lead for review" (#notify-modal, in #notify-slot: never inside the
+// Notebook side panel). The server renders it `open`; here it becomes a modal dialog (blurred
+// page behind, focus kept inside, Esc closes) and the bar at its foot runs down over 10 seconds,
+// closing it when it ends. The bar is a Web Animation, so it isn't switched off by
+// prefers-reduced-motion (it is a timer, not decoration). It pauses while the member is in the
+// message box, so typing is never cut off. The X, Esc and a click outside close it at once.
+// Without JavaScript it stays until the X is pressed.
+(function () {
+  function modal() {
+    return document.getElementById("notify-modal");
+  }
+
+  function startBar(dialog) {
+    var bar = dialog.querySelector(".modal__bar i");
+    if (!bar || bar.__timer) return;
+    var seconds = parseFloat(bar.getAttribute("data-seconds")) || 10;
+    var timer = bar.animate([{ transform: "scaleX(1)" }, { transform: "scaleX(0)" }], {
+      duration: seconds * 1000,
+      easing: "linear",
+      fill: "forwards",
+    });
+    timer.onfinish = function () {
+      if (dialog.open) dialog.close();
+    };
+    bar.__timer = timer;
+    if (dialog.querySelector("textarea") === document.activeElement) timer.pause();
+  }
+
+  function timer(dialog) {
+    var bar = dialog.querySelector(".modal__bar i");
+    return bar && bar.__timer;
+  }
+
+  function arm() {
+    var dialog = modal();
+    if (!dialog) return;
+    if (!dialog.__armed) {
+      dialog.__armed = true;
+      if (typeof dialog.showModal === "function") {
+        dialog.removeAttribute("open");
+        dialog.showModal();
+      }
+      // Typing pauses the timer; leaving an empty box lets it run on.
+      dialog.addEventListener("focusin", function (event) {
+        var t = timer(dialog);
+        if (t && event.target.tagName === "TEXTAREA") t.pause();
+      });
+      dialog.addEventListener("focusout", function (event) {
+        var t = timer(dialog);
+        if (t && event.target.tagName === "TEXTAREA" && !event.target.value.trim()) t.play();
+      });
+      dialog.addEventListener("click", function (event) {
+        if (event.target === dialog) dialog.close();
+      });
+      dialog.addEventListener("close", function () {
+        var slot = document.getElementById("notify-slot");
+        if (slot) slot.innerHTML = "";
+      });
+    }
+    startBar(dialog); // a new card (after "Send message") has a new bar
+  }
+
+  document.addEventListener("DOMContentLoaded", arm);
+  document.body.addEventListener("htmx:afterSettle", arm);
+  document.body.addEventListener("htmx:oobAfterSwap", arm);
+})();

@@ -208,6 +208,29 @@ def notify(
     return Notified(True, event)
 
 
+def add_message(session: Session, event_id: int, user: User, message: str) -> TaskEvent:
+    """Put (or change) the message on a notification that no lead has answered yet: the
+    pop-up that follows "Notify team lead for review" asks for it after the notification
+    is already sent. Only the task's owner or a lead may. Commits. Raises ReviewError."""
+    event = session.get(TaskEvent, event_id)
+    task = session.get(Task, event.task_id) if event is not None else None
+    if event is None or task is None or event.kind != REQUESTED:
+        raise ReviewError("That notification isn't there any more.", 404)
+    if not workflow.can_move(task, user):
+        raise ReviewError("Only the person who owns this task, or a lead, can add to it.", 403)
+    if not any(w.id == event.id for w in open_requests(session, task.id)):
+        raise ReviewError("A lead has already answered this, so it can't be changed.", 409)
+    message = " ".join((message or "").split())
+    if not message:
+        raise ReviewError("Write a message first, or close this.")
+    if len(message) > MAX_MESSAGE_CHARS:
+        raise ReviewError(f"Keep the message to {MAX_MESSAGE_CHARS} characters or fewer.")
+    event.detail = message
+    session.add(event)
+    session.commit()
+    return event
+
+
 def status_for(session: Session, task: Task) -> dict[str, Any]:
     """What the Notebook and the task page say about this task's notifications."""
     waiting = open_requests(session, task.id)
@@ -221,12 +244,6 @@ def status_for(session: Session, task: Task) -> dict[str, Any]:
         "limit": DAILY_LIMIT,
         "limit_reached": used >= DAILY_LIMIT,
     }
-
-
-def sent_text(done: Notified) -> str:
-    if done.sent:
-        return f"Your team lead can see this in their inbox. Sent at {done.clock}."
-    return f"Already sent at {done.clock}."
 
 
 # --- the lead's side -----------------------------------------------------------------------

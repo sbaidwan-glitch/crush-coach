@@ -1,0 +1,24 @@
+{#- The inside of the "your team lead has been notified" pop-up. Expects `notify` (see
+    notebook.notify_state): event_id, sent, clock, message, saved, error, seconds. The bar at the
+    bottom is the timer: notebook.js animates it and closes the pop-up when it runs out (it
+    pauses while the member is typing). Without JavaScript it stays until they close it. -#}
+<div class="modal__card" id="notify-card">
+  <div class="modal__body">
+  <form method="dialog" class="modal__x"><button class="modal__close" type="submit" aria-label="Close">&times;</button></form>
+  {% if notify.saved %}
+  <h2 class="modal__title" id="notify-title">Message sent</h2>
+  <p class="modal__text" role="status">Your team lead can see it in their inbox.</p>
+  {% else %}
+  <h2 class="modal__title" id="notify-title">{% if notify.sent %}Your team lead has been notified{% else %}Your team lead was already notified at {{ notify.clock }}{% endif %}</h2>
+  <p class="modal__text">Do you want to add a message for them?</p>
+  <form class="modal__form" method="post" action="/notebook/notify/{{ notify.event_id }}/message"
+        hx-post="/notebook/notify/{{ notify.event_id }}/message" hx-target="#notify-card" hx-swap="outerHTML">
+    {% if notify.error %}<p class="notice notice--error" role="alert">{{ notify.error }}</p>{% endif %}
+    <label class="visually-hidden" for="notify-message">Message for your team lead</label>
+    <textarea class="field-input" id="notify-message" name="message" rows="3" maxlength="280" placeholder="e.g. Please confirm the hole spacing">{{ notify.message }}</textarea>
+    <div class="actions"><button class="btn btn--primary btn--small" type="submit">Send message</button></div>
+  </form>
+  {% endif %}
+  </div>
+  <div class="modal__bar" aria-hidden="true"><i data-seconds="{{ notify.seconds }}"></i></div>
+</div>
