@@ -405,4 +405,17 @@
     var box = byId("coach-message");
     if (box) box.value = "";
   });
+
+  // A link to /tasks/CODE#coach (Home's Next-step block) lands on the coach with the message
+  // box ready to type in. Nothing is sent.
+  function focusCoachFromHash() {
+    if (window.location.hash !== "#coach") return;
+    var field = byId("coach-message");
+    if (field) field.focus();
+  }
+  // The browser's own jump to #coach (which clears focus) comes after this script runs, so focus
+  // again once the page has loaded as well.
+  focusCoachFromHash();
+  window.addEventListener("load", focusCoachFromHash);
+  window.addEventListener("hashchange", focusCoachFromHash);
 })();

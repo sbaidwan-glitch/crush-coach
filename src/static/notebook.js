@@ -10,9 +10,13 @@
 //
 // The panel. The panel is a <dialog> (#notebook) that is always in the page for signed-in
 // members; its content comes from the server (/notebook/panel) when it is opened. Links with
-// [data-notebook-open] open it: the top bar button, the Home banner. After "Mark step done"
+// [data-notebook-open] open it: the top bar button, "+ Log today's work", the leaving nudge. After "Mark step done"
 // the address carries ?log=CODE and the dialog has data-open-url, so it opens on load. Inside
 // the panel htmx swaps #notebook-body for each step (tabs, tidy, save, publish, retry).
+//
+// The leaving nudge (the second block, at the end of this file) is a small prompt the server
+// renders, hidden, on every page where the member worked on a task today and hasn't written it
+// up. It is shown on exit intent only, at most once per local day.
 //
 // Without JavaScript (or if the panel can't load) those links go to /notebook, the same
 // content as a page. Esc and the Close button shut the dialog. After an entry is published
@@ -233,5 +237,110 @@
       window.history.replaceState(null, "", here.pathname + here.search + here.hash);
     }
     open(onLoad, null);
+  }
+})();
+
+// The leaving nudge: "You worked on M06 today. Write today's entry while you remember it."
+// The server renders #notebook-nudge, hidden, only when there is something to write up (and
+// never for signed-out visitors). It is revealed by exit intent only, with no timers and no
+// polling:
+//   - desktop: the pointer leaves the top of the window with no button pressed;
+//   - any device: the tab becomes hidden, and the prompt waits for the next return to the tab.
+// At most once per local day per member (the localStorage key carries both), never while the
+// Notebook is open, and never again after "Not today" or after the Notebook was opened.
+// It doesn't take focus. Esc closes it. Without JavaScript it simply stays hidden.
+(function () {
+  var nudge = document.getElementById("notebook-nudge");
+  if (!nudge) return;
+  var key = nudge.getAttribute("data-key") || "cc-nudge";
+  var dialog = document.getElementById("notebook");
+  var finished = false; // shown, dismissed or the Notebook was opened: nothing more today
+  var leftWhileHidden = false; // the tab was hidden: show it when the member comes back
+
+  function stored() {
+    try {
+      return window.localStorage.getItem(key) === "1";
+    } catch (err) {
+      return false;
+    }
+  }
+  function remember() {
+    finished = true;
+    try {
+      window.localStorage.setItem(key, "1");
+    } catch (err) {
+      // Private mode: it is still once for this page load.
+    }
+  }
+  function notebookOpen() {
+    return !!(dialog && dialog.open);
+  }
+  function hide() {
+    nudge.hidden = true;
+  }
+  function reveal() {
+    if (finished || stored() || notebookOpen()) return;
+    remember(); // shown now: not again today, even if they ignore it
+    nudge.hidden = false;
+  }
+
+  // After "Mark step done" the Notebook opens by itself (?log=CODE): they are writing already.
+  if (stored() || (dialog && dialog.hasAttribute("data-open-url"))) {
+    remember();
+    return;
+  }
+
+  // Desktop: the pointer leaves through the top of the window (toward the tabs, address bar or
+  // close button), with no mouse button held (so not mid-drag or mid-selection).
+  document.addEventListener("mouseleave", function (event) {
+    if (event.clientY <= 0 && event.buttons === 0) reveal();
+  });
+
+  // Any device: hidden tab now, shown on the next return.
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "hidden") {
+      leftWhileHidden = !finished && !stored();
+    } else if (leftWhileHidden) {
+      leftWhileHidden = false;
+      reveal();
+    }
+  });
+
+  // Opening the Notebook (from the nudge or anywhere) ends it for the day.
+  document.addEventListener("click", function (event) {
+    if (event.target.closest && event.target.closest("[data-notebook-open]")) {
+      remember();
+      hide();
+    }
+  });
+
+  // Esc closes it (the Notebook, when open, handles its own Esc; the nudge is never shown then).
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && !nudge.hidden) hide();
+  });
+
+  // "Not today": the form still posts to /notebook/dismiss (the server hides it until
+  // tomorrow). Here it is sent in the background so the page isn't reloaded under them; if that
+  // fails, the form is submitted the ordinary way.
+  var form = nudge.querySelector("form");
+  if (form && window.fetch) {
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      remember();
+      hide();
+      window
+        .fetch(form.action, {
+          method: "POST",
+          credentials: "same-origin",
+          redirect: "manual", // the 303 back to the page isn't wanted
+          body: new URLSearchParams(new FormData(form)),
+        })
+        .then(function (response) {
+          if (!response.ok && response.type !== "opaqueredirect") throw new Error("dismiss " + response.status);
+        })
+        .catch(function () {
+          form.submit();
+        });
+    });
   }
 })();

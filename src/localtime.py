@@ -7,7 +7,7 @@ all use the same boundary.
 """
 
 import os
-from datetime import UTC, date, datetime, tzinfo
+from datetime import UTC, date, datetime, timedelta, tzinfo
 from zoneinfo import ZoneInfo
 
 DEFAULT_TIMEZONE = "America/Los_Angeles"
@@ -36,6 +36,14 @@ def day_start_utc() -> datetime:
     """Start of the current local day, as naive UTC (how created_at is stored)."""
     local_now = datetime.now(timezone())
     start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return start.astimezone(UTC).replace(tzinfo=None)
+
+
+def week_start_utc() -> datetime:
+    """Start of the current local week (Monday 00:00), as naive UTC."""
+    local_now = datetime.now(timezone())
+    monday = local_now - timedelta(days=local_now.weekday())
+    start = monday.replace(hour=0, minute=0, second=0, microsecond=0)
     return start.astimezone(UTC).replace(tzinfo=None)
 
 

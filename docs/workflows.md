@@ -28,7 +28,7 @@ Nothing a lead must act on lives anywhere else. Empty state: "Nothing is waiting
 
 ## Notebook (`docs/concepts/task-log.html`)
 
-A member's own entries about what they did on a task, and why. A side panel (top bar **Notebook**, the Home banner "Write today's entry", or after "Mark step done") with three tabs, plus **Open full page** (`/notebook`: compose on the left, history on the right, stacked on a phone).
+A member's own entries about what they did on a task, and why. A side panel (top bar **Notebook**, the "Write today's entry" nudge when you are about to leave a page, or after "Mark step done") with three tabs, plus **Open full page** (`/notebook`: compose on the left, history on the right, stacked on a phone).
 
 **States.** Every entry shows a mark and the word, never colour alone:
 - **Draft** (open circle): only its member can see it, and can edit it. Not in the Record, the task's History or the Crush document.

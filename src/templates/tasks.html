@@ -19,7 +19,7 @@
 </div>
 {% endblock %}
 {% macro panel(g, tasks, preview) %}
-<section class="panel panel--flush" data-tone="{{ g.tone }}" id="{{ g.slug }}" aria-labelledby="h-{{ g.slug }}">
+<section class="panel panel--flush" id="{{ g.slug }}" aria-labelledby="h-{{ g.slug }}">
   <div class="panel__head"><h2 class="panel__title" id="h-{{ g.slug }}">{{ diamond(g) }}{{ g.label }}</h2><span class="meta">{{ g.done }} of {{ g.total }} done</span></div>
   {{ pbar(g) }}
   {% for t in tasks %}{{ task_row(t, status_labels, preview, [] if preview else owner_chips(t.owner), mine=mine(t)) }}{% endfor %}

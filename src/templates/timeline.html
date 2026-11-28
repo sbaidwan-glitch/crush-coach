@@ -27,7 +27,7 @@
     </div>
     {% for p in panels %}
     {% set g = p.group %}
-    <section class="panel panel--flush" data-tone="{{ g.tone }}" aria-labelledby="h-{{ g.slug }}">
+    <section class="panel panel--flush" style="--tone:var(--color-sub-{{ g.colour }})" aria-labelledby="h-{{ g.slug }}">
       <div class="panel__head"><h2 class="panel__title" id="h-{{ g.slug }}">{{ diamond(g) }}{{ g.label }}</h2><span class="meta">{{ g.done }} of {{ g.total }} done</span></div>
       {% for r in p.rows %}
       <div class="tl-row">

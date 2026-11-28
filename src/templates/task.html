@@ -19,7 +19,7 @@
 {% else %}
 {% if error %}{{ notice_box(error, "error") }}{% endif %}
 <div class="grid-task">
-  <section class="panel" aria-labelledby="coach-heading">
+  <section class="panel" id="coach" aria-labelledby="coach-heading">
     <div class="panel__head"><div>
       <h2 class="panel__title" id="coach-heading">Coach</h2>
       <p class="panel__sub">Answers from the team Drive and the Team record. It advises; leads decide. Limit: {{ daily_limit }} messages per person per day.</p>

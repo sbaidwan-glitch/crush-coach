@@ -249,13 +249,13 @@ def test_team_record_says_what_it_holds_and_where_your_own_entries_are(client, s
         '<p class="page-sub">What the team has settled. Your own entries are in your Notebook.</p>'
         in html
     )
-    assert "<span>Team record</span>" in html
+    assert "Team record</span>" in html
 
 
 def test_the_sidebar_says_record_not_decisions(client, session):
     html = client.get("/tasks").text
 
-    assert 'href="/record"' in html and "<span>Team record</span>" in html
+    assert 'href="/record"' in html and "Team record</span>" in html
     assert "<span>Decisions</span>" not in html
 
 

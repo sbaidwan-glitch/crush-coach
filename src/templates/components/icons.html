@@ -1,22 +1,3 @@
-{# Sidebar icons. Each is decorative (aria-hidden): the link always carries a visible label. #}
-{% macro nav_icon(name) -%}
-<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false">
-  {%- if name == "home" -%}<path d="M3 11l9-7 9 7v9h-6v-6H9v6H3z"/>
-  {%- elif name == "inbox" -%}<path d="M3 13l3-8h12l3 8v6H3z"/><path d="M3 13h5l1 3h6l1-3h5"/>
-  {%- elif name == "tasks" -%}<path d="M9 6h12M9 12h12M9 18h12"/><path d="M3 6h2M3 12h2M3 18h2"/>
-  {%- elif name == "timeline" -%}<path d="M4 6h9M8 12h12M6 18h8"/>
-  {%- elif name == "record" -%}<rect x="3" y="3" width="18" height="18"/><path d="M8 12l3 3 5-6"/>
-  {%- elif name == "admin" -%}<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/>
-  {%- elif name == "theme" -%}<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>
-  {%- elif name == "bubbles" -%}<circle cx="9" cy="15" r="5"/><circle cx="17" cy="8" r="3"/>
-  {%- endif -%}
-</svg>
-{%- endmacro %}
-
-{% macro logo() -%}
-<svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><circle cx="13" cy="13" r="9"/><path d="M13 1v8M13 17v8M1 13h8M17 13h8"/></svg>
-{%- endmacro %}
-
 {# Member icons: our own line drawings (24px, 1.8 stroke), the nine members can pick (profiles.ICONS).
    `avatar_sprite()` goes in the page once (base.html); `avatar(icon)` draws one from it. #}
 {% macro avatar_sprite() -%}

@@ -11,7 +11,7 @@
 {% block head_extra %}<script src="{{ static_url('timeline.js') }}" defer></script>{% endblock %}
 {% block main %}
 {% if error %}{{ notice_box(error, "error") }}{% elif saved %}{{ notice_box("Saved. Your icon and name now show on the Timeline and on your tasks.") }}{% endif %}
-<section class="panel profile-panel" data-tone="sage" aria-labelledby="pick-heading">
+<section class="panel profile-panel" aria-labelledby="pick-heading">
   <div class="panel__head"><h2 class="panel__title" id="pick-heading">Pick an icon</h2></div>
   <form method="post" action="/profile" class="profile-form" data-profile-form>
     <fieldset>

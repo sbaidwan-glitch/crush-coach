@@ -1,12 +1,11 @@
 /* Crush Coach: the few rules app.css doesn't have.
-   app.css and tokens.css are the designer's and are not edited here. This file only
-   adds what the live app needs that the three concept pages don't show: form controls,
+   This file only adds what the live app needs that the concept pages don't show: form controls,
    notices, the import table, the "hidden" and htmx rules, grids that shrink on phones.
    Tokens only: tests/test_design_tokens.py fails on raw colours or one-off sizes. */
 
 [hidden] { display: none !important; }
 
-.skip-link { position: absolute; left: var(--space-2); top: var(--space-2); z-index: 20; transform: translateY(-300%); background: var(--color-ink); color: var(--color-on-ink); padding: var(--space-2) var(--space-4); text-decoration: none; font-weight: var(--weight-semibold); }
+.skip-link { position: absolute; left: var(--space-2); top: var(--space-2); z-index: 20; border-radius: var(--radius); transform: translateY(-300%); background: var(--color-ink); color: var(--color-on-ink); padding: var(--space-2) var(--space-4); text-decoration: none; font-weight: var(--weight-semibold); }
 .skip-link:focus { transform: none; }
 
 /* htmx adds .htmx-request to the element that is waiting; its indicator shows meanwhile. */
@@ -42,11 +41,11 @@
 .actions form { margin: 0; }
 
 /* ---------- Notices, empty states ---------- */
-.notice { margin: var(--space-3) 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--color-rule); border-left: var(--panel-rule) solid var(--color-accent); background: var(--color-field); }
+.notice { border-radius: var(--radius); margin: var(--space-3) 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--color-rule); border-left: var(--panel-rule) solid var(--color-accent); background: var(--color-field); }
 .notice p, .notice ul { margin: 0; }
 .notice p + p, .notice p + ul { margin-top: var(--space-2); }
 .notice--error { border-color: var(--color-danger); background: var(--color-sheet); }
-.empty { margin: var(--space-3) 0 0; padding: var(--space-3) var(--space-4); border: 1px dashed var(--color-rule); color: var(--color-muted); }
+.empty { border-radius: var(--radius); margin: var(--space-3) 0 0; padding: var(--space-3) var(--space-4); border: 1px dashed var(--color-rule); color: var(--color-muted); }
 .empty p { margin: 0; }
 .empty p + p { margin-top: var(--space-2); }
 .decision .notice, .decision .empty { margin: 0; }
@@ -54,7 +53,7 @@
 
 /* ---------- Form controls ---------- */
 label.field-label { display: block; }
-.field-input { display: block; width: 100%; min-height: var(--space-10); font: inherit; color: var(--color-ink); background: var(--color-sheet); border: 1px solid var(--color-ink); border-radius: 0; padding: var(--space-2) var(--space-3); }
+.field-input { display: block; width: 100%; min-height: var(--space-10); font: inherit; color: var(--color-ink); background: var(--color-sheet); border: 1px solid var(--color-ink); border-radius: var(--radius); padding: var(--space-2) var(--space-3); }
 select.field-input { appearance: auto; }
 textarea.field-input { resize: vertical; }
 .field-input[aria-invalid="true"] { border-color: var(--color-danger); }
@@ -64,7 +63,7 @@ input[type="checkbox"] { accent-color: var(--color-ink); width: var(--space-4); 
 .filter .field-input { width: auto; min-width: calc(var(--space-10) * 4); }
 .form-group { border: 0; padding: 0; margin: var(--space-4) 0 0; min-width: 0; }
 .form-group legend { padding: 0; }
-.form-row { display: grid; gap: var(--space-1); padding: var(--space-3); margin-top: var(--space-3); border: 1px solid var(--color-rule); background: var(--color-field); }
+.form-row { border-radius: var(--radius); display: grid; gap: var(--space-1); padding: var(--space-3); margin-top: var(--space-3); border: 1px solid var(--color-rule); background: var(--color-field); }
 .form-row .field-input { margin-bottom: var(--space-2); }
 .review textarea { margin-top: var(--space-1); }
 .ask { margin: 0; }
@@ -77,6 +76,8 @@ input[type="checkbox"] { accent-color: var(--color-ink); width: var(--space-4); 
 .draft .panel__title { font-size: var(--text-md); }
 
 /* ---------- Coach thread ---------- */
+/* A link to /tasks/CODE#coach lands on the section with a little room above it. */
+#coach { scroll-margin-top: var(--space-4); }
 .msg, .msg-body { overflow-wrap: anywhere; }
 .msg-md > :first-child { margin-top: 0; }
 .msg-md > :last-child { margin-bottom: 0; }
@@ -92,7 +93,7 @@ input[type="checkbox"] { accent-color: var(--color-ink); width: var(--space-4); 
 
 /* ---------- Import review table ---------- */
 .review-summary { margin: var(--space-3) 0; }
-.table-wrap { position: relative; overflow-x: auto; border: 1px solid var(--color-rule); margin-top: var(--space-3); }
+.table-wrap { border-radius: var(--radius); position: relative; overflow-x: auto; border: 1px solid var(--color-rule); margin-top: var(--space-3); }
 .import-table { border-collapse: collapse; width: 100%; font-size: var(--text-sm); }
 .import-table th { text-align: left; padding: var(--space-2) var(--space-3); font-size: var(--text-xs); letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--color-muted); border-bottom: 1px solid var(--color-ink); white-space: nowrap; }
 .import-table td { padding: var(--space-2) var(--space-3); border-top: 1px solid var(--color-rule); vertical-align: top; }
@@ -110,21 +111,13 @@ input[type="checkbox"] { accent-color: var(--color-ink); width: var(--space-4); 
 .change-list details .change-old { text-decoration: none; }
 .change-list details p { margin: 0; white-space: pre-line; }
 .change-list summary { padding: var(--space-2) 0; cursor: pointer; }
-.remove-picker { max-height: var(--remove-list-max); overflow-y: auto; margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-rule); }
+.remove-picker { border-radius: var(--radius); max-height: var(--remove-list-max); overflow-y: auto; margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-rule); }
 .remove-picker legend { padding: 0 var(--space-1); }
 .remove-list { list-style: none; margin: 0; padding: 0; }
 .remove-list li { padding: var(--space-1) 0; }
 .nowrap { white-space: nowrap; }
 
-/* ---------- Needs-you badge, step editor ---------- */
-.sidebar__link { position: relative; }
-/* On phones the tab bar holds up to five links and the theme and bubbles buttons: share the width (theme.css gives the buttons a fixed one). */
-@media (max-width: 820px) {
-  .sidebar__link, .sidebar__btn { width: auto; flex: 1 1 0; min-width: 0; }
-  /* "Team record" wraps to two lines; keep every icon on the same line. */
-  .sidebar__link { align-self: stretch; text-align: center; }
-}
-.sidebar__badge { position: absolute; top: 0; left: calc(50% + var(--space-2)); min-width: var(--space-5); padding: 0 var(--space-1); background: var(--color-review); color: var(--color-on-ink); font-size: var(--text-xs); font-weight: var(--weight-semibold); line-height: var(--space-5); text-align: center; }
+/* ---------- Step editor ---------- */
 .steps-editor summary { cursor: pointer; padding: var(--space-2) 0; font-weight: var(--weight-semibold); }
 .steps-editor__list { list-style: none; margin: 0; padding: 0; }
 .steps-editor .actions { margin-top: var(--space-2); }
@@ -152,13 +145,13 @@ input[type="checkbox"] { accent-color: var(--color-ink); width: var(--space-4); 
 .card__answer { margin-top: var(--space-2); font-size: var(--text-sm); }
 .card__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end; }
 .choice { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2); }
-.choice label { border: 1px solid var(--color-rule); padding: var(--space-2) var(--space-3); font-size: var(--text-sm); display: inline-flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; background: var(--color-sheet); }
+.choice label { border-radius: var(--radius); border: 1px solid var(--color-rule); padding: var(--space-2) var(--space-3); font-size: var(--text-sm); display: inline-flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; background: var(--color-sheet); }
 .choice label.is-suggested { border-color: var(--color-accent); background: var(--color-blueprint); }
 .choice small { color: var(--color-muted); font-size: var(--text-xs); }
 .choice .field-input { display: inline-block; width: auto; min-width: calc(var(--space-10) * 4); min-height: 0; padding: var(--space-1) var(--space-2); }
 input[type="radio"] { accent-color: var(--color-ink); }
 .record-line { margin-top: var(--space-3); display: flex; gap: var(--space-2); }
-.record-line input { flex: 1; min-width: 0; font: inherit; border: 1px solid var(--color-rule); background: var(--color-field); padding: var(--space-2) var(--space-3); }
+.record-line input { border-radius: var(--radius); flex: 1; min-width: 0; font: inherit; border: 1px solid var(--color-rule); background: var(--color-field); padding: var(--space-2) var(--space-3); }
 .card .form-row { margin-top: var(--space-2); }
 .hint { font-size: var(--text-xs); color: var(--color-muted); margin: var(--space-1) 0 0; }
 .settle { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); margin: var(--space-3) 0 0; }
@@ -170,7 +163,7 @@ input[type="radio"] { accent-color: var(--color-ink); }
 .day + .entry { border-top: 0; }
 .entry p { margin: var(--space-1) 0 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
 .entry .why { color: var(--color-muted); }
-.tag { font-size: var(--text-xs); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-label); text-transform: uppercase; padding: 0 var(--space-2); border: 1px solid currentColor; margin-right: var(--space-2); }
+.tag { border-radius: var(--radius); font-size: var(--text-xs); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-label); text-transform: uppercase; padding: 0 var(--space-2); border: 1px solid currentColor; margin-right: var(--space-2); }
 .tag--answer { color: var(--color-accent); }
 .tag--note { color: var(--color-muted); }
 .tag--mine { color: var(--color-accent); margin: 0; }
@@ -191,7 +184,7 @@ input[type="radio"] { accent-color: var(--color-ink); }
 /* ---------- Notebook: side panel, tidy and ask-back boxes ----------
    Folded in from docs/concepts' flow.css (task-log.html), converted to tokens. The panel
    is a <dialog> drawer on the right (notebook.js), or a plain panel on /notebook. */
-.sidepanel { background: var(--color-sheet); border: 1px solid var(--color-rule); border-top: var(--panel-rule) solid var(--color-ink); padding: 0; color: var(--color-ink); }
+.sidepanel { border-radius: var(--radius); background: var(--color-sheet); border: 1px solid var(--color-rule); padding: 0; color: var(--color-ink); }
 .sidepanel--drawer { position: fixed; inset: 0 0 0 auto; margin: 0; width: calc(var(--space-10) * 11); max-width: 100%; height: 100%; max-height: none; overflow-y: auto; }
 .sidepanel--drawer::backdrop { background: color-mix(in srgb, var(--color-ink) 45%, transparent); }
 .sidepanel--page { max-width: calc(var(--space-10) * 14); }
@@ -205,11 +198,11 @@ input[type="radio"] { accent-color: var(--color-ink); }
 .notebook-form .field-label:first-child, .notebook-form legend + .field-label { margin-top: 0; }
 .notebook-form textarea.field-input { min-height: calc(var(--space-10) * 2); }
 .optional { text-transform: none; letter-spacing: 0; font-weight: var(--weight-regular); }
-.tidy { border: 1px solid var(--color-accent); border-left-width: var(--panel-rule); padding: var(--space-3) var(--space-4); margin-top: var(--space-4); background: var(--color-sheet); }
+.tidy { border-radius: var(--radius); border: 1px solid var(--color-accent); border-left-width: var(--panel-rule); padding: var(--space-3) var(--space-4); margin-top: var(--space-4); background: var(--color-sheet); }
 .tidy h3 { font-size: var(--text-sm); margin: 0 0 var(--space-2); font-weight: var(--weight-semibold); }
 .tidy p { margin: 0 0 var(--space-2); font-size: var(--text-sm); }
 .tidy .notice { margin: var(--space-2) 0 0; }
-.ask-back { background: var(--color-field); border: 1px solid var(--color-review); padding: var(--space-2) var(--space-3); font-size: var(--text-sm); margin-top: var(--space-3); }
+.ask-back { border-radius: var(--radius); background: var(--color-field); border: 1px solid var(--color-review); padding: var(--space-2) var(--space-3); font-size: var(--text-sm); margin-top: var(--space-3); }
 .ask-back p { margin: 0 0 var(--space-2); }
 .notebook-original { margin-top: var(--space-3); font-size: var(--text-sm); }
 .notebook-original summary { cursor: pointer; padding: var(--space-1) 0; }
@@ -229,14 +222,14 @@ input[type="radio"] { accent-color: var(--color-ink); }
    inside each, so the label is the button and the camera opens on a phone). */
 .photos { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(var(--space-10) * 3), 1fr)); gap: var(--space-3); }
 .photos li { display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-2); min-width: 0; }
-.photos img { display: block; width: 100%; height: calc(var(--space-10) * 3); object-fit: cover; border: 1px solid var(--color-rule); background: var(--color-field); }
+.photos img { border-radius: var(--radius); display: block; width: 100%; height: calc(var(--space-10) * 3); object-fit: cover; border: 1px solid var(--color-rule); background: var(--color-field); }
 .photos--small { grid-template-columns: repeat(auto-fill, minmax(calc(var(--space-10) * 2), 1fr)); }
 .photos--small img { height: calc(var(--space-10) * 2); }
 .photo-add { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
 .filebtn { position: relative; cursor: pointer; }
 .filebtn:focus-within { outline: var(--panel-rule) solid var(--color-accent); }
 /* Suggested specs: a tick, the spec (editable), its unit and where it comes from. */
-.specs { border: 1px solid var(--color-rule); border-left: var(--panel-rule) solid var(--color-accent); padding: var(--space-3) var(--space-4); margin: var(--space-4) 0 0; min-width: 0; }
+.specs { border-radius: var(--radius); border: 1px solid var(--color-rule); border-left: var(--panel-rule) solid var(--color-accent); padding: var(--space-3) var(--space-4); margin: var(--space-4) 0 0; min-width: 0; }
 .specs legend { padding: 0 var(--space-1); }
 .spec-list { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
 .spec { display: flex; align-items: flex-start; gap: var(--space-3); }
@@ -257,17 +250,10 @@ input[type="radio"] { accent-color: var(--color-ink); }
 .plan__part .msg-md { margin: 0; }
 .plan__now .plan__title { margin-bottom: var(--space-1); }
 .plan__now > .msg-md, .plan__now.next.msg-md p { display: block; margin: 0; }
-.promptbox { border: 1px solid var(--color-rule); background: var(--color-field); margin-top: var(--space-2); }
+.promptbox { border-radius: var(--radius); border: 1px solid var(--color-rule); background: var(--color-field); margin-top: var(--space-2); }
 .promptbox__text { margin: 0; padding: var(--space-3) var(--space-4); white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: var(--text-sm); max-height: calc(var(--space-10) * 8); overflow-y: auto; }
 .promptbox__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--color-rule); }
 .promptbox__warning { margin: 0; flex: 1; min-width: calc(var(--space-10) * 4); }
-
-/* Home banner: "You worked on M06 today..." */
-.banner { display: flex; align-items: center; gap: var(--space-4); background: var(--color-blueprint); border: 1px solid var(--color-rule); border-left: var(--panel-rule) solid var(--color-accent); padding: var(--space-3) var(--space-4); margin-bottom: var(--space-5); }
-.banner p { margin: 0; flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.banner form { margin: 0; }
-.banner__actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
-@media (max-width: 900px) { .banner { flex-direction: column; align-items: flex-start; } }
 
 /* Record: a work note's line about the Crush document, and the notes toggle */
 .panel__head--wrap { flex-wrap: wrap; gap: var(--space-2) var(--space-4); }

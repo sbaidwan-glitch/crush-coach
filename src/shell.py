@@ -1,8 +1,9 @@
 """What every page's shell (the sidebar in base.html) needs, whatever the page.
 
-Today that is one number: how many things wait on a lead (work to check, answers to
-settle, suggested tasks; `inbox.count`), shown on the Inbox link for leads, and which task
-the work log panel opens on. `templates()` makes a Jinja2Templates that adds it to every render, so
+Today that is two numbers on the sidebar: how many things wait on a lead (work to check,
+answers to settle, suggested tasks; `inbox.count`), shown on the Inbox link for leads, and
+how many tasks are open (`open_task_count`, on the Tasks link); which task the Notebook
+panel opens on; and the Notebook nudge (`notebook_nudge`: the task to write up, if any). `templates()` makes a Jinja2Templates that adds it to every render, so
 no page has to remember to pass it. Nothing here calls the model.
 """
 
@@ -12,12 +13,13 @@ from pathlib import Path
 
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
-from sqlmodel import Session
+from sqlmodel import Session, func, select
 
 import auth
 import db
+import localtime
 import static_version
-from progress import PANEL_TONES
+from models import Task
 
 log = logging.getLogger("crush_coach")
 
@@ -38,6 +40,48 @@ def needs_you_count(request: Request) -> int | None:
             return inbox.count(session)
     except Exception as exc:  # noqa: BLE001  (the sidebar must never break a page)
         log.error("Could not count what is waiting on a lead (%s)", type(exc).__name__)
+        return None
+
+
+def open_task_count() -> int | None:
+    """How many tasks are not done yet (the count on the sidebar's Tasks link).
+
+    None if the database can't be read: the link then shows no count.
+    """
+    try:
+        with Session(db.engine) as session:
+            return session.exec(
+                select(func.count()).select_from(Task).where(Task.status != "done")
+            ).one()
+    except Exception as exc:  # noqa: BLE001  (the sidebar must never break a page)
+        log.error("Could not count the open tasks (%s)", type(exc).__name__)
+        return None
+
+
+def notebook_nudge(request: Request) -> dict[str, str] | None:
+    """The task to nudge the member to write up (`notebook.banner`), or None.
+
+    Only for a signed-in member on a full page: not the Notebook page itself, and not an
+    htmx fragment (the page around it already has the nudge). Any failure is None, so the
+    page just has no nudge.
+    """
+    try:
+        user = auth.session_user(request)
+        if user is None or request.headers.get("hx-request"):
+            return None
+        if request.url.path.startswith(("/notebook", "/worklog")):
+            return None
+        import notebook  # here, not at the top: notebook imports this module
+
+        with Session(db.engine) as session:
+            found = notebook.banner(session, request, user)
+        return (
+            {**found, "email": user["email"], "day": localtime.today().isoformat()}
+            if found
+            else None
+        )
+    except Exception as exc:  # noqa: BLE001  (the nudge must never break a page)
+        log.error("Could not check the Notebook nudge (%s)", type(exc).__name__)
         return None
 
 
@@ -75,6 +119,8 @@ def _context(request: Request) -> dict:
     on_task = request.url.path.startswith("/tasks/")
     return {
         "needs_you": needs_you_count(request),
+        "open_tasks": open_task_count(),
+        "notebook_nudge": notebook_nudge(request),
         "my_chip": my_chip(request),
         "notebook_task": _code(request.path_params.get("code")) if on_task else "",
         "notebook_open": _code(request.query_params.get("log")),
@@ -82,11 +128,8 @@ def _context(request: Request) -> dict:
 
 
 def templates() -> Jinja2Templates:
-    """`tone("crush")` in a template is that panel's `data-tone` (progress.PANEL_TONES)."""
-    found = static_version.add_to(
+    return static_version.add_to(
         Jinja2Templates(
             directory=Path(__file__).parent / "templates", context_processors=[_context]
         )
     )
-    found.env.globals["tone"] = PANEL_TONES.__getitem__
-    return found
