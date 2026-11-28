@@ -164,7 +164,57 @@ def test_history_text_says_who_did_what():
         )
 
     assert line("todo", "in_progress") == "Sam started the task"
+    # The oldest rows (no kind) read as they did then.
     assert line("in_progress", "needs_review") == "Sam sent it for review"
     assert line("needs_review", "done") == "Sam approved it"
     assert line("needs_review", "in_progress") == "Sam sent it back"
     assert line("in_progress", "todo") == "Sam unclaimed the task"
+
+
+def test_history_text_for_the_moves_a_member_makes_never_says_approved():
+    def line(kind, from_status, to_status, detail=None, note=None):
+        return taskpage.event_text(
+            TaskEvent(task_id=1, actor="Sam", from_status=from_status, to_status=to_status,
+                      kind=kind, detail=detail, note=note)
+        )
+
+    assert line("advance", "in_progress", "in_progress", "Drawing") == "Sam finished “Drawing”"
+    assert line("advance", "in_progress", "needs_review", "Drawing") == (
+        "Sam finished “Drawing” and moved it to a review stage"
+    )
+    assert line("advance", "needs_review", "in_progress", "Lead review") == (
+        "Sam moved on from “Lead review”"
+    )
+    assert line("advance", "needs_review", "done", "Lead review") == (
+        "Sam moved on from “Lead review”; the task is complete"
+    )
+    assert line("review_requested", "needs_review", "needs_review", "Check", '{"stage":"Lead review"}') == (
+        "Sam notified a lead about “Lead review”"
+    )
+    assert line("review_seen", "needs_review", "needs_review") == "Sam saw the notification"
+    assert line("send_back", "needs_review", "in_progress", "Drawing") == "Sam sent it back to “Drawing”"
+    assert line("send_back", "needs_review", "needs_review") == "Sam sent it back"
+    for kind in ("advance", "review_requested", "review_seen", "send_back"):
+        assert "approv" not in line(kind, "needs_review", "in_progress", "Lead review").lower()
+
+
+def test_old_approval_events_stay_readable():
+    old = taskpage.event_text(
+        TaskEvent(task_id=1, actor="Lee", from_status="needs_review", to_status="in_progress",
+                  kind="self_approve", detail="Lead review")
+    )
+
+    assert old == "Lee self-approved “Lead review”"
+
+
+def test_the_main_button_says_move_to_next_stage_and_finish_task_on_the_last():
+    todo = task(task_type="Fabricate", status="todo", stage="Drawing")
+    middle = task(task_type="Fabricate", status="in_progress", stage="Drawing")
+    review = task(task_type="Fabricate", status="needs_review", stage="Lead review")
+    last = task(task_type="Fabricate", status="in_progress", stage="Inspect")
+
+    assert taskpage.main_action(todo, ["start"]) == ("start", "Start")
+    assert taskpage.main_action(middle, ["advance"]) == ("advance", "Move to next stage")
+    assert taskpage.main_action(review, ["advance"]) == ("advance", "Move to next stage")
+    assert taskpage.main_action(last, ["advance"]) == ("advance", "Finish task")
+    assert taskpage.main_action(last, []) is None

@@ -151,6 +151,9 @@
 /* The Next-step block is a link to the coach. Hover and keyboard focus draw the same 2px orange outline as every focus ring; the arrow is decoration. */
 .active__next { display: block; position: relative; background: var(--panel-inset); color: var(--panel-ink); border-radius: 3px; padding: 11px 40px 11px 14px; margin: 0 0 18px; font-size: var(--text-sm); max-width: 60ch; text-decoration: none; cursor: pointer; }
 .active__next:hover, .active__next:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+.active__sentback { background: var(--panel-inset); color: var(--panel-ink); border-left: 4px solid var(--orange-text-on-panel); border-radius: 3px; padding: 10px 14px; margin: 0 0 14px; font-size: var(--text-sm); max-width: 60ch; }
+.active__sentback b { color: var(--orange-text-on-panel); }
+.active__sentback small { display: block; font: 11px var(--font-mono); color: var(--panel-muted); margin-top: 4px; }
 .active__next small { display: block; font: 11px var(--font-mono); color: var(--panel-muted); margin-top: 4px; }
 .active__arrow { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); font: 16px var(--font-mono); color: var(--orange-text-on-panel); }
 .active__acts { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; position: relative; z-index: 1; }
@@ -178,6 +181,9 @@
 .nudge__actions form { margin: 0; }
 .nudge .btn { border-color: var(--tile-ink); color: var(--tile-ink); }
 .nudge .btn--primary { background: var(--orange); border-color: var(--orange); color: var(--on-orange); }
+/* The confirmation after "Move to next stage" is the same small box, at the top right so it
+   never covers the leaving nudge. */
+.toast { top: 20px; bottom: auto; }
 @media print { .nudge { display: none !important; } }
 
 /* Entrance: each block fades up once. The final state is the normal state, so nothing
@@ -201,6 +207,7 @@
   .active .stages { grid-template-columns: 1fr 1fr; }
   .waves { display: none; }
   .nudge { right: 12px; left: 12px; bottom: 76px; max-width: none; }   /* above the tab bar */
+  .toast { top: 12px; bottom: auto; }
   .panel--available .task-row--claim { grid-template-columns: 40px 1fr; }
   .panel--available .task-row--claim form, .panel--available .task-row--claim > .btn { grid-column: 2; justify-self: start; }
   .panel--navy, .panel--available { padding: 20px; }

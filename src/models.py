@@ -33,8 +33,9 @@ SUBSYSTEMS = (
 )
 # Each type's default steps live in steps.py.
 TASK_TYPES = ("Fabricate", "Print", "Design", "Validate", "Investigate")
-# The task flow: todo -> in_progress -> needs_review -> done (a lead sends it back
-# to in_progress). See workflow.py for who may make each move.
+# The task flow: todo -> in_progress -> needs_review -> done. The owner (or a lead) moves
+# it through every stage, review stages included; a lead may send it back (review.py).
+# See workflow.py for who may make each move.
 STATUS_LABELS = {
     "todo": "To do",
     "in_progress": "In progress",
@@ -118,7 +119,8 @@ class Task(SQLModel, table=True):
 
 
 class TaskEvent(SQLModel, table=True):
-    """One move in a task's life (started, sent for review, approved...): the History."""
+    """One move in a task's life (started, moved on, a lead notified or sending it back...):
+    the History."""
 
     __tablename__ = "task_event"
 
@@ -128,10 +130,13 @@ class TaskEvent(SQLModel, table=True):
     from_status: str | None = None  # None for the first event on a task
     to_status: str
     note: str | None = None  # a lead's reason when sending a task back
-    # What kind of move: start, advance, approve, self_approve, send_back, unclaim,
-    # change_type, edit_steps. None on older rows (their text comes from the statuses).
+    # What kind of move: start, advance, send_back, unclaim, change_type, edit_steps, and the
+    # two that move nothing: review_requested (a member notified a lead; `detail` is their
+    # message, `note` holds the stage and entry as JSON: see review.py) and review_seen.
+    # Older rows may be approve or self_approve (from when leads approved), or have no kind
+    # (their text comes from the statuses).
     kind: str | None = None
-    detail: str | None = None  # the step finished or approved, the new type, the steps
+    detail: str | None = None  # the stage moved on from, the new type, the steps, a message
     created_at: datetime = Field(default_factory=utc_now, index=True)
 
 
@@ -437,7 +442,7 @@ class TaskSuggestion(SQLModel, table=True):
 class WorkNote(SQLModel, table=True):
     """One entry in a member's notebook: what they did on a task, and why.
 
-    Posted by the member without a lead's approval. `original` is what the member
+    Published by the member themselves; no lead approves it. `original` is what the member
     wrote before "Tidy my note" (the same text again if they didn't use it), so the
     member's own words are never lost. `task_code` and `subsystem` are kept as text,
     so the note outlives its task being removed (`task_id` is then unset).

@@ -34,6 +34,7 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from sqlalchemy import or_
 from sqlalchemy.orm import defer
 from sqlmodel import Session, col, delete, func, select
 
@@ -44,6 +45,7 @@ import llm
 import localtime
 import photos
 import retrieval
+import review
 import shell
 import specs
 import workflow
@@ -150,7 +152,10 @@ def active_task_today(session: Session, user: User) -> Task | None:
     start = localtime.day_start_utc()
     moves = session.exec(
         select(TaskEvent.task_id, TaskEvent.created_at).where(
-            TaskEvent.actor == user["name"], TaskEvent.created_at >= start
+            TaskEvent.actor == user["name"],
+            TaskEvent.created_at >= start,
+            # a lead pressing "Seen" on someone's notification isn't working on the task
+            or_(col(TaskEvent.kind).is_(None), col(TaskEvent.kind) != review.SEEN),
         )
     ).all()
     asked = session.exec(
@@ -708,7 +713,7 @@ class Submitted:
     """The entry form as posted: its text, which button was pressed, and any photos (already
     read, each at most `photos.MAX_BYTES`)."""
 
-    do: str = "save"  # which button: save, photos, tidy, specs, publish, discard, remove-photo-N
+    do: str = "save"  # which button: save, photos, tidy, specs, publish, notify, discard, remove-photo-N
     task: str = ""
     did: str = ""
     why: str = ""
@@ -718,6 +723,8 @@ class Submitted:
     original_why: str = ""
     asked: str = ""
     reply: str = ""
+    message: str = ""  # the optional line to a lead, for "Notify team lead for review"
+    follow_up: bool = False  # "Send a follow-up message": another notification while one waits
     keep: set[int] = field(default_factory=set)
     spec_text: dict[int, str] = field(default_factory=dict)
     files: list[tuple[str, bytes]] = field(default_factory=list)
@@ -746,6 +753,8 @@ async def read_submitted(request: Request, action: str) -> Submitted:
         original_why=str(form.get("original_why") or ""),
         asked=str(form.get("asked") or ""),
         reply=str(form.get("reply") or ""),
+        message=str(form.get("message") or ""),
+        follow_up=str(form.get("follow_up") or "") == "1",
     )
     sub.keep = {n for n in (_int(v) for v in form.getlist("keep")) if n is not None}
     for key in form:
@@ -951,6 +960,7 @@ def todays_form(session: Session, user: User, code: str, entry_id: int | None, r
         "entry": entry,
         "form": values,
         "refers": refers_view(session, refers),
+        "review": review.status_for(session, task) if task is not None else None,
         "photos_left": photos.MAX_PHOTOS - len(entry["photos"]) if entry else photos.MAX_PHOTOS,
     }
 
@@ -990,6 +1000,7 @@ def panel_context(
         "task": None,
         "entry": None,
         "refers": None,
+        "review": None,
         "photos_left": photos.MAX_PHOTOS,
         "days": [],
         "more": False,
@@ -1199,7 +1210,7 @@ def _respond(
     )
 
 
-ACTIONS = re.compile(r"save|photos|tidy|specs|publish|discard|remove-photo-\d+")
+ACTIONS = re.compile(r"save|photos|tidy|specs|publish|notify|discard|remove-photo-\d+")
 
 
 @router.post("/notebook/entry/{action}", response_class=HTMLResponse)
@@ -1210,7 +1221,7 @@ async def entry_form(
     user: CurrentUser,
 ):
     """Every button of the entry form: save (and add photos), tidy, suggest specs, publish,
-    discard, or remove a photo (the `action`). The form is multipart because it may carry
+    notify a lead, discard, or remove a photo (the `action`). The form is multipart because it may carry
     photos."""
     if not ACTIONS.fullmatch(action):
         raise HTTPException(status_code=404)
@@ -1250,6 +1261,8 @@ def _handle(request: Request, session: Session, user: User, sub: Submitted, form
         text, problem = publish_notice(note, result)
         return _respond(request, session, user, tab="earlier", notice=None if problem else text,
                         error=text if problem else None, posted=note.id)
+    if action == "notify":  # independent of publishing: it neither publishes nor needs a draft
+        return notify_form(request, session, user, sub, form)
     if action == "discard":
         note = own_draft(session, user, sub.entry)
         if note is None:
@@ -1296,6 +1309,48 @@ def _handle(request: Request, session: Session, user: User, sub: Submitted, form
                         error=" ".join(problems))
     saved = f"{added} photo{'s' if added != 1 else ''} added." if added and action == "photos" else "Draft saved."
     return _respond(request, session, user, entry_id=note.id, notice=saved)
+
+
+def entry_to_link(session: Session, user: User, sub: Submitted, task: Task) -> int | None:
+    """The entry a notification links to: the draft being written (saved), else the entry
+    this one follows up, else the member's latest published entry on this task today. None
+    (the task only) when there is nothing saved."""
+    draft = own_draft(session, user, sub.entry)
+    if draft is not None and draft.task_code == task.code:
+        return draft.id
+    refers = own_published(session, user, sub.refers)
+    if refers is not None and refers.task_code == task.code:
+        return refers.id
+    latest = session.exec(
+        select(WorkNote)
+        .where(
+            func.lower(WorkNote.member) == user["email"].casefold(),
+            WorkNote.state == "published",
+            WorkNote.task_code == task.code,
+            WorkNote.posted_at >= localtime.day_start_utc(),
+        )
+        .order_by(col(WorkNote.posted_at).desc(), col(WorkNote.id).desc())
+    ).first()
+    return latest.id if latest is not None else None
+
+
+def notify_form(request: Request, session: Session, user: User, sub: Submitted, form: dict[str, Any]) -> Response:
+    """"Notify team lead for review": records the notification (`review.py`) and shows the
+    form again, with what was typed still in it. It does not publish or save anything."""
+    task = _task(session, sub.task)
+    try:
+        done = review.notify(
+            session, task, user, sub.message,
+            entry_id=entry_to_link(session, user, sub, task), follow_up=sub.follow_up,
+        )
+    except review.ReviewError as exc:
+        raise LogError(exc.message, exc.status) from exc
+    if not done.sent:  # keep their words: a follow-up reuses them
+        form["message"] = " ".join(sub.message.split())
+    return render_panel(
+        request, session, user, entry_id=sub.entry, form=form, code=sub.task,
+        refers_id=sub.refers, notice=review.sent_text(done),
+    )
 
 
 def tidy_form(request: Request, session: Session, user: User, sub: Submitted, form: dict[str, Any]) -> Response:

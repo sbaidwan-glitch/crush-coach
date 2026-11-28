@@ -4,7 +4,7 @@
 
 Starts the app against a throwaway SQLite database seeded with the made-up sample
 tasks, signs in with a forged session cookie for a made-up member, and saves
-/, /tasks, /tasks/E01 (a member's own task in progress), /tasks/G01 (waiting for a lead),
+/, /tasks, /tasks/E01 (a member's own task in progress), /tasks/G01 (a lead was notified),
 /tasks/G01 as a member (a conflicting coach answer with "Ask a lead to settle this"), /tasks/M02 (a "Plan my next steps" answer), the Notebook (page and side panel), the lead Inbox (one card of each kind), the Record, the Timeline and /profile, /admin and /admin/import at 375px and 1280px into
 .context/screenshots/ (gitignored).
 It never touches your real database, your .env secrets, the model or Google.
@@ -168,18 +168,33 @@ def seed() -> None:
                 ),
                 TaskEvent(
                     task_id=waiting.id,
-                    actor="Jordan Demo",
-                    from_status="in_progress",
-                    to_status="needs_review",
-                    created_at=now - timedelta(days=2),
-                ),
-                TaskEvent(
-                    task_id=waiting.id,
                     actor=LEAD["name"],
                     from_status="needs_review",
                     to_status="in_progress",
+                    kind="send_back",
                     note="Check the jaw spacing against the drawing.",
+                    detail="Drawing",
                     created_at=now - timedelta(days=4),
+                ),
+                TaskEvent(
+                    task_id=waiting.id,
+                    actor="Jordan Demo",
+                    from_status="in_progress",
+                    to_status="needs_review",
+                    kind="advance",
+                    detail="Drawing",
+                    created_at=now - timedelta(days=3),
+                ),
+                # The member notified a lead: this is the one card in the lead's Inbox.
+                TaskEvent(
+                    task_id=waiting.id,
+                    actor="Jordan Demo",
+                    from_status="needs_review",
+                    to_status="needs_review",
+                    kind="review_requested",
+                    detail="Please confirm the jaw spacing.",
+                    note='{"stage":"Lead review","entry":null}',
+                    created_at=now - timedelta(days=2),
                 ),
                 CoachMessage(
                     task_id=mine.id,
@@ -245,7 +260,7 @@ def seed() -> None:
                         "**You should end up with**\n"
                         "- A short note listing which faces the latch touches, with a link to the notes.\n"
                         "- A labelled sketch of the lid and latch.\n\n"
-                        "**Then:** Lead review comes after Drawing: ask for review, and a lead checks the work before it moves on."
+                        "**Then:** Lead review comes after Drawing: move to it when the work is ready, and show a lead in person or notify one from your Notebook."
                     ),
                     meta=json.dumps(
                         {
@@ -286,7 +301,7 @@ def seed() -> None:
                 content=(
                     "An O-ring is the confirmed choice for the lid. I can't give a groove "
                     "depth without a source you can open, so take it from the document "
-                    "below. Your lead approves the drawing, not me."
+                    "below. Your lead reviews the drawing, not me."
                 ),
                 meta=json.dumps(meta),
             )

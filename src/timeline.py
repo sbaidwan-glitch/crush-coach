@@ -12,7 +12,7 @@ The date rules are one pure function, `span_for`, so they are tested without a d
   picked up again starts again. With no start event (it was in progress before the tracker
   kept events) it starts at its first event.
 - Done: ends the day of its latest "done" event (or its last event, if none says done).
-- Waiting for review: ends the day it was sent for review.
+- On a review stage: ends the day the task moved onto it.
 - Otherwise open: runs up to today.
 - A task that has started but has no events at all has no dates to draw from. It gets no
   bar and is named at the foot of its panel instead of being given an invented date.
@@ -34,6 +34,7 @@ import db
 import localtime
 import profiles
 import progress
+import review
 import shell
 from auth import MaybeUser
 from models import STATUS_LABELS, Task, TaskEvent
@@ -65,8 +66,12 @@ class Span(NamedTuple):
 
 
 def moments(events: Iterable[TaskEvent]) -> list[Moment]:
-    """TaskEvents in the order they happened, as days in the team's time zone."""
-    ordered = sorted(events, key=lambda e: (e.created_at, e.id or 0))
+    """TaskEvents in the order they happened, as days in the team's time zone. Telling a
+    lead about a task, and a lead seeing it, aren't moves: they never draw a bar."""
+    ordered = sorted(
+        (e for e in events if e.kind not in review.NOT_MOVES),
+        key=lambda e: (e.created_at, e.id or 0),
+    )
     return [Moment(e.kind, e.from_status, e.to_status, localtime.local_date(e.created_at))
             for e in ordered]
 

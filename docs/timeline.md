@@ -8,9 +8,9 @@ Reference: `docs/concepts/timeline.html`, `profile.html` (+ `timeline-light-1440
   - start = the task's latest "start/claim" event (a task unclaimed and picked up again starts again);
   - end = its "done" event; an open task runs to today;
   - a task already in progress before the tracker had events starts at its first event. `Task` has no `created_at`, so a started task with no events at all has no date to draw from: it gets no bar and is named in a second foot line ("Started before the tracker kept dates") rather than given an invented date;
-  - a task waiting for review ends the day it was sent for review (as in `timeline-light-1440.png`); a task sent back is open again and keeps its start.
+  - a task on a review stage ends the day it moved onto it (as in `timeline-light-1440.png`; telling a lead about a task is not a move and draws nothing); a task sent back is open again and keeps its start.
   - Not-started tasks get no bar; each panel lists them in one line at its foot.
-- Bar styles (never colour alone): finished = solid; open = tinted with an outline, ending at today; waiting for review = solid with a review-coloured outline. The status text in the label says which.
+- Bar styles (never colour alone): finished = solid; open = tinted with an outline, ending at today; on a review stage = solid with a review-coloured outline. The status text in the label says which.
 - The person's icon chip sits at the bar's tip with their short name; two owners stack two chips ("Name +1"). A "Today" line crosses every row. The axis shows weeks; its range is the earliest start to the latest end (today counts as an end), plus a week either side, beginning on a Monday. One column per week, or two or three once there would be more than ten, so labels never collide (`--col` on `.tl-inner` sets the grid lines).
 - Phones: the chart scrolls sideways inside its own container; the label column, each panel's title and its foot lines stay pinned, and `timeline.js` opens the chart scrolled to Today.
 - Read-only for everyone; no model calls.

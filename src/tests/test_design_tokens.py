@@ -128,6 +128,7 @@ CONTRAST_PAIRS = [
     ("panel-ink", "side", "Wordmark"),
     ("orange-text-on-panel", "side", "Mode button"),
     ("on-ink", "ink", "Text on an ink fill (selected filter, skip link)"),
+    ("on-ink", "info", "Notify team lead button"),
 ]
 
 

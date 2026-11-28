@@ -7,7 +7,6 @@ comes from `Task.status` through `progress.py`.
 """
 
 import logging
-from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
@@ -23,9 +22,7 @@ from auth import MaybeUser
 from models import (
     STATUS_LABELS,
     Task,
-    TaskEvent,
     TaskSuggestion,
-    utc_now,
 )
 
 log = logging.getLogger("crush_coach")
@@ -110,37 +107,6 @@ def my_suggestions(session: Session, user: dict | None) -> list[TaskSuggestion]:
             .order_by(col(TaskSuggestion.created_at).desc(), col(TaskSuggestion.id).desc())
         ).all()
     )
-
-
-def age_text(since: datetime | None) -> str | None:
-    """"under a day", "1 day", "3 days": how long a task has waited."""
-    if since is None:
-        return None
-    days = max(0, (utc_now() - since).days)
-    return "under a day" if days == 0 else f"{days} day{'' if days == 1 else 's'}"
-
-
-def waiting_for_review(session: Session, tasks: list[Task]) -> list[dict]:
-    """Tasks waiting for a lead, longest wait first, with how long they've waited."""
-    rows = []
-    for task in tasks:
-        if task.status != "needs_review":
-            continue
-        event = session.exec(
-            select(TaskEvent)
-            .where(TaskEvent.task_id == task.id, TaskEvent.to_status == "needs_review")
-            .order_by(col(TaskEvent.created_at).desc())
-        ).first()
-        rows.append(
-            {
-                "task": task,
-                "since": event.created_at if event else None,
-            }
-        )
-    rows.sort(key=lambda r: (r["since"] is None, r["since"] or utc_now()))
-    for row in rows:
-        row["age"] = age_text(row["since"])
-    return rows
 
 
 @router.get("/tasks", response_class=HTMLResponse)

@@ -21,6 +21,8 @@ a { color: inherit; }
 .btn:hover { background: var(--color-field); }
 .btn--primary { background: var(--orange); border-color: var(--orange); color: var(--on-orange); }   /* navy text: white on orange fails contrast */
 .btn--primary:hover { background: var(--orange-text-on-panel); border-color: var(--orange-text-on-panel); }
+.btn--notify { background: var(--info); border-color: var(--info); color: var(--on-ink); }   /* the one blue button: tell a lead */
+.btn--notify:hover { background: var(--info); text-decoration: underline; }
 .btn--small { height: 34px; padding: 0 var(--space-3); font-size: 13px; }
 .btn[disabled] { opacity: .5; cursor: not-allowed; }
 .segmented { display: inline-flex; }

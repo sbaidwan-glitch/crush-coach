@@ -2,9 +2,11 @@
 
 Three kinds of card, each with its own mark:
 
-- **Work to check**: a task waiting at a review step. Accept or Send back (the moves
-  themselves are `workflow.move`); on Accept an optional line is saved as a recorded
-  answer for the task's subsystem.
+- **Work to check**: a member notified a lead about a task (`review.py`, from the
+  Notebook). It shows who, the task, the stage, their message and how long ago. **Seen**
+  removes the card; **Send back** (with a one-line reason) moves the task back if it is
+  still on or past the review stage. Nothing here approves anything, and a task that
+  merely sits on a review stage has no card.
 - **Answer to settle** (`AnswerRequest`): a member pressed "Ask a lead to settle this"
   on a coach answer. A lead records one of the options, another value, or typed text.
 - **New task** (`TaskSuggestion`): a member's "Suggest a task". A lead adds it (maybe
@@ -27,6 +29,7 @@ import board
 import db
 import decisions
 import import_tasks
+import review
 import shell
 import steps
 import taskpage
@@ -41,7 +44,6 @@ from models import (
     TaskSuggestion,
     utc_now,
 )
-from progress import owned_by
 
 log = logging.getLogger("crush_coach")
 templates = shell.templates()
@@ -74,9 +76,7 @@ class InboxError(Exception):
 
 def count(session: Session) -> int:
     """How many cards a lead has: the number on the Inbox link."""
-    work = session.exec(
-        select(func.count()).select_from(Task).where(Task.status == "needs_review")
-    ).one()
+    work = review.count(session)
     answers = session.exec(
         select(func.count()).select_from(AnswerRequest).where(AnswerRequest.status == "open")
     ).one()
@@ -86,28 +86,13 @@ def count(session: Session) -> int:
     return work + answers + new_tasks
 
 
-def work_cards(
-    session: Session, tasks: list[Task], lead: User | None = None
-) -> list[dict[str, Any]]:
-    """Tasks waiting at a review step, longest wait first. `mine` marks the lead's own."""
-    cards = []
-    for row in board.waiting_for_review(session, tasks):
-        task = row["task"]
-        found = _GOOGLE_LINK.search(task.documentation or "")
-        listed = steps.steps_for(task)
-        here = steps.current_index(task, listed)
-        cards.append(
-            {
-                "kind": "work",
-                "id": task.id,
-                "task": task,
-                "step": task.stage,
-                "finished": listed[here - 1].name if 0 < here <= len(listed) else None,
-                "mine": lead is not None and owned_by(task, lead["name"], lead["email"]),
-                "age": row["age"],
-                "docs_link": found.group(0) if found else None,
-            }
-        )
+def work_cards(session: Session) -> list[dict[str, Any]]:
+    """Tasks a member notified a lead about and nobody has answered, longest wait first.
+    (A lead may notify themselves; their card looks like any other.)"""
+    cards = review.cards(session)
+    for card in cards:
+        found = _GOOGLE_LINK.search(card["task"].documentation or "")
+        card["docs_link"] = found.group(0) if found else None
     return cards
 
 
@@ -146,15 +131,13 @@ def task_cards(session: Session, edit_id: int | None = None) -> list[dict[str, A
     return cards
 
 
-def load(
-    session: Session, tasks: list[Task], edit_id: int | None = None, lead: User | None = None
-) -> tuple[list[dict[str, Any]], list[str]]:
+def load(session: Session, edit_id: int | None = None) -> tuple[list[dict[str, Any]], list[str]]:
     """Every card, work first, then answers, then new tasks, and a plain sentence for
     each kind that couldn't be loaded (the rest still shows)."""
     cards: list[dict[str, Any]] = []
     errors: list[str] = []
     for label, loader in (
-        ("work to check", lambda: work_cards(session, tasks, lead)),
+        ("work to check", lambda: work_cards(session)),
         ("answers to settle", lambda: answer_cards(session)),
         ("suggested tasks", lambda: task_cards(session, edit_id)),
     ):
@@ -393,17 +376,7 @@ def render_inbox(
 ) -> HTMLResponse:
     """The Inbox page. `notice` says what went wrong with a lead's action on a card (the
     rest of the page still shows); `edit` opens a suggested task for editing."""
-    tasks: list[Task] = []
-    cards: list[dict[str, Any]] = []
-    errors: list[str] = []
-    try:
-        tasks = board.load_tasks(session)
-    except Exception as exc:  # noqa: BLE001  (say so; the sidebar and notice still show)
-        session.rollback()
-        log.error("Could not load tasks for the inbox (%s)", type(exc).__name__)
-        errors = ["Couldn't load what is waiting for you right now."]
-    if not errors:
-        cards, errors = load(session, tasks, edit, user)
+    cards, errors = load(session, edit)
     context = {
         "user": user,
         "cards": cards,
@@ -428,12 +401,41 @@ def inbox_page(
 def _back(request: Request, session: Session, user: User, exc: Exception) -> Response:
     """The Inbox again, saying what went wrong; the rest of the page still works."""
     session.rollback()
-    if isinstance(exc, InboxError):
+    if isinstance(exc, (InboxError, review.ReviewError)):
         message, status = exc.message, exc.status
     else:
         log.error("Could not save a lead's action (%s)", type(exc).__name__)
         message, status = DB_ERROR, 503
     return render_inbox(request, session, user, notice=message, status=status)
+
+
+@router.post("/inbox/review/{event_id}/seen", response_class=Response)
+def review_seen(
+    request: Request,
+    event_id: int,
+    session: Annotated[Session, Depends(db.get_session)],
+    lead: LeadUser,
+):
+    try:
+        review.mark_seen(session, lead, event_id)
+    except Exception as exc:  # noqa: BLE001  (the page says what failed)
+        return _back(request, session, lead, exc)
+    return RedirectResponse("/inbox", status_code=303)
+
+
+@router.post("/inbox/review/{event_id}/send-back", response_class=Response)
+def review_send_back(
+    request: Request,
+    event_id: int,
+    session: Annotated[Session, Depends(db.get_session)],
+    lead: LeadUser,
+    reason: Annotated[str, Form()] = "",
+):
+    try:
+        review.send_back(session, lead, event_id, reason)
+    except Exception as exc:  # noqa: BLE001
+        return _back(request, session, lead, exc)
+    return RedirectResponse("/inbox", status_code=303)
 
 
 @router.post("/answers/{request_id}/record", response_class=Response)

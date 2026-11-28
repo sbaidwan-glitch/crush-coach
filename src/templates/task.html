@@ -72,13 +72,13 @@
       </div>
       {% endif %}
       {% if step_note and "advance" in actions %}<p class="meta">{{ step_note }}</p>{% endif %}
-      {% if task.status == "needs_review" %}
-      <p class="meta">Waiting for a lead to check it.{% if is_lead %} <a href="/inbox">Check it in the Inbox</a>.{% endif %}</p>
-      {% elif task.status == "done" %}
+      {% if sent_back %}<p class="meta" role="status"><b>Sent back:</b> {{ sent_back.reason }} <span class="task-row__meta">{{ sent_back.by }}</span></p>{% endif %}
+      {% if review and review.waiting %}<p class="meta">A lead was notified at {{ review.clock }}{% if review.message %}: “{{ review.message }}”{% endif %}.{% if is_lead %} <a href="/inbox">See it in the Inbox</a>.{% endif %}</p>{% endif %}
+      {% if task.status == "done" %}
       <p class="meta">Every step is done.</p>
       {% elif task.status == "todo" and task.owner and "start" not in actions %}
       <p class="meta">{{ task.owner }} owns this task. Only they or a lead can start it.</p>
-      {% elif task.status == "in_progress" and not actions %}
+      {% elif task.status in ("in_progress", "needs_review") and not actions %}
       <p class="meta">Only {{ task.owner or "its owner" }} or a lead can move this task.</p>
       {% endif %}
     </section>
@@ -120,7 +120,7 @@
       {% if history_error %}{{ error_state(history_error, "/tasks/" ~ task.code, "Try again") }}
       {% elif history %}
       <ul class="history">{% for h in history %}<li><time>{{ h.date }}</time><span>{{ h.text }}{% if h.detail %}<span class="task-row__meta">{{ h.detail }}</span>{% endif %}{% if h.note %}<span class="task-row__meta">“{{ h.note }}”</span>{% endif %}</span></li>{% endfor %}</ul>
-      {% else %}{{ empty_state("No changes yet. Starting, review and approval show up here.") }}{% endif %}
+      {% else %}{{ empty_state("No changes yet. Starting, moving on and notifying a lead show up here.") }}{% endif %}
     </section>
   </div>
 </div>

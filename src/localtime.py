@@ -50,3 +50,10 @@ def week_start_utc() -> datetime:
 def heading(day: date) -> str:
     """A day as the Record and the Crush document write it: "17 Nov 2026"."""
     return f"{day.day} {MONTHS[day.month - 1]} {day.year}"
+
+
+def clock(moment: datetime) -> str:
+    """A stored (naive UTC) moment as the team reads the time of day: "4:10 pm"."""
+    local = moment.replace(tzinfo=UTC).astimezone(timezone())
+    hour = local.hour % 12 or 12
+    return f"{hour}:{local.minute:02d} {'am' if local.hour < 12 else 'pm'}"

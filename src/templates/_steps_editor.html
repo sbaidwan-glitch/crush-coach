@@ -9,7 +9,7 @@
   <details{% if steps_draft is not none or rows is defined or err %} open{% endif %}>
     <summary>Edit steps</summary>
     <button type="submit" name="op" value="save" hidden tabindex="-1" aria-hidden="true">Save steps</button>
-    <p class="meta">Rename, add, remove or reorder this task’s steps. Tick “Lead review” on a step where a lead has to approve before work goes on.</p>
+    <p class="meta">Rename, add, remove or reorder this task’s steps. Tick “Lead review” on a stage where a lead looks at the work. Whoever owns the task moves it on when they are ready; nothing waits for a lead.</p>
     {% if err %}<div class="notice notice--error" role="alert"><p>{{ err }}</p></div>{% endif %}
     <ol class="steps-editor__list">
       {% for r in editing %}

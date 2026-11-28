@@ -215,6 +215,8 @@ input[type="radio"] { accent-color: var(--color-ink); }
 .sidepanel__links a { font-size: var(--text-sm); font-weight: var(--weight-semibold); white-space: nowrap; }
 .sidepanel__messages:empty { display: none; }
 .actions--quiet { margin-top: var(--space-2); }
+.notify { margin-top: var(--space-4); }   /* the message for a lead, above Tidy / Publish / Notify */
+.notify .hint button { margin-left: var(--space-2); }
 .notebook-page .panel__head { align-items: center; flex-wrap: wrap; }
 .notebook-page .segmented { flex-wrap: wrap; }
 .notebook-page .notice:first-child { margin-top: var(--space-3); }
