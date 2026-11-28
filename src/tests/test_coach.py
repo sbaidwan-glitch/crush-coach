@@ -215,7 +215,7 @@ def test_unknown_task_is_a_plain_404(client, session):
 
     assert response.status_code == 404
     assert "Task not found" in response.text
-    assert '<nav class="sidebar" aria-label="Main">' in response.text
+    assert '<nav class="sidebar__nav" aria-label="Main">' in response.text
 
 
 def test_task_page_survives_a_database_failure(monkeypatch, task, client):
@@ -230,7 +230,7 @@ def test_task_page_survives_a_database_failure(monkeypatch, task, client):
 
     assert response.status_code == 503
     assert "secret" not in response.text
-    assert '<nav class="sidebar" aria-label="Main">' in response.text
+    assert '<nav class="sidebar__nav" aria-label="Main">' in response.text
 
 
 # --- access: signed-in members only ---

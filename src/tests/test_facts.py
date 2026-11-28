@@ -131,7 +131,7 @@ def test_the_page_survives_a_database_failure(lead, monkeypatch):
     assert response.status_code == 503
     assert "Couldn&#39;t load the team facts" in response.text
     assert "secret" not in response.text
-    assert '<nav class="sidebar" aria-label="Main">' in response.text
+    assert '<nav class="sidebar__nav" aria-label="Main">' in response.text
 
 
 # --- add, edit, remove ---

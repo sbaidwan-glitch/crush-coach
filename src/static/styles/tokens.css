@@ -1,6 +1,10 @@
-/* Crush Coach design tokens: "Drafting" theme.
+/* Crush Coach design tokens: "Polar" theme (docs/design.md, docs/concepts/polar.css).
    Every colour, font, size and space in the app comes from here.
-   Light theme only. Square corners everywhere (status dots are the one exception). */
+   This file is the light theme. theme.css overrides the base tokens for dark
+   (`[data-theme="dark"]`, and the system setting until someone presses the mode button).
+   The base tokens are the concept's names (--page, --panel, --paper, --tile, --orange ...).
+   The --color-* names below them are what the pages use; they point at the base tokens, so
+   a theme only has to change the base ones. Corners are 4px (--radius). */
 
 @font-face { font-family: "Manrope"; font-weight: 400; font-display: swap; src: url("../fonts/manrope/manrope-latin-400-normal.woff2") format("woff2"); }
 @font-face { font-family: "Manrope"; font-weight: 500; font-display: swap; src: url("../fonts/manrope/manrope-latin-500-normal.woff2") format("woff2"); }
@@ -8,60 +12,94 @@
 @font-face { font-family: "JetBrains Mono"; font-weight: 400; font-display: swap; src: url("../fonts/jetbrains-mono/jetbrains-mono-latin-400-normal.woff2") format("woff2"); }
 
 :root {
-  /* Surfaces */
-  --color-paper: #eef1f2;        /* page background (with dot grid) */
-  --color-sheet: #fbfcfc;        /* panels */
-  --color-field: #f1f4f6;        /* read-only fields, inset boxes */
-  --color-rule: #cdd6dc;         /* 1px borders and dividers */
-  --color-track: #dde3e7;        /* empty part of progress bars */
-  --color-blueprint: #d7e3ea;    /* Crush panel background, selected nav */
-  --color-grid: rgba(62, 106, 135, 0.16);
-  --color-dot: rgba(29, 47, 61, 0.13);
+  /* Base tokens (the Polar concept). The page is pale; instrument panels are navy. */
+  --page: #e8eff3;               /* page background (with a dot grid) */
+  --dots: rgba(27, 47, 73, 0.07);
+  --paper: #fbfcfd;              /* light panels: content, forms, lists */
+  --paper-line: #c6d3df;         /* 1px borders and dividers on the page and on paper */
+  --field: #eef3f7;              /* read-only fields, inset boxes on paper */
+  --track: #dbe4ec;              /* empty part of progress bars */
+  --tile: #cfdce7;               /* stat tiles, the leaving nudge, "next step" boxes */
+  --tile-ink: #14233a;
+  --tile-muted: #3b536b;
+  --tile-line: #1b2f49;
+  --panel: #1b2f49;              /* navy instrument panels */
+  --panel-ink: #eaf1f6;
+  --panel-muted: #a9bccd;
+  --panel-rule: #35506f;
+  --panel-inset: #243d5c;
+  --panel-btn: #2a4767;
+  --grid: rgba(169, 188, 205, 0.16);   /* blueprint grid behind the Crush render */
+  --ink: #14233a;
+  --muted: #46596e;
+  --on-ink: #fbfcfd;             /* text on an --ink background */
+  --orange: #ef7d3e;             /* the one accent: active item, primary buttons, bars */
+  --on-orange: #10192a;          /* text on orange (white on orange fails contrast) */
+  --orange-text-on-panel: #f6a06a;
+  --orange-text-on-page: #a8470f;
+  --side: #1b2f49;               /* sidebar */
+  --side-ink: #b9cadb;
+  --info: #24598c;               /* in progress */
+  --info-on-panel: #8fbbe6;
+  --ok: #2c6a4d;                 /* done */
+  --ok-on-panel: #7fc4a0;
+  --danger: #a33a2a;             /* errors only */
+  --danger-on-panel: #f0a08f;
 
-  /* Ink */
-  --color-ink: #1d2f3d;          /* text, sidebar, primary buttons, panel rule (strong) */
-  --color-muted: #5d6d7a;        /* secondary text (passes 4.5:1 on sheet) */
-  --color-on-ink: #ffffff;
-  --color-on-ink-muted: #8ea4b4;
+  /* Names the pages use */
+  --color-paper: var(--page);
+  --color-sheet: var(--paper);
+  --color-field: var(--field);
+  --color-rule: var(--paper-line);
+  --color-track: var(--track);
+  --color-blueprint: var(--tile);
+  --color-grid: var(--grid);
+  --color-dot: var(--dots);
+
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-on-ink: var(--on-ink);
+  --color-on-ink-muted: var(--side-ink);
 
   /* Accent and status. Status is never shown by colour alone: each has a shape. */
-  --color-accent: #3e6a87;       /* links, task codes, panel top rule, in progress */
-  --color-accent-light: #8fb6cf; /* active nav marker on the sidebar */
-  --color-done: #4b6b5a;         /* done: filled circle */
-  --color-review: #c06a45;       /* needs review: filled square */
-  --color-todo: var(--color-muted);  /* to do: open circle */
-  --color-danger: #a33a2a;       /* errors only */
+  --color-accent: var(--orange-text-on-page);   /* links, task codes */
+  --color-accent-light: var(--orange);
+  --color-done: var(--ok);                      /* done: filled circle */
+  --color-info: var(--info);                    /* in progress: half circle */
+  --color-review: var(--orange-text-on-page);   /* needs review: filled square */
+  --color-todo: var(--muted);                   /* to do: open circle */
+  --color-danger: var(--danger);                /* errors only */
 
-  /* Subsystem colours (Build progress bar and swatches) */
+  /* Subsystem colours (progress rulers, swatches, Timeline bars) */
   --color-sub-1: #3e6a87;
-  --color-sub-2: #7fa3b8;
-  --color-sub-3: #8c9a83;
-  --color-sub-4: #c9a35e;
+  --color-sub-2: #5f93a3;
+  --color-sub-3: #738c5f;
+  --color-sub-4: #b88a2e;
   --color-sub-5: #c06a45;
 
   /* Type */
   --font-sans: "Manrope", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;   /* task codes, decision ids, CAD tags only */
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;   /* task codes, ids, counts, eyebrows, nav */
   --text-xs: 12px;   /* meta, status labels */
   --text-sm: 13px;   /* field labels, counts */
   --text-md: 15px;   /* body */
   --text-lg: 21px;   /* panel titles */
-  --text-xl: 36px;   /* page title */
+  --text-xl: 40px;   /* page title */
   --weight-regular: 400;
   --weight-medium: 500;
   --weight-semibold: 600;
   --tracking-title: -0.01em;
-  --tracking-label: 0.08em;      /* uppercase field labels only */
+  --tracking-label: 0.08em;      /* uppercase labels only */
 
   /* Space (4px base) */
   --space-1: 4px;  --space-2: 8px;  --space-3: 12px; --space-4: 16px;
   --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px;
 
   /* Layout */
-  --sidebar-width: 84px;
+  --sidebar-width: 216px;
   --remove-list-max: 320px;      /* the tick list of tasks to remove scrolls past this */
-  --panel-rule: 3px;             /* coloured top border on panels */
-  --radius: 0;                   /* square corners; don't add radius */
-  --focus-ring: 0 0 0 3px rgba(62, 106, 135, 0.45);
-  --shadow-render: 0 6px 10px rgba(29, 47, 61, 0.25); /* only on the Crush render */
+  --panel-rule: 3px;             /* left rule on notices and tinted boxes (not on panels) */
+  --radius: 4px;                 /* panels, buttons, tags and fields */
+  --focus-ring: 0 0 0 2px var(--orange);   /* where an outline can't be used; elsewhere `outline: 2px solid var(--orange)` */
+  --shadow-render: 0 12px 14px rgba(0, 0, 0, 0.5);   /* only on the Crush render */
 }

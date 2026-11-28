@@ -229,7 +229,7 @@ def panel_html(html: str, slug: str) -> str:
     return html[start : html.index("</section>", start)]
 
 
-def test_each_part_of_crush_is_a_panel_in_its_own_tone(session, client):
+def test_each_part_of_crush_is_a_panel_in_its_own_colour(session, client):
     add_task(session, "M01", "Enclosure")
     add_task(session, "E01", "Electronics Mounts")
     add_task(session, "M10", "Seals/Waterproofing")
@@ -239,11 +239,12 @@ def test_each_part_of_crush_is_a_panel_in_its_own_tone(session, client):
 
     html = client.get("/timeline").text
 
-    for slug in ("enclosure", "seals", "thrusters", "actuators"):
-        tone = progress.PANEL_TONES[slug]
-        assert re.search(rf'<section class="panel panel--flush" data-tone="{tone}" aria-labelledby="h-{slug}"', html)
-    assert [progress.PANEL_TONES[s] for s in ("enclosure", "seals", "thrusters", "actuators")] == [
-        "blue", "teal", "sage", "sand"]  # the same colours as their progress bars
+    # The bars in a panel take the colour of its part of Crush, the same as its progress ruler.
+    for spec in progress.SUBSYSTEM_GROUPS:
+        assert re.search(
+            rf'<section class="panel panel--flush" style="--tone:var\(--color-sub-{spec["colour"]}\)" aria-labelledby="h-{spec["slug"]}"',
+            html,
+        )
     # Electronics Mounts sit in the Enclosure panel; Gripper and Torpedo in Actuators.
     assert "E01" in panel_html(html, "enclosure")
     assert "G01" in panel_html(html, "actuators") and "T01" in panel_html(html, "actuators")
@@ -339,8 +340,8 @@ def test_a_database_failure_is_said_plainly_with_the_rest_of_the_page(session, c
 def test_the_timeline_link_is_in_the_sidebar_and_marked_current(session, client):
     html = client.get("/timeline").text
 
-    nav = html[html.index('<nav class="sidebar"') : html.index("</nav>")]
-    assert re.search(r'<a class="sidebar__link" href="/timeline" aria-current="page">.*?<span>Timeline</span>', nav)
+    nav = html[html.index('<nav class="sidebar__nav"') : html.index("</nav>")]
+    assert re.search(r'<a class="sidebar__link" href="/timeline" aria-current="page">.*?Timeline</span>', nav)
     assert nav.index("/tasks") < nav.index("/timeline") < nav.index("/record")
 
 

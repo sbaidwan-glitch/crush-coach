@@ -1,90 +1,112 @@
 {% extends "base.html" %}
-{% from "components/button.html" import button_link %}
 {% from "components/feedback.html" import notice as notice_box, empty_state, error_state, preview_notice %}
-{% from "components/progress_bar.html" import pbar, diamond %}
-{% from "components/status.html" import status_label %}
 {% from "components/task_row.html" import claim_row %}
 {% block title %}Home – Crush Coach{% endblock %}
-{% block page_title %}Crush Build{% endblock %}
-{% block topbar_actions %}{% if task %}<a class="btn btn--primary" href="/tasks/{{ task.code }}#coach-message">Ask the coach</a>{% endif %}{% endblock %}
+{#- Home keeps the Notebook button out of the top bar: "+ Log today's work" is the same link, in the place the concept gives it. -#}
+{% block notebook_button %}{% endblock %}
+{% block heading %}
+<div class="topbar__title">
+  <div class="eyebrow">Crush / Build phase</div>
+  <h1 class="page-title">Build control</h1>
+  <p class="lede">One build. Clear next moves.</p>
+</div>
+{% endblock %}
+{% block topbar_actions %}{% if user %}<a class="btn btn--primary" href="/notebook" data-notebook-open data-panel-url="/notebook/panel?tab=today">+ Log today&rsquo;s work</a>{% endif %}{% endblock %}
 {% block main %}
 {% if preview %}{{ preview_notice() }}{% endif %}
 {% if error %}{{ error_state(error, "/", "Try again") }}{% endif %}
 {% if notice %}{{ notice_box(notice, "error") }}{% endif %}
-{% if log_banner %}
-<div class="banner" role="region" aria-label="Notebook">
-  <p>You worked on <a class="code" href="/tasks/{{ log_banner.code }}">{{ log_banner.code }}</a> today. Write today’s entry while you remember it.</p>
-  <div class="banner__actions">
-    <a class="btn btn--primary" href="/notebook?task={{ log_banner.code }}" data-notebook-open data-panel-url="/notebook/panel?tab=today&amp;task={{ log_banner.code }}">Write today’s entry</a>
-    <form method="post" action="/notebook/dismiss"><input type="hidden" name="next" value="/"><button class="btn" type="submit">Not today</button></form>
+{#- Three tiles. The first two are about the signed-in member; a signed-out preview has only the third. -#}
+<div class="tiles" style="--cols:{{ 1 if preview else 3 }}">
+  {% if not preview %}
+  <div class="tile rise" style="--d:.05s">
+    <span class="tile__n">{{ notes_week if notes_week is not none else "–" }}</span>
+    <div><b>Notes this week</b><small>Published by the team{% if my_drafts %} · {{ my_drafts }} draft{{ "" if my_drafts == 1 else "s" }} of yours{% endif %}</small></div>
+  </div>
+  <div class="tile rise" style="--d:.1s">
+    <span class="tile__n">{{ in_review }}</span>
+    <div><b>Your tasks in review</b><small>Waiting for leads to check</small></div>
+  </div>
+  {% endif %}
+  <div class="tile tile--accent rise" style="--d:.15s">
+    <span class="tile__n">{{ unclaimed_count }}</span>
+    <div><b>Available tasks</b><small>Find your next contribution</small></div>
   </div>
 </div>
-{% endif %}
-<div class="grid-2">
-  <section class="panel" data-tone="{{ tone('your-task') }}" aria-labelledby="your-task">
-    <div class="panel__head">
-      <div><h2 class="panel__title" id="your-task">Your task</h2><p class="panel__sub">Pick up where you left off.</p></div>
-      {% if task %}{{ status_label(task.status, status_labels[task.status]) }}{% endif %}
+
+<div class="home-grid">
+  <section class="panel panel--navy home-grid__tall rise" style="--d:.2s" aria-labelledby="crush">
+    <div class="row"><span class="lbl">Vehicle overview</span><span class="pill">Build</span></div>
+    <h2 class="panel__title" id="crush">Crush</h2>
+    <p class="tagline">One team. Every system moving.</p>
+    <div class="vehicle__view"><div class="render"><img src="/static/img/crush.png" alt="CAD render of Crush">
+      {% for g in groups %}<a class="render__tag" href="/tasks?show=all#{{ g.slug }}" style="left:{{ g.tag[0] }}%;top:{{ g.tag[1] }}%"><span class="status status--{{ {'done': 'done', 'in_progress': 'in-progress', 'todo': 'todo'}[g.tag_state] }}"><span class="visually-hidden">{{ {'done': 'Done', 'in_progress': 'Started', 'todo': 'Not started'}[g.tag_state] }}: </span></span>{{ g.label }} {{ g.done }}/{{ g.total }}</a>{% endfor %}
+    </div></div>
+    {#- The arc is a circle of circumference 439.8 (r = 70); the dash offset is what is NOT filled, from the real percentage. -#}
+    <div class="gauge">
+      <svg viewBox="0 0 200 200" role="img" aria-label="Build {{ total.percent }} percent complete">
+        <g class="gauge__ticks" aria-hidden="true"><circle cx="100" cy="100" r="92" fill="none" stroke-width="6" stroke-dasharray="1.6 6.4" opacity=".55"/></g>
+        <circle class="gauge__track" cx="100" cy="100" r="70" fill="none" stroke-width="7"/>
+        <circle class="gauge__arc" cx="100" cy="100" r="70" fill="none" stroke-width="7" stroke-linecap="butt" transform="rotate(-90 100 100)" style="--off:{{ '%.1f' | format(439.8 * (1 - total.percent / 100)) }}"/>
+        <text class="gauge__pct" x="100" y="114" text-anchor="middle" aria-hidden="true">{{ total.percent }}%</text>
+      </svg>
+      <div class="gauge__text"><b>Build complete</b><span>{{ total.done }} of {{ total.total }} tasks done</span></div>
     </div>
+    <div class="subs">
+      <div class="lbl">Subsystems</div>
+      {% for g in groups %}
+      <div class="subs__row">
+        <div class="subs__top"><a href="/tasks?show=all#{{ g.slug }}">{{ g.label }}</a><span>{{ g.done }} / {{ g.total }}</span></div>
+        <div class="bar" role="img" aria-label="{{ g.aria_label }}"><i style="width:{{ '%.1f' | format(g.done_pct) }}%;--d:{{ 0.6 + loop.index0 * 0.1 }}s"></i></div>
+      </div>
+      {% endfor %}
+    </div>
+    <a class="btn vehicle__map" href="/tasks?show=all">Open build map →</a>
+  </section>
+
+  <section class="panel panel--navy active rise" style="--d:.25s" aria-labelledby="active-task">
     {% if task %}
-    <div class="field-label">Task</div>
-    <div class="field field--row"><span><span class="code">{{ task.code }}</span>&nbsp; <a href="/tasks/{{ task.code }}">{{ task.title }}</a></span><span class="meta">{{ task.subsystem }}</span></div>
-    <div class="field-label">Stage</div>
-    <ol class="stages">{% for s in stages %}<li{% if s.state == "past" %} class="is-past"{% elif s.state == "current" %} class="is-current" aria-current="step"{% endif %}>{{ s.label }}</li>{% endfor %}</ol>
-    <div class="field-label">Next step</div>
+    <div class="row"><span class="lbl">{{ task.code }} / {{ task.subsystem }}</span><span class="pill">{{ status_labels[task.status] }}</span></div>
+    <h2 class="panel__title" id="active-task"><a href="/tasks/{{ task.code }}">{{ task.title }}</a></h2>
+    <ol class="stages" aria-label="Steps">{% for s in stages %}<li{% if s.state == "past" %} class="is-past"{% elif s.state == "current" %} class="is-current" aria-current="step"{% endif %}>{{ s.label }}</li>{% endfor %}</ol>
     {% if next_step %}
-    <div class="field">{{ next_step.text }}<small>From the coach · {{ next_step.date }}</small></div>
+    <p class="active__next"><b>Next step:</b> {{ next_step.text }}<small>From the coach · {{ next_step.date }}</small></p>
     {% else %}
-    <div class="field">No next step yet. Ask the coach about this task and it will suggest one.</div>
+    <p class="active__next">No next step yet. Ask the coach about this task and it will suggest one.</p>
     {% endif %}
-    <div class="actions">
-      <a class="btn btn--primary" href="/tasks/{{ task.code }}">Open task</a>
+    <div class="active__acts">
+      <a class="btn btn--primary" href="/tasks/{{ task.code }}">Open task →</a>
       {% if main_action %}
       <form method="post" action="/tasks/{{ task.code }}/status">
         <input type="hidden" name="action" value="advance"><input type="hidden" name="step" value="{{ step_name }}"><input type="hidden" name="next" value="/">
         <button class="btn" type="submit">{{ main_action[1] }}</button>
       </form>
       {% endif %}
+      <a class="active__ask" href="/tasks/{{ task.code }}#coach-message">Ask the coach ↗</a>
     </div>
     {% if more_tasks %}<p class="meta">You have {{ more_tasks }} other task{{ "" if more_tasks == 1 else "s" }} in progress. <a href="/tasks?show=mine">See all yours</a>.</p>{% endif %}
-    {% elif preview %}
+    <div class="waves" aria-hidden="true"></div>
+    {% else %}
+    <div class="row"><span class="lbl">Your task</span></div>
+    <h2 class="panel__title" id="active-task">Active task</h2>
+    {% if preview %}
     {{ empty_state("Sign in with your team Google account to claim a task and see it here.", "/login", "Sign in with Google") }}
     {% else %}
-    {{ empty_state("You haven’t started a task. Pick one on the right.") }}
+    {{ empty_state("You haven’t started a task. Pick one from Available tasks below.") }}
+    {% endif %}
     {% endif %}
   </section>
 
-  <section class="panel" data-tone="{{ tone('pick-up') }}" aria-labelledby="pick-up">
+  <section class="panel panel--available rise" style="--d:.3s" aria-labelledby="available">
     <div class="panel__head">
-      <div><h2 class="panel__title" id="pick-up">Pick up a task</h2><p class="panel__sub">{% if preview %}Open tasks on Crush. Titles are hidden until you sign in.{% else %}Unclaimed tasks you could start today.{% endif %}</p></div>
-      <span class="meta">{{ unclaimed_count }} open</span>
+      <h2 class="panel__title" id="available">Available tasks</h2>
+      <a href="/tasks?show=unclaimed">View all {{ unclaimed_count }} →</a>
     </div>
+    {% if preview %}<p class="meta">Open tasks on Crush. Titles are hidden until you sign in.</p>{% endif %}
     {% for t in pick_up %}{{ claim_row(t, "/", preview) }}{% else %}
     {{ empty_state("Every task has an owner.") }}
     {% endfor %}
   </section>
-
-  <section class="panel" data-tone="{{ tone('build-progress') }}" aria-labelledby="build-progress">
-    <div class="panel__head"><h2 class="panel__title" id="build-progress">Build progress</h2><a class="btn btn--small" href="/tasks?show=all">All tasks</a></div>
-    <div class="total"><span><b>{{ total.done }}</b> / <b>{{ total.total }}</b> <span>tasks done</span></span><span><b>{{ total.percent }}</b> <span>%</span></span></div>
-    <div class="pbars">{% for g in groups if g.total %}{{ pbar(g, flex=True) }}{% endfor %}</div>
-    <div class="legend"><span class="key" style="--k:var(--color-sub-1)">Done</span><span class="key" style="--k:color-mix(in srgb,var(--color-sub-1) 55%,white)">In progress</span><span class="key" style="--k:color-mix(in srgb,var(--color-sub-1) 22%,white)">Not started</span></div>
-    <div class="swatches">
-      {% for g in groups %}
-      <a class="swatch" style="--k:var(--color-sub-{{ g.colour }})" href="/tasks?show=all#{{ g.slug }}">{{ diamond(g) }}<span>{{ g.label }}<span class="task-row__meta">{{ g.open }} open task{{ "" if g.open == 1 else "s" }}</span></span><b>{{ g.done }}<span> / {{ g.total }}</span></b></a>
-      {% endfor %}
-    </div>
-  </section>
-
-  <section class="panel panel--strong" data-tone="{{ tone('crush') }}" aria-labelledby="crush">
-    <div class="panel__head">
-      <div><h2 class="panel__title" id="crush">Crush</h2><p class="panel__sub">Build map by subsystem. Select a label to see its tasks.</p></div>
-      <a class="btn btn--small" href="/record">Team record</a>
-    </div>
-    <div class="blueprint"><div class="render"><img src="/static/img/crush.png" alt="CAD render of Crush">
-      {% for g in groups %}<a class="render__tag" href="/tasks?show=all#{{ g.slug }}" style="left:{{ g.tag[0] }}%;top:{{ g.tag[1] }}%"><span class="status status--{{ {'done': 'done', 'in_progress': 'in-progress', 'todo': 'todo'}[g.tag_state] }}"><span class="visually-hidden">{{ {'done': 'Done', 'in_progress': 'Started', 'todo': 'Not started'}[g.tag_state] }}: </span></span>{{ g.label }} {{ g.done }}/{{ g.total }}</a>{% endfor %}
-    </div></div>
-    <div class="legend"><span class="status status--done">Done</span><span class="status status--in-progress">Started</span><span class="status status--todo">Not started</span></div>
-  </section>
 </div>
+
 {% endblock %}

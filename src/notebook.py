@@ -129,7 +129,7 @@ def _is_mine(note_member: str, user: User) -> bool:
     return note_member.casefold() == user["email"].casefold()
 
 
-# --- which task, and the Home banner ---------------------------------------------------
+# --- which task, and the leaving nudge ---------------------------------------------------
 
 
 def my_tasks(session: Session, user: User) -> list[Task]:
@@ -179,9 +179,33 @@ def active_task_today(session: Session, user: User) -> Task | None:
     return None
 
 
+def week_counts(session: Session, user: User) -> tuple[int, int]:
+    """(entries published this week by the team, drafts the member has) for Home's tile.
+
+    Only published entries count for the team; a draft is only ever counted for the member
+    who wrote it. Private notes are never counted (they live in their own table)."""
+    start = localtime.week_start_utc()
+    published = session.exec(
+        select(func.count())
+        .select_from(WorkNote)
+        .where(WorkNote.state == "published", WorkNote.posted_at >= start)
+    ).one()
+    drafts = session.exec(
+        select(func.count())
+        .select_from(WorkNote)
+        .where(
+            WorkNote.state == "draft",
+            func.lower(WorkNote.member) == user["email"].casefold(),
+        )
+    ).one()
+    return published, drafts
+
+
 def banner(session: Session, request: Request, user: User) -> dict[str, str] | None:
-    """The Home banner: the task the member worked on today and hasn't written up. None
-    once they said "Not today" (until tomorrow) or when there is nothing to write."""
+    """The "write today's entry" nudge: the task the member worked on today and hasn't
+    written up. None once they said "Not today" (until tomorrow) or when there is nothing to
+    write. base.html renders it, hidden, on every signed-in page (`shell.notebook_nudge`);
+    notebook.js shows it when the member is about to leave."""
     if request.session.get("worklog_dismissed") == localtime.today().isoformat():
         return None
     task = active_task_today(session, user)
@@ -1406,12 +1430,12 @@ def delete_private_note(
     return _private_response(request, session, user, notice="Private note deleted.")
 
 
-# --- routes: the Home banner ------------------------------------------------------------------------
+# --- routes: the leaving nudge ------------------------------------------------------------------------
 
 
 @router.post("/notebook/dismiss", response_class=Response)
 @router.post("/worklog/dismiss", response_class=Response)
 def not_today(request: Request, user: CurrentUser, next: Annotated[str, Form()] = "/"):
-    """"Not today" on the Home banner: hide it until tomorrow."""
+    """"Not today" on the nudge: hide it until tomorrow."""
     request.session["worklog_dismissed"] = localtime.today().isoformat()
     return RedirectResponse(workflow._safe_next(next, "/"), status_code=303)

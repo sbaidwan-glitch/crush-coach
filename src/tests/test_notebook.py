@@ -1,11 +1,12 @@
 """The Notebook: the side panel and its three tabs, Tidy my note (one model call, on the
-button), publishing without a lead, the Crush document write and its retry, the Home banner,
+button), publishing without a lead, the Crush document write and its retry, the leaving nudge,
 and where entries show up (History, Record). Made-up people and tasks; the model and Google
 are fakes. Photos, specs, private notes and the plan button have their own files."""
 
 import json
 import re
 from datetime import timedelta
+from pathlib import Path
 
 import fake_openai as fake
 import pytest
@@ -60,7 +61,8 @@ def test_the_top_bar_has_the_button_on_every_page_for_signed_in_members(session,
 
     for path in ("/", "/tasks", "/record", "/tasks/M06"):
         html = client.get(path).text
-        assert ">Notebook</a>" in html and "data-notebook-open" in html, path
+        # Home has "+ Log today's work" in the place of the Notebook button; same link.
+        assert (">Notebook</a>" in html or "Log today" in html) and "data-notebook-open" in html, path
         assert '<dialog id="notebook"' in html and "Open full page" in html, path
 
 
@@ -558,7 +560,9 @@ def test_an_empty_notebook_says_so(session, as_user):
     assert "Nothing in your notebook yet" in html
 
 
-# --- the Home banner ----------------------------------------------------------------------------------
+# --- the leaving nudge (rendered hidden on every signed-in page; notebook.js shows it) ----------------
+
+NUDGE = 'id="notebook-nudge"'
 
 
 def active(session, task, who=MEMBER):
@@ -569,15 +573,54 @@ def active(session, task, who=MEMBER):
     session.commit()
 
 
-def test_the_banner_names_the_task_the_member_worked_on_today(session, as_user):
+def nudge_html(html: str) -> str:
+    return html[html.index(NUDGE) : html.index("</aside>", html.index(NUDGE))]
+
+
+def test_the_nudge_names_the_task_the_member_worked_on_today_and_starts_hidden(session, as_user):
     task = add_task(session)
     active(session, task)
 
     html = as_user(MEMBER).get("/").text
 
-    assert 'class="banner"' in html and "You worked on" in html and "M06" in html
-    assert "Write today’s entry" in html and "Not today" in html
-    assert 'data-panel-url="/notebook/panel?tab=today&amp;task=M06"' in html
+    nudge = nudge_html(html)
+    assert 'role="status"' in nudge and " hidden " in nudge  # shown only by notebook.js
+    assert "You worked on" in nudge and "M06" in nudge
+    assert "Write today’s entry" in nudge and "Not today" in nudge
+    assert 'data-panel-url="/notebook/panel?tab=today&amp;task=M06"' in nudge
+    assert 'action="/notebook/dismiss"' in nudge and 'name="next" value="/"' in nudge
+    assert f'data-key="cc-nudge:{MEMBER["email"]}:{localtime.today().isoformat()}"' in nudge
+    assert "autofocus" not in nudge
+
+
+def test_the_nudge_is_on_every_signed_in_page_but_no_longer_sits_on_home_as_a_banner(session, as_user):
+    task = add_task(session)
+    active(session, task)
+    client = as_user(MEMBER)
+
+    for path in ("/", "/tasks", "/tasks/M06", "/record", "/timeline"):
+        html = client.get(path).text
+        assert NUDGE in html and html.count(NUDGE) == 1, path
+        assert 'class="banner' not in html, path
+    # It names where "Not today" should send the member back to.
+    assert 'name="next" value="/tasks"' in nudge_html(client.get("/tasks").text)
+
+
+def test_the_nudge_is_not_on_the_notebook_page_or_in_htmx_fragments(session, as_user):
+    task = add_task(session)
+    active(session, task)
+    client = as_user(MEMBER)
+
+    assert NUDGE not in client.get("/notebook").text
+    assert NUDGE not in client.get("/notebook/panel?tab=today", headers={"HX-Request": "true"}).text
+
+
+def test_home_has_no_bottom_notebook_banner(session, as_user):
+    html = as_user(MEMBER).get("/").text
+
+    assert "Make today" not in html and "Open notebook" not in html
+    # The top-bar button and the sidebar link stay.
+    assert "Log today" in html and 'href="/notebook"' in html
 
 
 def test_asking_the_coach_counts_as_being_active(session, as_user):
@@ -585,10 +628,10 @@ def test_asking_the_coach_counts_as_being_active(session, as_user):
     session.add(CoachMessage(task_id=task.id, member=MEMBER["email"], role="user", content="Which rod?"))
     session.commit()
 
-    assert 'class="banner"' in as_user(MEMBER).get("/").text
+    assert NUDGE in as_user(MEMBER).get("/").text
 
 
-def test_no_banner_when_nothing_happened_today(session, as_user):
+def test_no_nudge_when_nothing_happened_today(session, as_user):
     task = add_task(session)
     session.add(
         TaskEvent(task_id=task.id, actor=MEMBER["name"], from_status="todo", to_status="in_progress",
@@ -596,48 +639,50 @@ def test_no_banner_when_nothing_happened_today(session, as_user):
     )
     session.commit()
 
-    assert 'class="banner"' not in as_user(MEMBER).get("/").text
+    for path in ("/", "/tasks"):
+        assert NUDGE not in as_user(MEMBER).get(path).text
 
 
-def test_no_banner_for_someone_elses_activity(session, as_user):
+def test_no_nudge_for_someone_elses_activity(session, as_user):
     task = add_task(session)
     active(session, task, who=OTHER)
 
-    assert 'class="banner"' not in as_user(MEMBER).get("/").text
+    assert NUDGE not in as_user(MEMBER).get("/").text
 
 
-def test_no_banner_once_they_have_logged_that_task_today(session, as_user):
+def test_no_nudge_once_they_have_logged_that_task_today(session, as_user):
     task = add_task(session)
     active(session, task)
     add_note(session, task)
 
-    assert 'class="banner"' not in as_user(MEMBER).get("/").text
+    assert NUDGE not in as_user(MEMBER).get("/").text
 
 
-def test_logging_another_task_leaves_the_banner_for_this_one(session, as_user):
+def test_logging_another_task_leaves_the_nudge_for_this_one(session, as_user):
     one, two = add_task(session, "M06"), add_task(session, "M07", title="Second")
     active(session, one)
     active(session, two)
     add_note(session, two)
 
-    html = as_user(MEMBER).get("/").text
+    nudge = nudge_html(as_user(MEMBER).get("/").text)
 
-    assert 'class="banner"' in html and "M06" in html.split('class="banner"')[1].split("</div>")[0]
+    assert "M06" in nudge and "M07" not in nudge
 
 
-def test_not_today_hides_the_banner_until_tomorrow(session, as_user, monkeypatch):
+def test_not_today_hides_the_nudge_on_every_page_until_tomorrow(session, as_user, monkeypatch):
     task = add_task(session)
     active(session, task)
     client = as_user(MEMBER)
-    assert 'class="banner"' in client.get("/").text
+    assert NUDGE in client.get("/").text
 
-    response = client.post("/notebook/dismiss", data={"next": "/"}, follow_redirects=False)
-    assert response.status_code == 303 and response.headers["location"] == "/"
-    assert 'class="banner"' not in client.get("/").text
+    response = client.post("/notebook/dismiss", data={"next": "/tasks"}, follow_redirects=False)
+    assert response.status_code == 303 and response.headers["location"] == "/tasks"
+    for path in ("/", "/tasks", "/record"):
+        assert NUDGE not in client.get(path).text, path
 
     tomorrow = localtime.today() + timedelta(days=1)
     monkeypatch.setattr(localtime, "today", lambda: tomorrow)
-    assert 'class="banner"' in client.get("/").text
+    assert NUDGE in client.get("/").text
 
 
 def test_not_today_cannot_send_you_to_another_site(session, as_user):
@@ -646,25 +691,39 @@ def test_not_today_cannot_send_you_to_another_site(session, as_user):
     assert response.headers["location"] == "/"
 
 
-def test_the_signed_out_preview_has_no_banner(session, monkeypatch):
+def test_signed_out_visitors_get_no_nudge_on_any_page(session, monkeypatch):
     task = add_task(session)
     active(session, task)
     monkeypatch.undo()
 
     with TestClient(main.app) as visitor:
-        assert 'class="banner"' not in visitor.get("/").text
+        for path in ("/", "/tasks", "/timeline", "/record"):
+            assert NUDGE not in visitor.get(path).text, path
 
 
-def test_a_failure_checking_the_banner_leaves_the_rest_of_home(session, as_user, monkeypatch):
+def test_a_failure_checking_the_nudge_leaves_the_page(session, as_user, monkeypatch):
     add_task(session)
 
     def broken(*args, **kwargs):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(notebook, "active_task_today", broken)
-    response = as_user(MEMBER).get("/")
+    for path in ("/", "/tasks"):
+        response = as_user(MEMBER).get(path)
+        assert response.status_code == 200 and NUDGE not in response.text
 
-    assert response.status_code == 200 and "Your task" in response.text
+
+def test_the_nudge_script_follows_the_rules_in_the_brief():
+    """notebook.js can't be run here (see the manual check in the PR); pin what it is built from."""
+    js = (Path(__file__).resolve().parents[1] / "static" / "notebook.js").read_text()
+    nudge = js[js.index("The leaving nudge:") :]
+
+    assert 'addEventListener("mouseleave"' in nudge and "event.clientY <= 0" in nudge and "event.buttons === 0" in nudge
+    assert 'addEventListener("visibilitychange"' in nudge and '"hidden"' in nudge
+    assert "localStorage" in nudge and "data-key" in nudge
+    assert "dialog.open" in nudge and 'event.key === "Escape"' in nudge
+    assert "setTimeout" not in js and "setInterval" not in js  # no timers, no polling
+    assert ".focus()" not in nudge  # it never takes focus
 
 
 # --- after "Mark step done" -------------------------------------------------------------------------------
@@ -1092,12 +1151,12 @@ def test_a_published_entry_cannot_be_discarded(session, as_user, doc):
     assert response.status_code == 404 and len(stored(session, WorkNote)) == 1
 
 
-def test_a_draft_is_not_written_up_for_the_banner(session, as_user):
+def test_a_draft_is_not_written_up_for_the_nudge(session, as_user):
     task = add_task(session)
     active(session, task)
     make_draft(as_user(MEMBER))
 
-    assert 'class="banner"' in as_user(MEMBER).get("/").text  # only a published entry counts
+    assert NUDGE in as_user(MEMBER).get("/").text  # only a published entry counts
 
 
 def test_a_published_entry_whose_write_worked_is_published_and_one_whose_write_failed_says_so(

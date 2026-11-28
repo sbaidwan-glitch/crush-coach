@@ -1,7 +1,7 @@
 {#- The shell every page shares: sidebar (a bottom tab bar on phones), then the main
     column with the page title and who is signed in. Pages fill `heading` (or just
     `page_title`) and `main`. -#}
-{% from "components/icons.html" import nav_icon, logo, avatar_sprite, avatar %}
+{% from "components/icons.html" import avatar_sprite, avatar %}
 {% set path = request.url.path %}
 {% set is_lead = user and user.role == "lead" %}
 <!doctype html>
@@ -16,8 +16,8 @@
     <link rel="stylesheet" href="{{ static_url('styles/theme.css') }}">
     <link rel="stylesheet" href="{{ static_url('styles/timeline.css') }}">
     <link rel="stylesheet" href="{{ static_url('styles/extras.css') }}">
-    {#- Sets data-theme / data-bubbles from the saved choice before the first paint, so a dark page never flashes light. theme.js (below) handles the buttons. -#}
-    <script>try{var d=document.documentElement,t=localStorage.getItem("cc-theme"),b=localStorage.getItem("cc-bubbles");if(t==="light"||t==="dark")d.dataset.theme=t;if(b==="off")d.dataset.bubbles="off"}catch(e){}</script>
+    {#- Sets data-theme from the saved choice before the first paint, so a dark page never flashes light. Without a saved choice the page follows the system. theme.js (below) handles the button. -#}
+    <script>try{var t=localStorage.getItem("cc-theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}</script>
     <script src="{{ static_url('htmx.min.js') }}" defer></script>
     <script src="{{ static_url('coach.js') }}" defer></script>
     <script src="{{ static_url('theme.js') }}" defer></script>
@@ -25,51 +25,41 @@
     {% block head_extra %}{% endblock %}
   </head>
   <body>
-    {#- Decorative bubbles rising behind the panels (theme.css; off for reduced motion, print, or the Bubbles button). Each is (left %, size px, seconds to rise, delay, sway px). -#}
-    <div class="bubbles" aria-hidden="true">
-      {%- for x, size, secs, delay, sway in [
-    (32, 24, 19, -23, 40),
-    (63, 18, 18, -2, -40),
-    (53, 38, 25, -25, -40),
-    (30, 38, 33, -11, 24),
-    (24, 14, 24, -6, -40),
-    (84, 24, 24, -6, -24),
-    (41, 24, 27, -2, 24),
-    (87, 30, 32, -7, -24),
-    (33, 30, 24, -2, 24),
-    (2, 24, 34, -22, 24),
-    (67, 18, 29, -13, 24),
-    (57, 30, 21, -7, 24),
-    (35, 14, 18, -1, 40),
-    (82, 24, 32, -17, 40),
-    (91, 24, 20, -21, -24),
-    (10, 30, 22, -20, 40)] %}
-      <i style="--x:{{ x }}%;--s:{{ size }}px;--d:{{ secs }}s;--delay:{{ delay }}s;--sw:{{ sway }}px"></i>
-      {%- endfor %}
-    </div>
     {{ avatar_sprite() }}
     <a class="skip-link" href="#main">Skip to main content</a>
     <div class="shell">
-      <nav class="sidebar" aria-label="Main">
-        <a class="sidebar__logo" href="/" aria-label="Crush Coach home">{{ logo() }}</a>
-        <a class="sidebar__link" href="/"{% if path == "/" %} aria-current="page"{% endif %}>{{ nav_icon("home") }}<span>Home</span></a>
-        {% if is_lead %}<a class="sidebar__link" href="/inbox"{% if path.startswith("/inbox") %} aria-current="page"{% endif %}>{{ nav_icon("inbox") }}<span>Inbox</span>{% if needs_you %}<span class="sidebar__badge" aria-hidden="true">{{ needs_you }}</span><span class="visually-hidden">, {{ needs_you }} waiting on you</span>{% endif %}</a>{% endif %}
-        <a class="sidebar__link" href="/tasks"{% if path.startswith("/tasks") %} aria-current="page"{% endif %}>{{ nav_icon("tasks") }}<span>Tasks</span></a>
-        <a class="sidebar__link" href="/timeline"{% if path.startswith("/timeline") %} aria-current="page"{% endif %}>{{ nav_icon("timeline") }}<span>Timeline</span></a>
-        <a class="sidebar__link" href="/record"{% if path.startswith("/record") %} aria-current="page"{% endif %}>{{ nav_icon("record") }}<span>Team record</span></a>
-        <span class="sidebar__spacer"></span>
-        {#- Shown by theme.js (they do nothing without it). On phones they sit in the bottom tab bar with the links. -#}
-        <button class="sidebar__btn" id="theme-btn" type="button" hidden>{{ nav_icon("theme") }}<span id="theme-label">Dark</span></button>
-        <button class="sidebar__btn" id="bubbles-btn" type="button" aria-pressed="true" hidden>{{ nav_icon("bubbles") }}<span>Bubbles</span></button>
-        {% if is_lead %}
-        <span class="sidebar__label">LEAD</span>
-        <a class="sidebar__link" href="/admin"{% if path.startswith("/admin") %} aria-current="page"{% endif %}>{{ nav_icon("admin") }}<span>Admin</span></a>
-        {% endif %}
-      </nav>
+      <aside class="sidebar">
+        <div class="sidebar__brand">CRUSH</div>
+        <div class="sidebar__sub">Underwater robotics</div>
+        {#- Numbered in the order shown (a member has no Inbox, so Tasks is 02 for them). The number and the count are hidden on phones, where this is a bottom tab bar of labels. -#}
+        {%- set links = [("/", "Home", path == "/", None)] %}
+        {%- if is_lead %}{% set links = links + [("/inbox", "Inbox", path.startswith("/inbox"), needs_you)] %}{% endif %}
+        {%- set links = links + [
+          ("/tasks", "Tasks", path.startswith("/tasks"), open_tasks),
+          ("/timeline", "Timeline", path.startswith("/timeline"), None),
+          ("/notebook", "Notebook", path.startswith("/notebook"), None),
+          ("/record", "Team record", path.startswith("/record"), None)] %}
+        <nav class="sidebar__nav" aria-label="Main">
+          {%- for href, label, current, count in links %}
+          <a class="sidebar__link" href="{{ href }}"{% if current %} aria-current="page"{% endif %}><span><span class="k">{{ "%02d" | format(loop.index) }} / </span>{{ label }}</span>{% if count %}<span class="{{ 'sidebar__badge' if label == 'Inbox' else 'sidebar__count' }}" aria-hidden="true">{{ count }}</span><span class="visually-hidden">, {{ count }} {{ "waiting on you" if label == "Inbox" else "open" }}</span>{% endif %}</a>
+          {%- endfor %}
+        </nav>
+        <svg class="sonar" viewBox="0 0 168 110" fill="none" stroke="currentColor" stroke-width="1" aria-hidden="true" focusable="false">
+          <path d="M10 94a74 74 0 0 1 148 0M30 94a54 54 0 0 1 108 0M50 94a34 34 0 0 1 68 0"/><path d="M4 94h160"/>
+          <g class="sweep"><path class="sonar__needle" d="M84 94V26"/><circle class="sonar__dot" cx="84" cy="48" r="3"/></g>
+        </svg>
+        <div class="sidebar__ws">Workspace</div>
+        <div class="sidebar__wsn">MuddSub / Crush</div>
+        <div class="sidebar__mode">
+          {#- Admin is for leads only. The mode button is shown by theme.js (it does nothing without it). -#}
+          {% if is_lead %}<a href="/admin"{% if path.startswith("/admin") %} aria-current="page"{% endif %}>Lead / Admin</a>{% else %}<span></span>{% endif %}
+          <button class="sidebar__btn" id="theme-btn" type="button" hidden><span id="theme-label">Dark</span></button>
+        </div>
+      </aside>
       <main class="main" id="main">
         <div class="topbar">
           {% block heading %}<h1 class="page-title">{% block page_title %}Crush Coach{% endblock %}</h1>{% endblock %}
-          {% if user %}<a class="btn" href="/notebook{% if notebook_task %}?task={{ notebook_task }}{% endif %}" data-notebook-open data-panel-url="/notebook/panel?tab=today{% if notebook_task %}&amp;task={{ notebook_task }}{% endif %}">Notebook</a>{% endif %}
+          {% block notebook_button %}{% if user %}<a class="btn" href="/notebook{% if notebook_task %}?task={{ notebook_task }}{% endif %}" data-notebook-open data-panel-url="/notebook/panel?tab=today{% if notebook_task %}&amp;task={{ notebook_task }}{% endif %}">Notebook</a>{% endif %}{% endblock %}
           {% block topbar_actions %}{% endblock %}
           {% if user %}
           {#- The member's own chip: it opens /profile, where they pick the icon and short name. -#}
@@ -82,6 +72,16 @@
         {% block main %}{% endblock %}
       </main>
     </div>
+    {% if user and notebook_nudge %}
+    {#- "Write today's entry": rendered hidden when the member worked on a task today and hasn't written it up (notebook.banner). notebook.js shows it once a day when they are about to leave (pointer out of the top of the window, or the tab hidden) and never while the Notebook is open. "Not today" posts as it always did. -#}
+    <aside class="nudge" id="notebook-nudge" role="status" aria-label="Notebook" hidden data-key="cc-nudge:{{ notebook_nudge.email }}:{{ notebook_nudge.day }}">
+      <p>You worked on <a class="code" href="/tasks/{{ notebook_nudge.code }}">{{ notebook_nudge.code }}</a> today. Write today’s entry while you remember it.</p>
+      <div class="nudge__actions">
+        <a class="btn btn--primary btn--small" href="/notebook?task={{ notebook_nudge.code }}" data-notebook-open data-panel-url="/notebook/panel?tab=today&amp;task={{ notebook_nudge.code }}">Write today’s entry</a>
+        <form method="post" action="/notebook/dismiss"><input type="hidden" name="next" value="{{ path }}"><button class="btn btn--small" type="submit" data-nudge-dismiss>Not today</button></form>
+      </div>
+    </aside>
+    {% endif %}
     {% block notebook_dialog %}{% if user %}
     {#- The Notebook side panel. notebook.js fills #notebook-body from /notebook/panel and opens
         it; Esc or Close shuts it. `log` in the address (after "Mark step done") opens it on load. -#}

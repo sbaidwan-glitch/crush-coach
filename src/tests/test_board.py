@@ -56,7 +56,7 @@ def test_lists_tasks_in_a_panel_per_part_of_crush_in_order(session, client):
     html = response.text
     # Four parts: Electronics Mounts sit with Enclosure, Gripper and Torpedo are Actuators.
     for slug in ("enclosure", "seals", "thrusters", "actuators"):
-        assert re.search(rf'<section class="panel panel--flush" data-tone="\w+" id="{slug}"', html)
+        assert re.search(rf'<section class="panel panel--flush" id="{slug}"', html)
     section = {
         slug: html[html.index(f'id="{slug}"') :]
         for slug in ("enclosure", "seals", "thrusters", "actuators")
@@ -203,7 +203,7 @@ def test_home_links_to_the_board_go_to_all_not_mine(session, client):
 
     html = client.get("/").text
 
-    assert 'href="/tasks?show=all">All tasks</a>' in html
+    assert 'href="/tasks?show=all">Open build map' in html
     assert 'href="/tasks?show=all#enclosure"' in html
 
 
@@ -336,7 +336,7 @@ def test_page_is_accessible_and_phone_friendly(session, client):
     assert "<title>All tasks – Crush Coach</title>" in html
     assert '<main class="main" id="main">' in html
     assert html.count("<h1 ") == 1
-    assert '<nav class="sidebar" aria-label="Main">' in html
+    assert '<nav class="sidebar__nav" aria-label="Main">' in html
     assert '<a class="sidebar__link" href="/tasks" aria-current="page">' in html
     assert 'role="group" aria-label="Task counts"' in html
 
@@ -354,7 +354,7 @@ def test_page_says_plainly_when_the_database_fails(monkeypatch, client):
     assert 'role="alert"' in response.text
     assert "secret" not in response.text
     # The rest of the page still works.
-    assert '<nav class="sidebar" aria-label="Main">' in response.text
+    assert '<nav class="sidebar__nav" aria-label="Main">' in response.text
     assert client.get("/health").status_code == 200
 
 

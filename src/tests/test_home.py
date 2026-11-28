@@ -66,10 +66,10 @@ def test_signed_out_visitors_see_a_preview_with_blurred_tasks_they_cannot_claim(
 
     assert response.status_code == 200
     assert 'href="/login">Sign in with Google</a>' in html
-    assert '<nav class="sidebar" aria-label="Main">' in html
+    assert '<nav class="sidebar__nav" aria-label="Main">' in html
     assert "You’re looking at a preview" in html
     # Real progress is shown; real titles, owners and links to tasks are not in the page.
-    assert "Build progress" in html
+    assert "Build complete" in html
     assert "Secret enclosure bracket" not in html
     assert "Another real title" not in html
     assert "Alex Example" not in html
@@ -125,7 +125,7 @@ def test_a_member_with_no_task_is_told_to_pick_one(session, signed_in):
 
     html = signed_in.get("/").text
 
-    assert "You haven’t started a task. Pick one on the right." in html
+    assert "You haven’t started a task. Pick one from Available tasks below." in html
 
 
 def test_a_task_waiting_for_review_shows_when_nothing_else_is_in_progress(session, signed_in):
@@ -152,8 +152,8 @@ def test_pick_up_lists_at_most_four_unclaimed_tasks_with_a_claim_button(session,
     html = signed_in.get("/").text
 
     assert html.count('value="start"') == 4
-    assert "6 open" in html
-    assert "Owned" not in html.split("Build progress")[0].split("Pick up a task")[1]
+    assert "View all 6 →" in html
+    assert "Owned" not in html.split('id="available"')[1]
 
 
 def test_when_everything_has_an_owner_pick_up_says_so(session, signed_in):
@@ -170,12 +170,15 @@ def test_build_progress_comes_from_statuses(session, signed_in):
 
     html = signed_in.get("/").text
 
-    assert "<b>1</b> / <b>4</b>" in html  # tasks done
-    assert "<b>25</b>" in html  # percent
+    assert "1 of 4 tasks done" in html
+    assert 'aria-label="Build 25 percent complete"' in html
+    # the gauge arc is the unfilled part of a circle of circumference 439.8: 75% of it
+    assert "--off:329.9" in html
     assert 'aria-label="Enclosure: 1 of 2 done, 1 in progress"' in html
     assert 'aria-label="Thrusters: 0 of 2 done, 1 in progress"' in html
     assert 'href="/tasks?show=all#thrusters"' in html
-    assert "1 open task<" in html  # singular
+    assert "width:50.0%" in html  # Enclosure: 1 of 2 done
+    assert "width:0.0%" in html  # Thrusters: none done
 
 
 def test_crush_render_has_a_tag_per_part_linking_to_its_tasks(session, signed_in):
@@ -205,4 +208,4 @@ def test_the_page_says_plainly_when_the_database_fails(monkeypatch, signed_in):
     assert response.status_code == 503
     assert "Couldn&#39;t load tasks from the database right now." in response.text
     assert "secret" not in response.text
-    assert "Build progress" in response.text  # the rest of the page still renders
+    assert "Vehicle overview" in response.text  # the rest of the page still renders

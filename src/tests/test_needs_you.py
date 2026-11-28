@@ -148,7 +148,7 @@ def test_one_list_holds_all_three_kinds_with_the_count_on_the_inbox_link(session
     link = html.split('<a class="sidebar__link" href="/inbox"')[1].split("</a>")[0]
     assert '<span class="sidebar__badge" aria-hidden="true">3</span>' in link
     assert ", 3 waiting on you" in link
-    assert "<span>Inbox</span>" in link
+    assert "Inbox</span>" in link
     assert "Waiting for your review" not in html
 
 

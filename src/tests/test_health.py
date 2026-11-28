@@ -26,7 +26,7 @@ def test_index_is_accessible_html():
     assert '<main class="main" id="main">' in html
     assert 'href="#main"' in html  # skip link
     assert html.count("<h1 ") == 1
-    assert '<nav class="sidebar" aria-label="Main">' in html
+    assert '<nav class="sidebar__nav" aria-label="Main">' in html
 
 
 def test_stylesheets_and_fonts_are_served_and_the_old_one_is_not():

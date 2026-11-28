@@ -1,7 +1,8 @@
 """Home (`/`): what should I do next?
 
-Your task (the stored "Next step" from the coach, never a fresh model call), a few
-unclaimed tasks to pick up, Crush's build progress, and the render with a tag per part.
+Three tiles (notes this week, your tasks in review, available tasks), Crush's build
+progress (render with a tag per part, gauge, a bar per part), your active task (the stored
+"Next step" from the coach, never a fresh model call) and a few unclaimed tasks to claim.
 Signed-out visitors see the same page as a read-only preview: progress is real, tasks
 are blurred stand-ins, and nothing can be claimed.
 """
@@ -81,13 +82,14 @@ def render_home(
             session.rollback()
             log.error("Could not load the next step (%s)", type(exc).__name__)
 
-    log_banner = None
+    notes_week: int | None = None
+    my_drafts = 0
     if not preview:
         try:
-            log_banner = notebook.banner(session, request, user)
-        except Exception as exc:  # noqa: BLE001  (the rest of the page still works)
+            notes_week, my_drafts = notebook.week_counts(session, user)
+        except Exception as exc:  # noqa: BLE001  (the tile shows a dash; the rest still works)
             session.rollback()
-            log.error("Could not check the work log banner (%s)", type(exc).__name__)
+            log.error("Could not count this week's notes (%s)", type(exc).__name__)
 
     groups = progress.group_progress(tasks)
     unclaimed = [t for t in tasks if progress.is_unclaimed(t)]
@@ -105,7 +107,6 @@ def render_home(
         if current and current.status == "in_progress"
         else None,
         "notice": notice,
-        "log_banner": log_banner,
         "status_labels": STATUS_LABELS,
         "pick_up": (
             board.preview_tasks(unclaimed[:PICK_UP_LIMIT])
@@ -114,6 +115,15 @@ def render_home(
         ),
         "preview": preview,
         "unclaimed_count": len(unclaimed),
+        "notes_week": notes_week,
+        "my_drafts": my_drafts,
+        "in_review": 0
+        if preview
+        else sum(
+            1
+            for t in tasks
+            if t.status == "needs_review" and progress.owned_by(t, user["name"], user["email"])
+        ),
         "groups": groups,
         "total": progress.overall(groups),
     }
