@@ -8,7 +8,6 @@
 <div class="topbar__title">
   <div class="eyebrow">Crush / Build phase</div>
   <h1 class="page-title">Build control</h1>
-  <p class="lede">One build. Clear next moves.</p>
 </div>
 {% endblock %}
 {% block topbar_actions %}{% if user %}<a class="btn btn--primary" href="/notebook" data-notebook-open data-panel-url="/notebook/panel?tab=today">+ Log today&rsquo;s work</a>{% endif %}{% endblock %}
@@ -38,7 +37,6 @@
   <section class="panel panel--navy home-grid__tall rise" style="--d:.2s" aria-labelledby="crush">
     <div class="row"><span class="lbl">Vehicle overview</span><span class="pill">Build</span></div>
     <h2 class="panel__title" id="crush">Crush</h2>
-    <p class="tagline">One team. Every system moving.</p>
     <div class="vehicle__view"><div class="render"><img src="/static/img/crush.png" alt="CAD render of Crush">
       {% for g in groups %}<a class="render__tag" href="/tasks?show=all#{{ g.slug }}" style="left:{{ g.tag[0] }}%;top:{{ g.tag[1] }}%"><span class="status status--{{ {'done': 'done', 'in_progress': 'in-progress', 'todo': 'todo'}[g.tag_state] }}"><span class="visually-hidden">{{ {'done': 'Done', 'in_progress': 'Started', 'todo': 'Not started'}[g.tag_state] }}: </span></span>{{ g.label }} {{ g.done }}/{{ g.total }}</a>{% endfor %}
     </div></div>
@@ -69,10 +67,11 @@
     <div class="row"><span class="lbl">{{ task.code }} / {{ task.subsystem }}</span><span class="pill">{{ status_labels[task.status] }}</span></div>
     <h2 class="panel__title" id="active-task"><a href="/tasks/{{ task.code }}">{{ task.title }}</a></h2>
     <ol class="stages" aria-label="Steps">{% for s in stages %}<li{% if s.state == "past" %} class="is-past"{% elif s.state == "current" %} class="is-current" aria-current="step"{% endif %}>{{ s.label }}</li>{% endfor %}</ol>
+    {#- The whole block is the way into the coach: a real link to the task page's coach section (#coach), which focuses the message box. The arrow is decoration; the hidden words finish the link's name. -#}
     {% if next_step %}
-    <p class="active__next"><b>Next step:</b> {{ next_step.text }}<small>From the coach · {{ next_step.date }}</small></p>
+    <a class="active__next" href="/tasks/{{ task.code }}#coach"><b>Next step:</b> {{ next_step.text }}<small>From the coach · {{ next_step.date }}</small><span class="visually-hidden">, open the coach</span><span class="active__arrow" aria-hidden="true">↗</span></a>
     {% else %}
-    <p class="active__next">No next step yet. Ask the coach about this task and it will suggest one.</p>
+    <a class="active__next" href="/tasks/{{ task.code }}#coach">No next step yet. Ask the coach about this task and it will suggest one.<span class="visually-hidden">, open the coach</span><span class="active__arrow" aria-hidden="true">↗</span></a>
     {% endif %}
     <div class="active__acts">
       <a class="btn btn--primary" href="/tasks/{{ task.code }}">Open task →</a>
@@ -82,7 +81,6 @@
         <button class="btn" type="submit">{{ main_action[1] }}</button>
       </form>
       {% endif %}
-      <a class="active__ask" href="/tasks/{{ task.code }}#coach-message">Ask the coach ↗</a>
     </div>
     {% if more_tasks %}<p class="meta">You have {{ more_tasks }} other task{{ "" if more_tasks == 1 else "s" }} in progress. <a href="/tasks?show=mine">See all yours</a>.</p>{% endif %}
     <div class="waves" aria-hidden="true"></div>

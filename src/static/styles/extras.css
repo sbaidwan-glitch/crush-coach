@@ -76,6 +76,8 @@ input[type="checkbox"] { accent-color: var(--color-ink); width: var(--space-4); 
 .draft .panel__title { font-size: var(--text-md); }
 
 /* ---------- Coach thread ---------- */
+/* A link to /tasks/CODE#coach lands on the section with a little room above it. */
+#coach { scroll-margin-top: var(--space-4); }
 .msg, .msg-body { overflow-wrap: anywhere; }
 .msg-md > :first-child { margin-top: 0; }
 .msg-md > :last-child { margin-bottom: 0; }

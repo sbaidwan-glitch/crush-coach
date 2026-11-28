@@ -96,7 +96,10 @@ h1{font:600 44px/1.05 "Manrope";letter-spacing:-.01em;margin:6px 0 6px}
 .step{background:var(--panel-inset);color:var(--panel-muted);font:400 12px "JetBrains Mono";padding:11px 12px;border-radius:3px}
 .step.on{background:var(--orange);color:var(--on-orange);font-weight:600}
 .acts{display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:relative;z-index:1}
-.acts .ask{font:400 12px "JetBrains Mono";color:var(--orange-text-on-panel);margin-left:6px}
+.next{display:block;position:relative;background:var(--panel-inset);color:var(--panel-ink);border-radius:3px;padding:11px 40px 11px 14px;margin:0 0 18px;font-size:13px;max-width:60ch;text-decoration:none;cursor:pointer}
+.next:hover,.next:focus-visible{outline:2px solid var(--orange);outline-offset:2px}
+.next small{display:block;font:400 11px "JetBrains Mono";color:var(--panel-muted);margin-top:4px}
+.next .arr{position:absolute;right:14px;top:50%;transform:translateY(-50%);font:400 16px "JetBrains Mono";color:var(--orange-text-on-panel)}
 .waves{position:absolute;right:20px;bottom:14px;width:290px;height:86px;opacity:.9;overflow:hidden;color:var(--panel-muted)}
 .waves svg{width:1040px;height:60px;margin-top:14px;animation:drift 22s linear infinite}
 .waves path{fill:none;stroke:currentColor;stroke-width:1;opacity:.5}

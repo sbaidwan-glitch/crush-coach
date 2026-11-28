@@ -257,3 +257,12 @@ def test_the_tokens_and_components_have_four_pixel_corners():
         # (the square and diamond status marks are ::before shapes and stay square)
         sheet = re.sub(r"[^{}]*::before\s*\{[^}]*\}", "", sheet)
         assert not re.search(r"border-radius:\s*0\s*[;}]", sheet)
+
+
+def test_the_next_step_link_has_the_orange_outline_on_hover_and_focus():
+    rule = re.search(r"\.active__next:hover, \.active__next:focus-visible \{([^}]*)\}", THEME).group(1)
+
+    assert "outline: 2px solid var(--orange)" in rule and "outline-offset: 2px" in rule
+    block = re.search(r"\n\.active__next \{([^}]*)\}", THEME).group(1)
+    assert "cursor: pointer" in block and "text-decoration: none" in block
+    assert "active__ask" not in THEME and ".tagline" not in THEME

@@ -1,5 +1,7 @@
 """Home: your task with the stored Next step, tasks to pick up, progress, the render."""
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -118,6 +120,70 @@ def test_without_a_stored_next_step_home_says_so_and_does_not_ask_the_model(sess
     html = signed_in.get("/").text  # (the autouse fixture fails if the model is touched)
 
     assert "No next step yet." in html
+
+
+def test_the_next_step_block_is_a_link_into_the_coach_and_the_separate_link_is_gone(session, signed_in):
+    task = add(session, "E01", status="in_progress", owner="Sam Example")
+    session.add(
+        CoachMessage(
+            task_id=task.id,
+            member="Coach",
+            role="assistant",
+            content="Here is what I found.\n\n**Next step:** open the sub-assembly.",
+            created_at=utc_now(),
+        )
+    )
+    session.commit()
+
+    html = signed_in.get("/").text
+
+    block = html[html.index('<a class="active__next"') : html.index("</a>", html.index('<a class="active__next"'))]
+    assert 'href="/tasks/E01#coach"' in block  # a real link, not a div with a handler
+    assert "<b>Next step:</b> Open the sub-assembly." in block and "From the coach" in block
+    assert '<span class="visually-hidden">, open the coach</span>' in block  # finishes its name
+    assert '<span class="active__arrow" aria-hidden="true">↗</span>' in block  # decoration only
+    assert "Ask the coach ↗" not in html and "active__ask" not in html
+    assert "#coach-message" not in html
+    # The buttons that remain.
+    assert 'href="/tasks/E01"' in html and "Open task" in html and ">Mark step done</button>" in html
+
+
+def test_the_empty_next_step_is_the_same_link(session, signed_in):
+    add(session, "E01", status="in_progress", owner="Sam Example")
+
+    html = signed_in.get("/").text
+
+    block = html[html.index('<a class="active__next"') : html.index("</a>", html.index('<a class="active__next"'))]
+    assert 'href="/tasks/E01#coach"' in block
+    assert "No next step yet. Ask the coach about this task and it will suggest one." in block
+    assert ", open the coach</span>" in block and 'aria-hidden="true">↗' in block
+
+
+def test_home_has_no_tagline_lines(session, signed_in):
+    html = signed_in.get("/").text
+
+    assert "One build. Clear next moves." not in html
+    assert "One team. Every system moving." not in html
+    assert "Build control" in html and "Crush" in html
+
+
+def test_the_task_page_coach_section_is_the_target_of_that_link(session, signed_in):
+    add(session, "E01", status="in_progress", owner="Sam Example")
+
+    html = signed_in.get("/tasks/E01").text
+
+    assert '<section class="panel" id="coach" aria-labelledby="coach-heading">' in html
+    assert html.count('id="coach"') == 1 and 'id="coach-message"' in html
+
+
+def test_arriving_with_coach_in_the_address_focuses_the_box_without_sending():
+    js = (Path(__file__).resolve().parents[1] / "static" / "coach.js").read_text()
+    focus = js[js.index("function focusCoachFromHash") : js.index('addEventListener("hashchange"')]
+    assert 'addEventListener("load", focusCoachFromHash)' in focus  # the browser's jump clears focus first
+
+    assert 'window.location.hash !== "#coach"' in focus
+    assert 'byId("coach-message")' in focus and "field.focus()" in focus
+    assert "requestSubmit" not in focus and "submit(" not in focus and "fetch(" not in focus
 
 
 def test_a_member_with_no_task_is_told_to_pick_one(session, signed_in):

@@ -114,7 +114,6 @@
 .lbl { font: 10px var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--panel-muted); }
 .pill { font: 10px var(--font-mono); letter-spacing: 0.12em; text-transform: uppercase; background: var(--panel-inset); color: var(--panel-muted); padding: 4px 9px; border-radius: 3px; white-space: nowrap; }
 .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-.tagline { margin: 0; color: var(--panel-muted); font-size: 14px; }
 
 /* Vehicle overview: the render on the blueprint grid, the gauge, a bar per subsystem */
 .vehicle__view { position: relative; margin: 16px -24px 0; padding: 20px 34px; background-color: var(--panel-inset); background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px); background-size: 26px 26px; border-block: 1px solid var(--panel-rule); display: grid; place-items: center; }
@@ -149,11 +148,13 @@
 .active .stages .is-past { background: var(--panel-btn); color: var(--panel-ink); }
 .active .stages .is-current { background: var(--orange); color: var(--on-orange); font-weight: var(--weight-semibold); }
 .active .stages:has(li:nth-child(5)) { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
-.active__next { background: var(--panel-inset); border-radius: 3px; padding: 11px 14px; margin: 0 0 18px; font-size: var(--text-sm); max-width: 60ch; }
+/* The Next-step block is a link to the coach. Hover and keyboard focus draw the same 2px orange outline as every focus ring; the arrow is decoration. */
+.active__next { display: block; position: relative; background: var(--panel-inset); color: var(--panel-ink); border-radius: 3px; padding: 11px 40px 11px 14px; margin: 0 0 18px; font-size: var(--text-sm); max-width: 60ch; text-decoration: none; cursor: pointer; }
+.active__next:hover, .active__next:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
 .active__next small { display: block; font: 11px var(--font-mono); color: var(--panel-muted); margin-top: 4px; }
+.active__arrow { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); font: 16px var(--font-mono); color: var(--orange-text-on-panel); }
 .active__acts { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; position: relative; z-index: 1; }
 .active__acts form { margin: 0; }
-.active__ask { font: 12px var(--font-mono); color: var(--orange-text-on-panel); margin-left: 6px; }
 .active .meta { position: relative; z-index: 1; }
 .waves { position: absolute; right: 20px; bottom: 14px; width: 290px; height: 86px; opacity: 0.9; overflow: hidden; pointer-events: none; }
 .waves::before { content: ""; position: absolute; top: 14px; left: 0; width: 1040px; height: 60px; background: url("../img/waves.svg") 0 0 / 1040px 60px no-repeat; animation: drift 22s linear infinite; }
