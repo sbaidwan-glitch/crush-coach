@@ -1,6 +1,6 @@
 """Home (`/`): what should I do next?
 
-Three tiles (notes this week, your tasks in review, available tasks), Crush's build
+Three tiles (notes this week, your tasks a lead hasn't seen yet, available tasks), Crush's build
 progress (render with a tag per part, gauge, a bar per part), your active task (the stored
 "Next step" from the coach, never a fresh model call) and a few unclaimed tasks to claim.
 Signed-out visitors see the same page as a read-only preview: progress is real, tasks
@@ -19,9 +19,11 @@ import board
 import db
 import notebook
 import progress
+import review
 import shell
 import steps
 import taskpage
+import workflow
 from models import STATUS_LABELS, Task
 
 log = logging.getLogger("crush_coach")
@@ -34,7 +36,7 @@ PICK_UP_LIMIT = 4
 def my_task(tasks: list[Task], user: auth.User) -> tuple[Task | None, int]:
     """The member's current task, and how many more they have.
 
-    A task in progress comes first; one waiting for review is shown if nothing else is.
+    A task in progress comes first; one on a review stage is shown if nothing else is.
     """
     mine = [t for t in tasks if progress.owned_by(t, user["name"], user["email"])]
     for status in ("in_progress", "needs_review"):
@@ -82,6 +84,27 @@ def render_home(
             session.rollback()
             log.error("Could not load the next step (%s)", type(exc).__name__)
 
+    sent_back = None
+    if current is not None:
+        try:
+            sent_back = review.sent_back_notice(session, current)
+        except Exception as exc:  # noqa: BLE001  (the rest of the page still works)
+            session.rollback()
+            log.error("Could not load the sent-back note (%s)", type(exc).__name__)
+
+    in_review = 0  # tasks of the member's that a lead has been notified about and not answered
+    if not preview:
+        try:
+            waiting = review.waiting_task_ids(session)
+            in_review = sum(
+                1
+                for t in tasks
+                if t.id in waiting and progress.owned_by(t, user["name"], user["email"])
+            )
+        except Exception as exc:  # noqa: BLE001  (the tile shows 0; the rest still works)
+            session.rollback()
+            log.error("Could not count the notifications (%s)", type(exc).__name__)
+
     notes_week: int | None = None
     my_drafts = 0
     if not preview:
@@ -103,9 +126,10 @@ def render_home(
         "step_name": steps.current_step(current).name
         if current and steps.current_step(current)
         else "",
-        "main_action": taskpage.main_action(current, ["advance"])
-        if current and current.status == "in_progress"
+        "main_action": taskpage.main_action(current, workflow.available_actions(current, user))
+        if current and not preview
         else None,
+        "sent_back": sent_back,
         "notice": notice,
         "status_labels": STATUS_LABELS,
         "pick_up": (
@@ -117,13 +141,7 @@ def render_home(
         "unclaimed_count": len(unclaimed),
         "notes_week": notes_week,
         "my_drafts": my_drafts,
-        "in_review": 0
-        if preview
-        else sum(
-            1
-            for t in tasks
-            if t.status == "needs_review" and progress.owned_by(t, user["name"], user["email"])
-        ),
+        "in_review": in_review,
         "groups": groups,
         "total": progress.overall(groups),
     }

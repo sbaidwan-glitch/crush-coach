@@ -10,9 +10,9 @@
 //
 // The panel. The panel is a <dialog> (#notebook) that is always in the page for signed-in
 // members; its content comes from the server (/notebook/panel) when it is opened. Links with
-// [data-notebook-open] open it: the top bar button, "+ Log today's work", the leaving nudge. After "Mark step done"
-// the address carries ?log=CODE and the dialog has data-open-url, so it opens on load. Inside
-// the panel htmx swaps #notebook-body for each step (tabs, tidy, save, publish, retry).
+// [data-notebook-open] open it: the top bar button, "+ Log today's work", the leaving nudge, and
+// "Write today's entry" in the confirmation after "Move to next stage". Nothing opens it by
+// itself. Inside the panel htmx swaps #notebook-body for each step (tabs, tidy, save, publish, retry).
 //
 // The leaving nudge (the second block, at the end of this file) is a small prompt the server
 // renders, hidden, on every page where the member worked on a task today and hasn't written it
@@ -228,16 +228,6 @@
     if (event.target === dialog) dialog.close();
   });
 
-  var onLoad = dialog.getAttribute("data-open-url");
-  if (onLoad) {
-    // Drop ?log= so reloading doesn't open it again.
-    var here = new URL(window.location.href);
-    if (here.searchParams.has("log")) {
-      here.searchParams.delete("log");
-      window.history.replaceState(null, "", here.pathname + here.search + here.hash);
-    }
-    open(onLoad, null);
-  }
 })();
 
 // The leaving nudge: "You worked on M06 today. Write today's entry while you remember it."
@@ -284,8 +274,7 @@
     nudge.hidden = false;
   }
 
-  // After "Mark step done" the Notebook opens by itself (?log=CODE): they are writing already.
-  if (stored() || (dialog && dialog.hasAttribute("data-open-url"))) {
+  if (stored()) {
     remember();
     return;
   }
@@ -343,4 +332,14 @@
         });
     });
   }
+})();
+
+// The confirmation after "Move to next stage" (#move-toast, rendered once by the server): its
+// Dismiss button hides it. Without JavaScript it stays until the next page.
+(function () {
+  var toast = document.getElementById("move-toast");
+  if (!toast) return;
+  toast.addEventListener("click", function (event) {
+    if (event.target.closest("[data-toast-close]")) toast.hidden = true;
+  });
 })();

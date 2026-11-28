@@ -93,15 +93,13 @@ def test_signed_out_visitors_get_no_panel_and_see_nothing_of_the_notebook(sessio
     assert stored(session, WorkNote) == [] and stored(session, PrivateNote) == []
 
 
-def test_the_log_parameter_opens_the_panel_on_load_and_only_for_a_real_code(session, as_user):
+def test_the_log_parameter_no_longer_opens_the_panel(session, as_user):
     add_task(session)
     client = as_user(MEMBER)
 
-    opened = client.get("/tasks/M06?log=M06").text
-    junk = client.get('/tasks/M06?log="><script>alert(1)</script>').text
-
-    assert 'data-open-url="/notebook/panel?tab=today&amp;task=M06"' in opened
-    assert "data-open-url" not in junk and "<script>alert(1)" not in junk
+    for path in ("/tasks/M06?log=M06", '/tasks/M06?log="><script>alert(1)</script>'):
+        html = client.get(path).text
+        assert "data-open-url" not in html and "<script>alert(1)" not in html
 
 
 def test_the_panel_has_three_tabs_and_the_entry_form(session, as_user):
@@ -326,7 +324,7 @@ def test_the_model_is_never_called_by_opening_pages(session, as_user, monkeypatc
     model = use_model(monkeypatch)
     client = as_user(MEMBER)
 
-    for path in ("/", "/worklog", "/notebook/panel", "/notebook/panel?tab=earlier", "/record", "/tasks/M06?log=M06"):
+    for path in ("/", "/worklog", "/notebook/panel", "/notebook/panel?tab=earlier", "/record", "/tasks/M06"):
         client.get(path)
 
     assert model.requests == []
@@ -726,50 +724,79 @@ def test_the_nudge_script_follows_the_rules_in_the_brief():
     assert ".focus()" not in nudge  # it never takes focus
 
 
-# --- after "Mark step done" -------------------------------------------------------------------------------
+# --- after "Move to next stage" -------------------------------------------------------------------------------
 
 
-def test_mark_step_done_opens_the_notebook_on_that_task(session, as_user):
+def test_moving_to_the_next_stage_shows_a_toast_with_a_link_and_does_not_open_the_notebook(session, as_user):
     add_task(session)
     client = as_user(MEMBER)
 
-    from_task_page = client.post(
+    response = client.post(
         "/tasks/M06/status", data={"action": "advance", "step": "Drawing"}, follow_redirects=False
     )
 
-    assert from_task_page.status_code == 303
-    assert from_task_page.headers["location"] == "/tasks/M06?log=M06"
-    page = client.get(from_task_page.headers["location"]).text
-    assert 'data-open-url="/notebook/panel?tab=today&amp;task=M06"' in page
+    assert response.status_code == 303
+    assert response.headers["location"] == "/tasks/M06"  # no ?log=
+    page = client.get(response.headers["location"]).text
+    assert 'id="move-toast"' in page and "M06 moved to “Lead review”." in page
+    assert 'href="/notebook?task=M06" data-notebook-open' in page and "Write today’s entry" in page
+    assert "data-open-url" not in page  # nothing opens by itself
+    assert 'id="move-toast"' not in client.get("/tasks/M06").text  # shown once
 
 
-def test_mark_step_done_from_home_opens_it_there(session, as_user):
-    add_task(session)
+def test_the_toast_follows_a_move_made_from_home_and_says_finished_on_the_last_stage(session, as_user):
+    task = add_task(session)
+    task.stage = "Inspect"
+    session.add(task)
+    session.commit()
+    client = as_user(MEMBER)
 
-    response = as_user(MEMBER).post(
-        "/tasks/M06/status", data={"action": "advance", "step": "Drawing", "next": "/"}, follow_redirects=False
+    response = client.post(
+        "/tasks/M06/status", data={"action": "advance", "step": "Inspect", "next": "/"}, follow_redirects=False
     )
 
-    assert response.headers["location"] == "/?log=M06"
+    assert response.headers["location"] == "/"
+    assert "M06 is finished." in client.get("/").text
+
+
+def test_a_lead_moving_someone_elses_task_gets_the_words_without_the_notebook_link(session, as_user):
+    add_task(session, owner="Riley Sample")
+    lead = as_user(LEAD)
+
+    lead.post("/tasks/M06/status", data={"action": "advance", "step": "Drawing"}, follow_redirects=False)
+
+    page = lead.get("/tasks/M06").text
+    assert "M06 moved to “Lead review”." in page and "Write today’s entry" not in page.split('id="move-toast"')[1].split("</aside>")[0]
 
 
 @pytest.mark.parametrize("action, status", [("unclaim", "in_progress"), ("start", "todo")])
-def test_other_moves_do_not_open_it(session, as_user, action, status):
+def test_other_moves_show_no_toast(session, as_user, action, status):
     add_task(session, status=status)
+    client = as_user(MEMBER)
 
-    response = as_user(MEMBER).post("/tasks/M06/status", data={"action": action}, follow_redirects=False)
+    response = client.post("/tasks/M06/status", data={"action": action}, follow_redirects=False)
 
     assert response.headers["location"] == "/tasks/M06"
+    assert 'id="move-toast"' not in client.get("/tasks/M06").text
 
 
-def test_a_refused_move_does_not_open_it(session, as_user):
+def test_a_refused_move_shows_no_toast(session, as_user):
     add_task(session, owner="Riley Sample")
+    client = as_user(MEMBER)
 
-    response = as_user(MEMBER).post(
-        "/tasks/M06/status", data={"action": "advance", "step": "Drawing"}, follow_redirects=False
-    )
+    response = client.post("/tasks/M06/status", data={"action": "advance", "step": "Drawing"}, follow_redirects=False)
 
-    assert response.status_code == 403 and "log=" not in response.headers.get("location", "")
+    assert response.status_code == 403 and 'id="move-toast"' not in client.get("/tasks/M06").text
+
+
+def test_a_toast_is_not_used_up_by_a_fragment(session, as_user):
+    add_task(session)
+    client = as_user(MEMBER)
+    client.post("/tasks/M06/status", data={"action": "advance", "step": "Drawing"}, follow_redirects=False)
+
+    client.get("/notebook/panel", headers=HTMX)
+
+    assert 'id="move-toast"' in client.get("/tasks/M06").text
 
 
 # --- History and the Record --------------------------------------------------------------------------------------
@@ -928,18 +955,17 @@ def test_an_answer_that_is_not_recorded_is_not_written(session, as_user, doc):
     assert doc.gets == 0 and stored(session, DriveWrite) == []
 
 
-def test_accepting_work_with_a_line_records_and_writes_it_but_without_one_writes_nothing(session, as_user, doc):
-    add_task(session, "M03", status="needs_review", owner="Riley Sample")
-    add_task(session, "M04", status="needs_review", owner="Riley Sample")
+def test_moving_a_task_on_or_answering_a_notification_writes_nothing_to_the_crush_document(session, as_user, doc):
+    import review
+
+    task = add_task(session, "M03", status="needs_review", owner="Riley Sample")
+    asked = review.notify(session, task, {"name": "Riley Sample", "email": "riley@example.edu", "role": "member"}, "Look?")
     client = as_user(LEAD)
 
-    client.post("/tasks/M04/status", data={"action": "approve"}, follow_redirects=False)
-    assert doc.gets == 0
+    client.post("/tasks/M03/status", data={"action": "advance"}, follow_redirects=False)
+    client.post(f"/inbox/review/{asked.event.id}/seen", follow_redirects=False)
 
-    client.post("/tasks/M03/status", data={"action": "approve", "record": "Panels are 3 mm thick"}, follow_redirects=False)
-
-    assert doc.lines("Enclosure")[1] == "Weld the enclosure walls: Panels are 3 mm thick"
-    assert doc.lines("Enclosure")[-1] == "Recorded by Lee Lead · M03"
+    assert doc.gets == 0 and stored(session, Decision) == []
 
 
 def test_a_failed_write_never_stops_an_answer_being_recorded_and_the_lead_can_retry(session, as_user, doc):

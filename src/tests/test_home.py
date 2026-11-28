@@ -91,7 +91,7 @@ def test_your_task_is_the_members_task_in_progress_with_its_stage_strip(session,
     assert "Someone else&#39;s" not in html
     assert '<li class="is-current" aria-current="step">CAD</li>' in html
     assert 'action="/tasks/E01/status"' in html and 'value="advance"' in html
-    assert ">Mark step done</button>" in html
+    assert ">Move to next stage</button>" in html
     assert 'href="/tasks/E01"' in html
 
 
@@ -145,7 +145,7 @@ def test_the_next_step_block_is_a_link_into_the_coach_and_the_separate_link_is_g
     assert "Ask the coach ↗" not in html and "active__ask" not in html
     assert "#coach-message" not in html
     # The buttons that remain.
-    assert 'href="/tasks/E01"' in html and "Open task" in html and ">Mark step done</button>" in html
+    assert 'href="/tasks/E01"' in html and "Open task" in html and ">Move to next stage</button>" in html
 
 
 def test_the_empty_next_step_is_the_same_link(session, signed_in):
@@ -194,13 +194,53 @@ def test_a_member_with_no_task_is_told_to_pick_one(session, signed_in):
     assert "You haven’t started a task. Pick one from Available tasks below." in html
 
 
-def test_a_task_waiting_for_review_shows_when_nothing_else_is_in_progress(session, signed_in):
-    add(session, "E01", "In review one", status="needs_review", owner="Sam Example")
+def test_a_task_on_a_review_stage_shows_when_nothing_else_is_in_progress(session, signed_in):
+    add(session, "E01", "In review one", status="needs_review", owner="Sam Example", stage="Lead review")
 
     html = signed_in.get("/").text
 
     assert "In review one" in html
-    assert 'value="ready"' not in html  # already sent
+    assert ">Move to next stage</button>" in html  # nobody has to approve it first
+
+
+def test_the_last_stage_says_finish_task_on_home(session, signed_in):
+    add(session, "E01", status="in_progress", owner="Sam Example", stage="Fit check")
+
+    html = signed_in.get("/").text
+
+    assert ">Finish task</button>" in html and "Move to next stage" not in html
+
+
+def test_the_review_tile_counts_unanswered_notifications_not_review_stages(session, signed_in):
+    import review
+
+    review_stage = add(session, "E01", status="needs_review", owner="Sam Example", stage="Lead review")
+    asked = add(session, "E02", status="in_progress", owner="Sam Example")
+    add(session, "E03", status="needs_review", owner="Alex Example", stage="Lead review")
+    review.notify(session, asked, SAM, "")
+
+    html = signed_in.get("/").text
+    tile = html[html.index("Your tasks in review") - 120 : html.index("Your tasks in review") + 120]
+
+    assert '<span class="tile__n">1</span>' in tile
+    assert "Waiting for a lead to see" in tile and "Waiting for leads to check" not in html
+    assert review_stage.status == "needs_review"  # sitting on a review stage adds nothing
+
+
+def test_the_active_task_panel_shows_why_a_lead_sent_it_back(session, signed_in):
+    import review
+
+    task = add(session, "E01", status="in_progress", owner="Sam Example", stage="Lead review")
+    task.status = "needs_review"
+    session.add(task)
+    session.commit()
+    sent = review.notify(session, task, SAM, "Spacing ok?")
+    lead = {"name": "Lee Lead", "email": "lee@example.edu", "role": "lead"}
+    review.send_back(session, lead, sent.event.id, "Redo the hole spacing.")
+
+    html = signed_in.get("/").text
+
+    assert "Sent back:" in html and "Redo the hole spacing." in html
 
 
 def test_other_started_tasks_are_mentioned(session, signed_in):

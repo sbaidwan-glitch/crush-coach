@@ -13,6 +13,7 @@ from sqlmodel import Session, col, select
 
 import plan as plan_shape
 import profiles
+import review
 import steps
 import workflow
 from auth import User
@@ -38,28 +39,38 @@ def short_date(when: datetime) -> str:
 
 
 def event_text(event: TaskEvent) -> str:
-    """One History line, in words: who did what."""
+    """One History line, in words: who did what. Nobody approves anything any more, so a
+    member who moves on from a review stage "moved on from" it. Older rows (`approve`,
+    `self_approve`, a send back with no reason) stay readable as they were."""
     who = event.actor
     step = f"“{event.detail}”" if event.detail else None
     match event.kind:
         case "advance":
-            done = f"{who} finished {step}" if step else f"{who} finished a step"
+            if event.from_status == "needs_review":  # moved on from a review stage
+                moved = f"{who} moved on from {step}" if step else f"{who} moved on"
+            else:
+                moved = f"{who} finished {step}" if step else f"{who} finished a step"
             if event.to_status == "needs_review":
-                return f"{done} and sent it for review"
+                return f"{moved} and moved it to a review stage"
             if event.to_status == "done":
-                return f"{done}; the task is complete"
-            return done
-        case "approve":
+                return f"{moved}; the task is complete"
+            return moved
+        case "approve":  # before leads stopped being gates
             return f"{who} approved {step}" if step else f"{who} approved it"
         case "self_approve":
             return f"{who} self-approved {step}" if step else f"{who} self-approved it"
         case "send_back":
             return f"{who} sent it back to {step}" if step else f"{who} sent it back"
+        case "review_requested":
+            stage = review.meta(event).get("stage")
+            return f"{who} notified a lead about “{stage}”" if stage else f"{who} notified a lead"
+        case "review_seen":
+            return f"{who} saw the notification"
         case "change_type":
             return f"{who} changed the type: {event.detail}"
         case "edit_steps":
             return f"{who} edited the steps"
-    # Older rows have no kind: say it from the statuses.
+    # The oldest rows have no kind: say it from the statuses, as it was then.
     if event.to_status == "in_progress" and event.from_status == "needs_review":
         return f"{who} sent it back"
     if event.to_status == "in_progress":
@@ -92,9 +103,11 @@ def history(session: Session, task_id: int) -> list[dict]:
             {
                 "date": short_date(e.created_at),
                 "text": event_text(e),
-                "note": e.note,
-                # The new list of steps, as a second line (the other details are in the text).
-                "detail": e.detail if e.kind == "edit_steps" else None,
+                # A lead's reason for sending it back. (A notification keeps its stage and
+                # entry in `note`, not words.)
+                "note": None if e.kind == "review_requested" else e.note,
+                # A second line: the new list of steps, or a member's message to a lead.
+                "detail": e.detail if e.kind in ("edit_steps", "review_requested") else None,
             },
         )
         for e in events
@@ -135,29 +148,37 @@ def owner_since(session: Session, task: Task) -> str | None:
 
 
 def step_note(task: Task) -> str | None:
-    """What the main button will do, in words, for a task that is in progress."""
+    """What the main button will do, in words, for a task that is being worked on or is on
+    a review stage."""
     current = steps.current_step(task)
-    if task.status != "in_progress" or current is None:
+    if task.status not in ("in_progress", "needs_review") or current is None:
         return None
     following = steps.next_step(task)
+    if current.review:
+        lead = (
+            f"“{current.name}” is a review stage: talk to a lead, or notify one from your "
+            "Notebook."
+        )
+        if following is None:
+            return f"{lead} Finish the task when you are ready."
+        return f"{lead} Move to “{following.name}” when you are ready."
     if following is None:
-        return f"Marking “{current.name}” done finishes the task."
+        return f"“{current.name}” is the last stage. Finish the task when the work is done."
     if following.review:
         return (
-            f"Asking for review sends “{current.name}” to a lead, who accepts "
-            f"“{following.name}” before work goes on."
+            f"Next is “{following.name}”. Moving there doesn’t send anything: talk to a "
+            "lead, or notify one from your Notebook."
         )
-    return f"Marking “{current.name}” done moves the task to “{following.name}”."
+    return f"Moving on takes the task from “{current.name}” to “{following.name}”."
 
 
 def main_action(task: Task, actions: list[str]) -> tuple[str, str] | None:
-    """The one main button on the task page: Start, then Mark step done (Ask for review on
-    the step before a review step). None when nothing is for this person to press."""
+    """The one main button on the task page: Start, then Move to next stage (Finish task on
+    the last stage). None when nothing is for this person to press."""
     if "start" in actions:
         return "start", "Start"
     if "advance" in actions:
-        following = steps.next_step(task)
-        return "advance", "Ask for review" if following and following.review else "Mark step done"
+        return "advance", "Move to next stage" if steps.next_step(task) else "Finish task"
     return None
 
 
@@ -181,9 +202,13 @@ def page_context(session: Session, task: Task, user: User) -> dict:
         "history_error": None,
         "owner_since": None,
         "owner_chips": [],
+        "review": None,
+        "sent_back": None,
         "decision_status_labels": DECISION_STATUS_LABELS,
     }
     try:
+        context["review"] = review.status_for(session, task)
+        context["sent_back"] = review.sent_back_notice(session, task)
         context["history"] = history(session, task.id)
         context["owner_since"] = owner_since(session, task)
         context["owner_chips"] = profiles.load(session).chips(task.owner)

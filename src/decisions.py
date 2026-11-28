@@ -1,7 +1,6 @@
 """Recorded answers (the `Decision` table, shown as the Record).
 
-A decision is **recorded** (status `confirmed`) when a lead settles an answer or accepts
-work with a line worth recording; **replaced** (`superseded`) when a later answer to the
+A decision is **recorded** (status `confirmed`) when a lead settles an answer; **replaced** (`superseded`) when a later answer to the
 same question takes over. The database keeps its old names; only the words on the pages
 changed (`models.DECISION_STATUS_LABELS`). Leads are the only people who record one, and
 the routes that do it (`inbox.py`) check that on every POST.
@@ -135,7 +134,7 @@ def record_answer(
     With `replace_same_topic`, a recorded answer in the same subsystem with the same
     topic is marked replaced and linked to this one: the newer answer to a question
     takes over. Adds to the session without committing, so the caller can make it part
-    of a bigger change (accepting work) and commit once.
+    of a bigger change and commit once.
     """
     if lead["role"] != "lead":
         raise RecordError("Only a lead can record an answer.")

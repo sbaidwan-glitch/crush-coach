@@ -24,7 +24,7 @@
   </div>
   <div class="tile rise" style="--d:.1s">
     <span class="tile__n">{{ in_review }}</span>
-    <div><b>Your tasks in review</b><small>Waiting for leads to check</small></div>
+    <div><b>Your tasks in review</b><small>Waiting for a lead to see</small></div>
   </div>
   {% endif %}
   <div class="tile tile--accent rise" style="--d:.15s">
@@ -67,6 +67,7 @@
     <div class="row"><span class="lbl">{{ task.code }} / {{ task.subsystem }}</span><span class="pill">{{ status_labels[task.status] }}</span></div>
     <h2 class="panel__title" id="active-task"><a href="/tasks/{{ task.code }}">{{ task.title }}</a></h2>
     <ol class="stages" aria-label="Steps">{% for s in stages %}<li{% if s.state == "past" %} class="is-past"{% elif s.state == "current" %} class="is-current" aria-current="step"{% endif %}>{{ s.label }}</li>{% endfor %}</ol>
+    {% if sent_back %}<p class="active__sentback" role="status"><b>Sent back:</b> {{ sent_back.reason }}<small>{{ sent_back.by }}{% if sent_back.stage %} · now on “{{ sent_back.stage }}”{% endif %}</small></p>{% endif %}
     {#- The whole block is the way into the coach: a real link to the task page's coach section (#coach), which focuses the message box. The arrow is decoration; the hidden words finish the link's name. -#}
     {% if next_step %}
     <a class="active__next" href="/tasks/{{ task.code }}#coach"><b>Next step:</b> {{ next_step.text }}<small>From the coach · {{ next_step.date }}</small><span class="visually-hidden">, open the coach</span><span class="active__arrow" aria-hidden="true">↗</span></a>
@@ -77,7 +78,7 @@
       <a class="btn btn--primary" href="/tasks/{{ task.code }}">Open task →</a>
       {% if main_action %}
       <form method="post" action="/tasks/{{ task.code }}/status">
-        <input type="hidden" name="action" value="advance"><input type="hidden" name="step" value="{{ step_name }}"><input type="hidden" name="next" value="/">
+        <input type="hidden" name="action" value="{{ main_action[0] }}">{% if main_action[0] == "advance" %}<input type="hidden" name="step" value="{{ step_name }}">{% endif %}<input type="hidden" name="next" value="/">
         <button class="btn" type="submit">{{ main_action[1] }}</button>
       </form>
       {% endif %}

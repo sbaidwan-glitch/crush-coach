@@ -13,7 +13,7 @@
   {% for text in errors %}{{ error_state(text, "/inbox", "Try again") }}{% endfor %}
   <div class="inbox">
     {% for c in cards %}
-    {% if c.kind == "work" %}{{ work_card(c, c.mine) }}
+    {% if c.kind == "work" %}{{ work_card(c) }}
     {% elif c.kind == "answer" %}{{ answer_card(c) }}
     {% else %}{{ task_card(c, subsystems, task_types) }}{% endif %}
     {% endfor %}

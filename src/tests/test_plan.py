@@ -168,10 +168,10 @@ def make(task_type="Fabricate", stage="Drawing", status="in_progress"):
 
 def test_then_names_the_next_step_after_the_current_one():
     assert steps.then_text(make(stage="Drawing", status="in_progress")) == (
-        "Lead review comes after Drawing: ask for review, and a lead checks the work before it moves on."
+        "Lead review comes after Drawing: move to it when the work is ready, and show a lead in person or notify one from your Notebook."
     )
     assert steps.then_text(make("Print", "Check CAD")) == (
-        "Lead review comes after Check CAD: ask for review, and a lead checks the work before it moves on."
+        "Lead review comes after Check CAD: move to it when the work is ready, and show a lead in person or notify one from your Notebook."
     )
     assert steps.then_text(make("Fabricate", "Process router", "in_progress")) == "Shop is the next step after Process router."
 
@@ -266,7 +266,7 @@ def test_the_saved_plan_ends_with_then_from_the_steps_and_is_marked_as_a_plan(mo
     assert saved[2].content == coach.PLAN_REQUEST == "Plan my next steps."
     assert json.loads(saved[3].meta)["plan"] is True
     assert saved[3].content.rstrip().endswith(
-        "**Then:** Lead review comes after Drawing: ask for review, and a lead checks the work before it moves on."
+        "**Then:** Lead review comes after Drawing: move to it when the work is ready, and show a lead in person or notify one from your Notebook."
     )
     assert [p["key"] for p in plan.parse(saved[3].content)][-1] == "then"
 

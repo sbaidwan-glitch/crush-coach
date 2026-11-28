@@ -2,7 +2,7 @@
 
 Two ideas, kept apart everywhere in the app:
 
-- **Checking work**: "this person's drawing/router/part is good, move on." About a task. Done once.
+- **Looking at work**: a lead looks at someone's drawing/router/part, usually in person. About a task. The app never gates it: members move their own tasks through every stage, and may *notify* a lead if they want one to look. Nothing waits on a lead.
 - **Recording an answer**: "this is how it is from now on." About the robot. Kept, and written to the Crush document.
 
 Words: Suggested / Recorded / Replaced (not proposed / confirmed / superseded). The page is called **Record**.
@@ -11,16 +11,16 @@ Words: Suggested / Recorded / Replaced (not proposed / confirmed / superseded). 
 
 | | Member | Lead (any lead) |
 |---|---|---|
-| Task | Start → Mark step done → Ask for review (one main button at a time) | Accept / Send back |
+| Task | Start → Move to next stage (Finish task on the last), on every stage including a review stage; optionally **Notify team lead for review** (Notebook) | Moves any task too; sees notifications in the Inbox: Seen / Send back (with a reason) |
 | Answers | "Ask a lead to settle this" from a coach answer | Record answer (pick the coach's suggestion, another value, or type one) |
 | Tasks | Suggest a task | Add / Edit / Dismiss |
-| Notebook | Draft → tidy / suggest specs → publish (no lead approval) | Read published entries in the Record and the weekly digest |
+| Notebook | Draft → tidy / suggest specs → publish (no lead approval); notify a lead (separate button) | Read published entries in the Record and the weekly digest |
 
 ## Needs you (the lead Inbox tab, `docs/concepts/home-lead.html`)
 
 One list of everything waiting on a lead, on its own **Inbox** tab (leads only); the Inbox link shows the count. Three card kinds, each with its own mark:
 
-1. **Work to check** (square): task, who, which step, how long it's waited, links. Accept / Send back. On Accept, one optional line "Anything decided here worth recording?" saves a recorded answer for that task's subsystem.
+1. **Work to check** (square): a member notified a lead. Shows the member, the task, the stage they were on, their message, how long ago, a link to the task and to the linked entry (a published one; a draft is named, not linked, because drafts are private). **Seen** removes the card. **Send back** needs a one-line reason: if the task is still on or past the review stage it goes back to the working stage before it, and the member sees "Sent back: <reason>" in the Active task panel on Home; if it never reached the review stage it stays and only the reason is recorded. A task that merely sits on a review stage has no card. Follow-up messages add to the same card.
 2. **Answer to settle** (diamond): the question, who asked and on which task, the options with their sources, the coach's suggestion preselected and labelled, or a text box when nothing answers it. Record answer / Not now.
 3. **New task** (circle): suggested task with subsystem, type, what it unblocks and "done when". Add task / Edit / Dismiss.
 
@@ -28,16 +28,18 @@ Nothing a lead must act on lives anywhere else. Empty state: "Nothing is waiting
 
 ## Notebook (`docs/concepts/task-log.html`)
 
-A member's own entries about what they did on a task, and why. A side panel (top bar **Notebook**, the "Write today's entry" nudge when you are about to leave a page, or after "Mark step done") with three tabs, plus **Open full page** (`/notebook`: compose on the left, history on the right, stacked on a phone).
+A member's own entries about what they did on a task, and why. A side panel (top bar **Notebook**, the "Write today's entry" nudge when you are about to leave a page, or the link in the confirmation after "Move to next stage") with three tabs, plus **Open full page** (`/notebook`: compose on the left, history on the right, stacked on a phone).
 
 **States.** Every entry shows a mark and the word, never colour alone:
 - **Draft** (open circle): only its member can see it, and can edit it. Not in the Record, the task's History or the Crush document.
 - **Published** (filled circle): read-only. To fix one, add **a follow-up**: a new entry that refers to it ("Adds to your 12 Nov entry"). Existing notes are Published.
 - **Failed to publish** (filled square): published here, but the Crush document wouldn't take it. **Retry**.
 
-**Today's entry**: task picker (defaults to the task you worked on today), photos (up to 6; the first button opens the camera on a phone; each is shrunk in the browser to about 1,600 px and 1.5 MB, the server checks the real file type and strips location data), **What I did**, **Why (recommended)**, **Tidy my note** (one model call, on the button; may add specifics only from your text, your coach chat on the task or a linked source; asks at most one question), **Suggest specs** (one model run, on the button, with the reference-book search and the calculator; each suggestion has the spec, a unit and a source link; one with no source is dropped and the page says how many; you tick which to keep and may edit the wording; accepted / edited / rejected counts are kept in `note_spec` and shown to leads on `/admin`), then **Save draft** or **Publish to Crush doc**.
+**Today's entry**: task picker (defaults to the task you worked on today), photos (up to 6; the first button opens the camera on a phone; each is shrunk in the browser to about 1,600 px and 1.5 MB, the server checks the real file type and strips location data), **What I did**, **Why (recommended)**, **Tidy my note** (one model call, on the button; may add specifics only from your text, your coach chat on the task or a linked source; asks at most one question), **Suggest specs** (one model run, on the button, with the reference-book search and the calculator; each suggestion has the spec, a unit and a source link; one with no source is dropped and the page says how many; you tick which to keep and may edit the wording; accepted / edited / rejected counts are kept in `note_spec` and shown to leads on `/admin`), then **Save draft**, **Publish to Crush doc** or **Notify team lead for review** (see below).
 
 **Publish** uploads the photos to a "Notebook photos" folder inside the writable Drive folder, then appends to the Crush document under the subsystem's tab and that day's heading: "Name · CODE: what. Why: …", a line per accepted spec, and a link to each photo. Append-only, once (`DriveWrite`). If a photo can't be uploaded the text is still published and the page says the photos stayed in the app. No lead approves an entry.
+
+**Notify team lead for review** (blue, next to Publish; whenever the entry has a task) with an optional 280-character message ("e.g. Please confirm the hole spacing"). It records a notification for the task (a lead sees it in the Inbox) and nothing else: it does not publish, saves nothing, and moves nothing; publishing does not notify. You see "Your team lead can see this in their inbox." with the time sent. While one is unanswered, pressing again says "Already sent at 4:10 pm." and offers **Send a follow-up message**; at most 3 per task per day. It links your saved draft (or the entry you follow up, or today's published entry for the task) when there is one, else only the task.
 
 **Earlier**: your entries, 20 at a time, filter by task, each with its state and (if published) **Open in doc**.
 
@@ -55,7 +57,7 @@ Read-only. By subsystem, grouped by date, newest first. **Answer** entries (bold
 
 ## Rules
 
-- Any lead can settle an answer or check work. A lead can accept their own work: the card says so, and the task's History records it as "self-approved".
-- Answers need a lead. Notebook entries don't.
+- Any lead can settle an answer or answer a notification (Seen / Send back). A lead who notifies themselves gets a card like any other. Old History rows that say "approved" or "self-approved" stay as they were.
+- Answers need a lead. Notebook entries and task moves don't.
 - Drive writes are append-only, signed and dated; a failed write keeps the entry in the app as "Failed to publish" with Retry.
 - The model runs only on a button press: Ask, Recommend, Plan my next steps, Tidy my note, Suggest specs, Explain this, Weekly review.

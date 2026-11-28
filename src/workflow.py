@@ -1,33 +1,33 @@
 """The task flow: status, steps, and who may move a task.
 
     todo -> in_progress -> needs_review -> done
-                  ^______________|  (a lead sends it back)
 
-A task moves through the steps of its type (steps.py). The member's "Next step done"
-finishes the current step; when the next step is a review step the task becomes
-`needs_review`, and a lead's Approve moves past it (to `done` after the last step).
-Status and step always move together, so they can't disagree.
+A task moves through the steps of its type (steps.py). Leads are not gates: the owner (or
+any lead) moves the task through every stage, a "Lead review" or "Lead approval" stage
+included, because the member and the lead usually talk in person. "Move to next stage"
+(`advance`) works on every stage; when the stage it lands on is a review stage the task
+becomes `needs_review`, and moving on from there is the same button (to `done` after the
+last stage). Status and step always move together, so they can't disagree.
 
-Members move their own tasks: "Start" (which claims an unowned task), "Mark step done"
-(or "Ask for review" on the step before a review step), "Unclaim". Leads accept (`approve`)
-or send back, from the Inbox (`inbox.py`); a lead may accept their own task
-and the History then says "self-approved". Leads also change a task's type and edit its
-steps. The server checks every move; the page only hides buttons that wouldn't work.
-Each move is written to `task_event`, which the task page shows as History.
+Members move their own tasks: "Start" (which claims an unowned task), "Move to next stage"
+("Finish task" on the last), "Unclaim". A member may also notify a lead (`review.py`, from
+the Notebook), which moves nothing; a lead answers it in the Inbox with "Seen" or
+"Send back" (`review.send_back`). Leads also change a task's type and edit its steps. The
+server checks every move; the page only hides buttons that wouldn't work. Each move is
+written to `task_event`, which the task page shows as History.
 
 `move` takes plain values and a Session, not a Request, so tests can use it directly.
 """
 
 import logging
 from typing import Annotated
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 from sqlmodel import Session, select
 
 import db
-import decisions
 import shell
 import steps as stepslib
 from auth import CurrentUser, User
@@ -38,17 +38,14 @@ log = logging.getLogger("crush_coach")
 router = APIRouter()
 templates = shell.templates()
 
-MAX_NOTE_CHARS = 500
 DB_ERROR = "Couldn't reach the database right now. Nothing was changed. Try again."
 
-# action -> (statuses it can start from, leads only?). Where it ends up depends on the
-# task's steps: see `_destination`.
+# action -> the statuses it can start from. Where it ends up depends on the task's steps:
+# see `_destination`. "advance" works from a review stage too: nobody has to approve it.
 ACTIONS = {
-    "start": (("todo",), False),
-    "advance": (("in_progress",), False),
-    "unclaim": (("todo", "in_progress"), False),
-    "approve": (("needs_review",), True),
-    "send_back": (("needs_review",), True),
+    "start": ("todo",),
+    "advance": ("in_progress", "needs_review"),
+    "unclaim": ("todo", "in_progress"),
 }
 
 
@@ -66,18 +63,11 @@ def can_move(task: Task, user: User) -> bool:
     return user["role"] == "lead" or owned_by(task, user["name"], user["email"])
 
 
-def is_self_review(task: Task, user: User) -> bool:
-    """A lead acting on a task they own."""
-    return user["role"] == "lead" and owned_by(task, user["name"], user["email"])
-
-
 def check(task: Task, user: User, action: str) -> None:
     """Raise MoveError unless this person may take this action on this task now."""
     if action not in ACTIONS:
         raise MoveError("That isn't something you can do to a task.", 400)
-    from_statuses, leads_only = ACTIONS[action]
-    if leads_only and user["role"] != "lead":
-        raise MoveError("Only a lead can approve a task or send it back.")
+    from_statuses = ACTIONS[action]
     claiming = action == "start" and not task.owner
     if not claiming and not can_move(task, user):
         raise MoveError("Only the person who owns this task, or a lead, can change it.")
@@ -110,9 +100,7 @@ def _destination(task: Task, action: str) -> tuple[str, str]:
         return "in_progress", steps[stepslib.work_index(steps, here)].name
     if action == "unclaim":
         return "todo", steps[min(here, len(steps) - 1)].name
-    if action == "send_back":
-        return "in_progress", steps[stepslib.work_index(steps, here - 1)].name
-    return stepslib.landing(steps, here + 1)  # advance, approve
+    return stepslib.landing(steps, here + 1)  # advance
 
 
 def move(
@@ -120,15 +108,9 @@ def move(
     task: Task,
     user: User,
     action: str,
-    note: str | None = None,
     expected_step: str | None = None,
-    record: str | None = None,
 ) -> TaskEvent:
     """Apply one action and record it. Raises MoveError if it isn't allowed.
-
-    `record` is a lead's optional line on Accept ("Anything decided here worth
-    recording?"): saved as a recorded answer for the task's subsystem, in the same
-    commit as the move.
 
     `expected_step` is the step the person saw when they clicked; if the task has moved
     since (a double click, someone else's move), the move is refused instead of
@@ -139,7 +121,7 @@ def move(
     here = stepslib.current_index(task, steps)
     step_name = steps[here].name if here < len(steps) else steps[-1].name
     stale = expected_step and expected_step.casefold() != step_name.casefold()
-    if stale and action in ("advance", "approve", "send_back"):
+    if stale and action == "advance":
         raise MoveError(
             "This task has already changed. Reload the page to see where it is now.", 409
         )
@@ -151,36 +133,18 @@ def move(
         task.owner = user["name"]
     elif action == "unclaim":
         task.owner = None
-    note = (note or "").strip()[:MAX_NOTE_CHARS] or None
-    kind = action
-    detail = None
-    if action in ("advance", "approve"):
-        detail = step_name
-    elif action == "send_back":
-        detail = to_stage
-    if action == "approve" and is_self_review(task, user):
-        kind = "self_approve"
     event = TaskEvent(
         task_id=task.id,
         actor=user["name"],
         from_status=from_status,
         to_status=to_status,
-        note=note if action == "send_back" else None,
-        kind=kind,
-        detail=detail,
+        kind=action,
+        detail=step_name if action == "advance" else None,  # the stage moved on from
         created_at=utc_now(),
     )
     session.add(task)
     session.add(event)
-    line = (record or "").strip()[:MAX_NOTE_CHARS]
-    recorded = None
-    if action == "approve" and line:
-        recorded = decisions.record_answer(
-            session, user, subsystem=task.subsystem, topic=task.title, answer=line, task=task
-        )
     session.commit()
-    if recorded is not None:  # after the commit: the answer is saved whatever Google does
-        decisions.write_to_drive(session, recorded.id)
     return event
 
 
@@ -252,12 +216,21 @@ def _safe_next(value: str, fallback: str) -> str:
     return fallback
 
 
-def worklog_url(url: str, code: str) -> str:
-    """The page to return to, with `?log=CODE`: the work log opens on that task when it
-    loads, and drops the parameter so a reload doesn't open it again."""
-    parts = urlsplit(url)
-    query = [(k, v) for k, v in parse_qsl(parts.query) if k != "log"] + [("log", code)]
-    return urlunsplit(("", "", parts.path, urlencode(query), parts.fragment))
+TOAST_KEY = "toast"
+
+
+def _toast(task: Task, user: User) -> dict[str, str]:
+    """The short confirmation after "Move to next stage". It links to the Notebook on the
+    task for whoever owns it; a lead moving someone else's task gets the words only."""
+    steps = stepslib.steps_for(task)
+    here = stepslib.current_index(task, steps)
+    text = (
+        f"{task.code} is finished."
+        if here >= len(steps)
+        else f"{task.code} moved to “{steps[here].name}”."
+    )
+    mine = owned_by(task, user["name"], user["email"])
+    return {"text": text, "code": task.code if mine else ""}
 
 
 def _load(session: Session, code: str) -> Task:
@@ -292,29 +265,23 @@ def change_status(
     session: Annotated[Session, Depends(db.get_session)],
     user: CurrentUser,
     action: Annotated[str, Form()] = "",
-    note: Annotated[str, Form()] = "",
     next: Annotated[str, Form()] = "",
     step: Annotated[str, Form()] = "",
-    record: Annotated[str, Form()] = "",
 ):
     back = _safe_next(next, f"/tasks/{code}")
 
     def failed(message: str, status: int) -> Response:
-        if back in ("/", "/inbox"):  # a move made from Home or an Inbox card: say it there
+        if back == "/":  # a move made from Home: say it there
+            import home  # here, not at the top: home imports pages that import this module
+
             session.rollback()
-            if back == "/inbox":
-                import inbox  # here, not at the top: inbox imports pages that import this module
-
-                return inbox.render_inbox(request, session, user, notice=message, status=status)
-            import home
-
             return home.render_home(request, session, user, notice=message, status=status)
         return _fail_page(request, session, user, code, message, status)
 
     try:
-        move(
-            session, _load(session, code), user, action, note, expected_step=step, record=record
-        )
+        task = _load(session, code)
+        move(session, task, user, action, expected_step=step)
+        toast = _toast(task, user) if action == "advance" else None
     except HTTPException:
         raise
     except MoveError as exc:
@@ -322,8 +289,8 @@ def change_status(
     except Exception as exc:  # noqa: BLE001  (a DB failure must not break the page)
         log.error("Could not change task status (%s)", type(exc).__name__)
         return failed(DB_ERROR, 503)
-    if action == "advance":  # "Mark step done" opens the work log (worklog.js) on the task
-        back = worklog_url(back, code)
+    if toast:  # shown once, on the page they land on (base.html); it doesn't open anything
+        request.session[TOAST_KEY] = toast
     return RedirectResponse(back, status_code=303)
 
 

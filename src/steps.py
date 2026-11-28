@@ -2,14 +2,15 @@
 
 Every task type has a default list of steps (CLAUDE.md, "Task types and stages"); a lead
 can give one task its own list (`Task.steps`, `None` = the type's default). A step may be
-a *review* step: the task waits there for a lead.
+a *review* step: a stage where a lead looks at the work. The member moves the task onto it
+and past it themselves (leads are not gates); they can notify a lead from the Notebook.
 
 `Task.stage` holds the name of the step the task is on. It is the one stored position,
 and the status has to agree with it, always:
 
     todo          on a step to work on (never a review step)
     in_progress   on a step to work on (never a review step)
-    needs_review  on a review step
+    needs_review  on a review step (the member moves on from it when they are ready)
     done          past the last step
 
 `current_index` enforces that when reading, so old or hand-entered rows can't show
@@ -224,8 +225,8 @@ def then_text(task: Task) -> str:
     following = steps[here + 1]
     if following.review:
         return (
-            f"{following.name} comes after {current}: ask for review, and a lead checks "
-            "the work before it moves on."
+            f"{following.name} comes after {current}: move to it when the work is ready, "
+            "and show a lead in person or notify one from your Notebook."
         )
     return f"{following.name} is the next step after {current}."
 
@@ -327,7 +328,7 @@ def validate_rows(rows: list[Row], task: Task) -> str | None:
     if rows[0].review:
         return "The first step can't be a lead review: there is nothing to review yet."
     if not any(r.review for r in rows):
-        return "Mark at least one step as a lead review. Leads approve the work."
+        return "Mark at least one step as a lead review, so there is a stage where a lead looks at the work."
     if task.status in ("in_progress", "needs_review"):
         here = current_index(task)
         kept = next((r for r in rows if r.orig == here), None)
@@ -335,12 +336,12 @@ def validate_rows(rows: list[Row], task: Task) -> str | None:
         if kept is None:
             return (
                 f"“{current.name}” is the step this task is on, so it can't be removed. "
-                "Finish or approve it first, or rename it instead."
+                "Move the task past it first, or rename it instead."
             )
         if kept.review != current.review:
             return (
                 f"“{current.name}” is the step this task is on, so its lead-review "
-                "setting can't change yet. Finish or approve it first."
+                "setting can't change yet. Move the task past it first."
             )
     return None
 

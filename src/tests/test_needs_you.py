@@ -15,9 +15,11 @@ from index_helpers import add_file
 from sqlmodel import select
 
 import auth
+import home
 import inbox
 import llm
 import main
+import review
 import shell
 from models import (
     AnswerRequest,
@@ -66,7 +68,7 @@ def as_user(monkeypatch):
     main.app.dependency_overrides.clear()
 
 
-def add_task(session, code, status="in_progress", owner="Alex Example", waited_days=None, **kw):
+def add_task(session, code, status="in_progress", owner="Alex Example", **kw):
     task = Task(
         code=code,
         title=kw.pop("title", f"Task {code}"),
@@ -79,19 +81,17 @@ def add_task(session, code, status="in_progress", owner="Alex Example", waited_d
     )
     session.add(task)
     session.commit()
-    if waited_days is not None:
-        session.add(
-            TaskEvent(
-                task_id=task.id,
-                actor=owner or "x",
-                from_status="in_progress",
-                to_status="needs_review",
-                kind="advance",
-                created_at=utc_now() - timedelta(days=waited_days),
-            )
-        )
-        session.commit()
     return task
+
+
+def notify(session, task, message="", days_ago=0, entry_id=None, follow_up=False):
+    """A member (the task's owner) notifies a lead about the task, `days_ago` days back."""
+    owner = {"name": task.owner, "email": "owner@example.edu", "role": "member"}
+    done = review.notify(session, task, owner, message, entry_id=entry_id, follow_up=follow_up)
+    done.event.created_at = utc_now() - timedelta(days=days_ago)
+    session.add(done.event)
+    session.commit()
+    return done.event
 
 
 def add_answer(session, task=None, **kw):
@@ -134,7 +134,7 @@ def stored(session, model):
 
 
 def test_one_list_holds_all_three_kinds_with_the_count_on_the_inbox_link(session, as_user):
-    add_task(session, "M01", "needs_review", title="Baseplate gasket drawing", waited_days=2)
+    notify(session, add_task(session, "M01", "needs_review", title="Baseplate gasket drawing"), days_ago=2)
     add_answer(session)
     add_suggestion(session)
 
@@ -153,7 +153,7 @@ def test_one_list_holds_all_three_kinds_with_the_count_on_the_inbox_link(session
 
 
 def test_the_count_shows_on_every_page_for_leads_and_not_on_the_tasks_or_home_link(session, as_user):
-    add_task(session, "M01", "needs_review")
+    notify(session, add_task(session, "M01", "needs_review"))
     add_answer(session)
     lead = as_user(LEAD)
 
@@ -171,17 +171,17 @@ def test_an_empty_list_says_nothing_is_waiting(session, as_user):
 
 
 def test_home_no_longer_holds_the_list_even_for_leads(session, as_user):
-    add_task(session, "M01", "needs_review")
+    notify(session, add_task(session, "M01", "needs_review"))
     add_answer(session)
 
     html = as_user(LEAD).get("/").text
 
     assert "Needs you" not in html and "Baseplate gasket hole clearance" not in html
-    assert "Accept" not in html
+    assert "Accept" not in html and "Seen" not in html
 
 
 def test_members_get_no_inbox_tab_and_cannot_open_it(session, as_user):
-    add_task(session, "M01", "needs_review")
+    notify(session, add_task(session, "M01", "needs_review"))
     add_answer(session)
     member = as_user(MEMBER)
 
@@ -206,7 +206,7 @@ def test_signed_out_visitors_are_sent_to_sign_in_and_see_nothing(session, monkey
 
 
 def test_a_database_failure_hides_the_count_but_not_the_page(session, as_user, monkeypatch):
-    add_task(session, "M01", "needs_review")
+    notify(session, add_task(session, "M01", "needs_review"))
     lead = as_user(LEAD)
 
     class Broken:
@@ -243,119 +243,227 @@ def test_one_kind_failing_to_load_only_costs_that_kind(session, as_user, monkeyp
 # --- work to check ---
 
 
-def test_a_work_card_has_the_task_who_the_step_how_long_and_links(session, as_user):
-    add_task(session, "M01", "needs_review", title="Newer one", waited_days=1)
-    add_task(
-        session, "M02", "needs_review", title="Older one", owner="Riley Sample", waited_days=4,
+def test_a_work_card_has_the_member_task_stage_message_how_long_ago_and_links(session, as_user):
+    newer = add_task(session, "M01", "needs_review", title="Newer one")
+    older = add_task(
+        session, "M02", "needs_review", title="Older one", owner="Riley Sample",
         documentation=f"Drawing at {DOC}",
     )
+    notify(session, newer, "Please confirm the hole spacing", days_ago=1)
+    notify(session, older, "Second look at the lid?", days_ago=4)
     add_task(session, "M03", "in_progress", title="Not waiting")
 
     html = as_user(LEAD).get("/inbox").text
 
     assert html.index("Older one") < html.index("Newer one")  # longest wait first
     assert "Not waiting" not in html
-    assert "Riley Sample finished <b>Drawing</b> and asked for review · waiting 4 days" in html
-    assert 'href="/tasks/M02">open task</a>' in html
+    assert "Riley Sample notified a lead on <b>Lead review</b> · 4 days ago" in html
+    assert "“Second look at the lid?”" in html and "“Please confirm the hole spacing”" in html
+    assert 'href="/tasks/M02">Open task</a>' in html
     assert f'href="{DOC}"' in html  # the task's documentation link
-    assert "Accept</button>" in html and "Send back</button>" in html
-    assert "Anything decided here worth recording?" in html
+    assert ">Seen</button>" in html and ">Send back</button>" in html
+    assert "Accept" not in html and "Anything decided here worth recording?" not in html
 
 
-def test_accepting_moves_the_task_on(session, as_user):
-    task = add_task(session, "M01", "needs_review")
-
-    response = as_user(LEAD).post(
-        "/tasks/M01/status",
-        data={"action": "approve", "next": "/inbox", "step": "Lead review"},
-        follow_redirects=False,
-    )
-
-    assert response.status_code == 303 and response.headers["location"] == "/inbox"
-    session.expire_all()
-    assert session.get(Task, task.id).status == "in_progress"
-    assert stored(session, Decision) == []  # no line, nothing recorded
-
-
-def test_accepting_with_a_line_records_an_answer_for_the_tasks_subsystem(session, as_user):
-    task = add_task(
-        session, "M01", "needs_review", title="Baseplate gasket drawing", subsystem="Seals/Waterproofing"
-    )
-
-    as_user(LEAD).post(
-        "/tasks/M01/status",
-        data={"action": "approve", "next": "/inbox", "step": "Lead review",
-              "record": "Gasket holes are 0.050 in clear."},
-    )
-
-    (decision,) = stored(session, Decision)
-    assert decision.status == "confirmed" and decision.subsystem == "Seals/Waterproofing"
-    assert decision.topic == "Baseplate gasket drawing"
-    assert decision.decision == "Gasket holes are 0.050 in clear."
-    assert decision.confirmed_by == "Lee Lead"
-    assert [(link.task_id) for link in stored(session, DecisionTask)] == [task.id]
-
-
-def test_sending_back_never_records_the_line(session, as_user):
-    add_task(session, "M01", "needs_review")
-
-    as_user(LEAD).post(
-        "/tasks/M01/status",
-        data={"action": "send_back", "next": "/inbox", "step": "Lead review", "record": "Use 0.050 in."},
-    )
-
-    session.expire_all()
-    assert session.exec(select(Task)).one().status == "in_progress"
-    assert stored(session, Decision) == []
-
-
-def test_a_member_cannot_accept_or_record_through_the_status_route(session, as_user):
-    task = add_task(session, "M01", "needs_review")
-
-    response = as_user(MEMBER).post(
-        "/tasks/M01/status",
-        data={"action": "approve", "next": "/inbox", "step": "Lead review", "record": "Sneaky."},
-    )
-
-    assert response.status_code == 403
-    session.expire_all()
-    assert session.get(Task, task.id).status == "needs_review"
-    assert stored(session, Decision) == []
-
-
-def test_a_failed_accept_says_so_in_the_inbox(session, as_user):
-    add_task(session, "M01", "needs_review")
-    add_answer(session)
-
-    response = as_user(LEAD).post(
-        "/tasks/M01/status",
-        data={"action": "approve", "next": "/inbox", "step": "Process router"},  # stale step
-    )
-
-    assert response.status_code == 409
-    assert "This task has already changed" in response.text
-    assert "Baseplate gasket hole clearance" in response.text  # the rest of Home still shows
-
-
-def test_a_leads_own_task_says_accepting_it_is_self_approval(session, as_user):
-    add_task(session, "M01", "needs_review", owner="Lee Lead")
+def test_a_task_that_only_sits_on_a_review_stage_has_no_card_and_no_count(session, as_user):
+    add_task(session, "M01", "needs_review", title="Just sitting there")
 
     html = as_user(LEAD).get("/inbox").text
 
-    assert "This is your own task. Accepting it is recorded as self-approved." in html
+    assert "Just sitting there" not in html and "Work to check" not in html
+    assert "Nothing is waiting on you." in html and "sidebar__badge" not in html
 
 
-def test_the_task_page_has_no_review_controls_for_leads(session, as_user):
-    add_task(session, "M01", "needs_review")
+def test_a_notification_makes_one_card_with_its_message(session, as_user):
+    task = add_task(session, "M01", "needs_review", title="Lid drawing")
+    notify(session, task, "Please confirm the hole spacing")
 
-    html = as_user(LEAD).get("/tasks/M01").text
+    html = as_user(LEAD).get("/inbox").text
 
-    assert ">Approve" not in html and "Send back" not in html and "Accept" not in html
-    assert "Waiting for a lead to check it." in html and 'href="/inbox">Check it in the Inbox</a>' in html
+    assert html.count("Work to check") == 1 and "1 waiting" in html
+    assert "Lid drawing" in html and "Please confirm the hole spacing" in html
+
+
+def test_a_follow_up_adds_to_the_same_card_not_a_second_one(session, as_user):
+    task = add_task(session, "M01", "needs_review", title="Lid drawing")
+    notify(session, task, "First message")
+    notify(session, task, "Follow-up message", follow_up=True)
+
+    html = as_user(LEAD).get("/inbox").text
+
+    assert html.count("Work to check") == 1 and "1 waiting" in html
+    assert "Follow-up message" in html and "Earlier: “First message”" in html and "2 messages" in html
+
+
+def test_the_card_links_to_a_published_entry_and_names_a_draft_without_a_link(session, as_user):
+    from models import WorkNote
+
+    task = add_task(session, "M01", "needs_review", title="Lid drawing")
+    other = add_task(session, "M02", "needs_review", title="Plate drawing", subsystem="Thrusters")
+    published = WorkNote(member="owner@example.edu", member_name="Alex Example", task_id=task.id,
+                         task_code="M01", subsystem="Enclosure", did="Cut it.", original="Cut it.")
+    draft = WorkNote(member="owner@example.edu", member_name="Alex Example", task_id=other.id,
+                     task_code="M02", subsystem="Thrusters", did="Maybe.", original="Maybe.", state="draft")
+    session.add(published)
+    session.add(draft)
+    session.commit()
+    notify(session, task, "Look?", entry_id=published.id)
+    notify(session, other, "Look?", entry_id=draft.id)
+
+    html = as_user(LEAD).get("/inbox").text
+
+    assert f'href="/record?part=enclosure&amp;notes=1#note-{published.id}">Open entry</a>' in html
+    assert "Entry (still a draft, not shared yet)" in html
+    assert "Maybe." not in html  # a draft stays its member's alone
+
+
+def test_seen_removes_the_card_and_leaves_the_task_where_it_is(session, as_user):
+    task = add_task(session, "M01", "needs_review")
+    event = notify(session, task, "Look?")
+
+    response = as_user(LEAD).post(f"/inbox/review/{event.id}/seen", follow_redirects=False)
+
+    assert response.status_code == 303 and response.headers["location"] == "/inbox"
+    session.expire_all()
+    assert session.get(Task, task.id).status == "needs_review"
+    seen = [e for e in stored(session, TaskEvent) if e.kind == "review_seen"]
+    assert [(e.actor, e.task_id) for e in seen] == [("Lee Lead", task.id)]
+    html = as_user(LEAD).get("/inbox").text
+    assert "Work to check" not in html and "sidebar__badge" not in html
+
+
+def test_a_new_notification_after_seen_makes_a_new_card(session, as_user):
+    task = add_task(session, "M01", "needs_review")
+    event = notify(session, task, "First")
+    as_user(LEAD).post(f"/inbox/review/{event.id}/seen")
+
+    notify(session, task, "Second")
+
+    html = as_user(LEAD).get("/inbox").text
+    assert html.count("Work to check") == 1 and "Second" in html and "First" not in html
+
+
+def test_send_back_needs_a_reason(session, as_user):
+    task = add_task(session, "M01", "needs_review")
+    event = notify(session, task, "Look?")
+
+    response = as_user(LEAD).post(f"/inbox/review/{event.id}/send-back", data={"reason": "   "})
+
+    assert response.status_code == 400 and "Say in a line why you are sending it back." in response.text
+    session.expire_all()
+    assert session.get(Task, task.id).status == "needs_review"
+    assert [e.kind for e in stored(session, TaskEvent)].count("send_back") == 0
+    assert "Work to check" in as_user(LEAD).get("/inbox").text  # still waiting
+
+
+def test_send_back_moves_a_task_on_the_review_stage_to_the_working_stage_before_it(session, as_user):
+    task = add_task(session, "M01", "needs_review")
+    event = notify(session, task, "Look?")
+
+    response = as_user(LEAD).post(
+        f"/inbox/review/{event.id}/send-back", data={"reason": "Redo the holes."}, follow_redirects=False
+    )
+
+    assert response.status_code == 303
+    session.expire_all()
+    task = session.get(Task, task.id)
+    assert (task.status, task.stage) == ("in_progress", "Drawing")
+    (sent,) = [e for e in stored(session, TaskEvent) if e.kind == "send_back"]
+    assert (sent.actor, sent.note, sent.detail) == ("Lee Lead", "Redo the holes.", "Drawing")
+    assert "Work to check" not in as_user(LEAD).get("/inbox").text
+
+
+def test_send_back_moves_a_task_that_is_already_past_the_review_stage_back_too(session, as_user):
+    task = add_task(session, "M01", "in_progress")
+    task.stage = "Shop"
+    session.add(task)
+    session.commit()
+    event = notify(session, task, "Look?")
+    stage = review.meta(event)["stage"]
+    assert stage == "Shop"
+
+    as_user(LEAD).post(f"/inbox/review/{event.id}/send-back", data={"reason": "Drawing was wrong."})
+
+    session.expire_all()
+    assert session.get(Task, task.id).stage == "Drawing"
+
+
+def test_send_back_leaves_a_task_that_has_not_reached_the_review_stage_where_it_is(session, as_user):
+    task = add_task(session, "M01", "in_progress")  # on Drawing; Lead review is next
+    event = notify(session, task, "Is this heading the right way?")
+
+    as_user(LEAD).post(f"/inbox/review/{event.id}/send-back", data={"reason": "Talk to me first."})
+
+    session.expire_all()
+    task = session.get(Task, task.id)
+    assert (task.status, task.stage) == ("in_progress", "Drawing")
+    (sent,) = [e for e in stored(session, TaskEvent) if e.kind == "send_back"]
+    assert sent.note == "Talk to me first." and sent.detail is None
+    assert "Work to check" not in as_user(LEAD).get("/inbox").text
+
+
+def test_the_member_sees_sent_back_with_the_reason_on_home(session, as_user, monkeypatch):
+    task = add_task(session, "M01", "needs_review", owner="Sam Example")
+    event = notify(session, task, "Look?")
+    as_user(LEAD).post(f"/inbox/review/{event.id}/send-back", data={"reason": "Redo the holes."})
+    monkeypatch.setattr(home.auth, "session_user", lambda request: MEMBER)
+
+    html = as_user(MEMBER).get("/").text
+
+    assert "Sent back:" in html and "Redo the holes." in html
+
+
+def test_a_member_gets_403_on_seen_and_send_back(session, as_user):
+    task = add_task(session, "M01", "needs_review")
+    event = notify(session, task, "Look?")
+    member = as_user(MEMBER)
+
+    seen = member.post(f"/inbox/review/{event.id}/seen")
+    back = member.post(f"/inbox/review/{event.id}/send-back", data={"reason": "No."})
+
+    assert seen.status_code == 403 and back.status_code == 403
+    session.expire_all()
+    assert session.get(Task, task.id).status == "needs_review"
+    assert [e.kind for e in stored(session, TaskEvent)] == ["review_requested"]
+
+
+def test_answering_a_notification_someone_already_answered_is_a_409(session, as_user):
+    task = add_task(session, "M01", "needs_review")
+    event = notify(session, task, "Look?")
+    lead = as_user(LEAD)
+    lead.post(f"/inbox/review/{event.id}/seen")
+
+    again = lead.post(f"/inbox/review/{event.id}/send-back", data={"reason": "Too late."})
+
+    assert again.status_code == 409 and "already answered" in again.text
+    session.expire_all()
+    assert session.get(Task, task.id).status == "needs_review"
+
+
+def test_a_lead_who_notifies_themselves_gets_a_card_like_any_other(session, as_user):
+    task = add_task(session, "M01", "needs_review", owner="Lee Lead")
+    review.notify(session, task, LEAD, "Check my work")
+
+    html = as_user(LEAD).get("/inbox").text
+
+    assert "Check my work" in html and "self-approved" not in html and "Accepting" not in html
+
+
+def test_the_task_page_for_a_lead_points_to_the_inbox_only_when_a_notification_waits(session, as_user):
+    task = add_task(session, "M01", "needs_review")
+    lead = as_user(LEAD)
+
+    plain = lead.get("/tasks/M01").text
+    assert ">Approve" not in plain and "Accept" not in plain
+    assert "See it in the Inbox" not in plain
+
+    notify(session, task, "Look?")
+    waiting = lead.get("/tasks/M01").text
+    assert 'href="/inbox">See it in the Inbox</a>' in waiting and "Look?" in waiting
 
 
 def test_the_tasks_page_has_no_review_panel(session, as_user):
-    add_task(session, "M01", "needs_review", title="Waiting one", waited_days=2)
+    add_task(session, "M01", "needs_review", title="Waiting one")
     add_task(session, "M02", "in_progress", title="Busy one")
 
     html = as_user(LEAD).get("/tasks?show=review").text

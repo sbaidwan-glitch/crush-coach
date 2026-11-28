@@ -82,10 +82,20 @@
       </div>
     </aside>
     {% endif %}
+    {% if user and toast %}
+    {#- After "Move to next stage": one short confirmation, once. It opens nothing by itself; "Write today's entry" opens the Notebook on the task (the same link as the leaving nudge). -#}
+    <aside class="nudge toast" id="move-toast" role="status" aria-label="Task moved">
+      <p>{{ toast.text }}</p>
+      <div class="nudge__actions">
+        {% if toast.code %}<a class="btn btn--primary btn--small" href="/notebook?task={{ toast.code }}" data-notebook-open data-panel-url="/notebook/panel?tab=today&amp;task={{ toast.code }}">Write today’s entry</a>{% endif %}
+        <button class="btn btn--small" type="button" data-toast-close>Dismiss</button>
+      </div>
+    </aside>
+    {% endif %}
     {% block notebook_dialog %}{% if user %}
     {#- The Notebook side panel. notebook.js fills #notebook-body from /notebook/panel and opens
-        it; Esc or Close shuts it. `log` in the address (after "Mark step done") opens it on load. -#}
-    <dialog id="notebook" class="sidepanel sidepanel--drawer" aria-labelledby="notebook-title"{% if notebook_open %} data-open-url="/notebook/panel?tab=today&amp;task={{ notebook_open }}"{% endif %}>
+        it; Esc or Close shuts it. -#}
+    <dialog id="notebook" class="sidepanel sidepanel--drawer" aria-labelledby="notebook-title">
       <div class="sidepanel__bar">
         <h2 class="panel__title" id="notebook-title" tabindex="-1">Notebook</h2>
         <div class="sidepanel__links">

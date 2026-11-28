@@ -3,19 +3,23 @@
    details, then the buttons. The server checks that the person is a lead on every post; these
    are only shown to leads. #}
 
-{# Work to check: Accept or Send back. `c` is a card from inbox.work_cards. #}
-{% macro work_card(c, mine=False) -%}
+{# Work to check: a member notified a lead about a task. Seen, or Send back with a reason.
+   `c` is a card from review.cards (inbox.work_cards). Nothing here approves anything. #}
+{% macro work_card(c) -%}
 {% set t = c.task %}
-<form class="card card--work" method="post" action="/tasks/{{ t.code }}/status" aria-labelledby="work-{{ t.id }}">
-  <input type="hidden" name="next" value="/inbox"><input type="hidden" name="step" value="{{ c.step }}">
+<form class="card card--work" method="post" action="/inbox/review/{{ c.id }}/seen" aria-labelledby="work-{{ t.id }}">
   <span class="card__kind status status--review">Work to check</span>
   <div>
     <p class="card__title" id="work-{{ t.id }}"><span class="code">{{ t.code }}</span>&nbsp; {{ t.title }}</p>
-    <p class="card__body">{{ t.owner or "Nobody" }}{% if c.finished %} finished <b>{{ c.finished }}</b> and{% endif %} asked for review{% if c.age %} · waiting {{ c.age }}{% endif %} · <a href="/tasks/{{ t.code }}">open task</a>{% if c.docs_link %} · <a href="{{ c.docs_link }}" target="_blank" rel="noopener noreferrer">open documentation</a>{% endif %}</p>
-    {% if mine %}<p class="hint">This is your own task. Accepting it is recorded as self-approved.</p>{% endif %}
-    <div class="record-line"><label class="visually-hidden" for="record-{{ t.id }}">Anything decided here worth recording?</label><input id="record-{{ t.id }}" name="record" maxlength="500" placeholder="Anything decided here worth recording? (optional)"></div>
+    <p class="card__body">{{ c.member }} notified a lead{% if c.stage %} on <b>{{ c.stage }}</b>{% endif %}{% if c.age %} · {{ c.age }}{% endif %}{% if c.sent > 1 %} · {{ c.sent }} messages{% endif %}</p>
+    {% if c.message %}<p class="card__body"><b>“{{ c.message }}”</b></p>{% else %}<p class="hint">No message.</p>{% endif %}
+    {% for earlier in c.earlier %}<p class="hint">Earlier: “{{ earlier }}”</p>{% endfor %}
+    <p class="card__body"><a href="/tasks/{{ t.code }}">Open task</a>
+      {%- if c.entry %}{% if c.entry.href %} · <a href="{{ c.entry.href }}">Open entry</a>{% else %} · {{ c.entry.label }}{% endif %}{% endif %}
+      {%- if c.docs_link %} · <a href="{{ c.docs_link }}" target="_blank" rel="noopener noreferrer">Open documentation</a>{% endif %}</p>
+    <div class="record-line"><label class="visually-hidden" for="reason-{{ t.id }}">Why you are sending it back (needed for Send back)</label><input id="reason-{{ t.id }}" name="reason" maxlength="200" required placeholder="Reason (needed to send it back)"></div>
   </div>
-  <div class="card__actions"><button class="btn btn--small btn--primary" type="submit" name="action" value="approve">Accept</button><button class="btn btn--small" type="submit" name="action" value="send_back">Send back</button></div>
+  <div class="card__actions"><button class="btn btn--small btn--primary" type="submit" formnovalidate>Seen</button><button class="btn btn--small" type="submit" formaction="/inbox/review/{{ c.id }}/send-back">Send back</button></div>
 </form>
 {%- endmacro %}
 
